@@ -22,3 +22,6 @@
 - No repository-wide AGENTS.md or Cursor-rule change is warranted by this small feature. No external skill change was applied.
 
 ## Applied
+
+- Applied `e0618e4` to the repository execute-plan skill: include a verified runtime-selection command when delegating validation that needs a different runtime, and confirm the executable still exists. This generalizes the failed host-runtime invocation without hardcoding a machine-specific path.
+- No additional AGENTS.md, Cursor-rule, or external skill changes were warranted.
