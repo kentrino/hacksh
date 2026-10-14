@@ -47,7 +47,10 @@ async function verifyConsumer(label, execute) {
     "--",
     "--help",
   ]);
-  assert(behavior.code === 0, `${label}: behavior command exited ${behavior.code}`);
+  assert(
+    behavior.code === 0,
+    `${label}: behavior command exited ${behavior.code}\n${behavior.stdout}${behavior.stderr}`,
+  );
   assert(
     behavior.stdout.trim() ===
       JSON.stringify({
@@ -100,6 +103,15 @@ async function verifyConsumer(label, execute) {
     `${label}: custom help absent`,
   );
   assert(help.stderr === "", `${label}: help wrote to stderr`);
+
+  for (const environmentName of ["NO_COLOR", "CI"]) {
+    const plainHelp = await execute(["--help"], { [environmentName]: "1" });
+    assert(plainHelp.code === 0, `${label}: ${environmentName} help exited ${plainHelp.code}`);
+    assert(
+      !plainHelp.stdout.includes(`${String.fromCharCode(27)}[`),
+      `${label}: ${environmentName} help used ANSI`,
+    );
+  }
 }
 
 function consumerSource(zodSpecifier, miniSpecifier, zittySpecifier) {
@@ -112,7 +124,81 @@ import {
   parseArgs,
   renderUsage,
   showUsage,
+  ZittyValidationError,
 } from ${JSON.stringify(zittySpecifier)};
+async function verifyPhaseTwo(label, phaseCommand) {
+  const usage = await renderUsage(phaseCommand);
+  for (const expected of [
+    "<MODE>",
+    "[INPUT...]",
+    "Execution mode (Choices: fast, safe)",
+    "--format=<FORMAT>",
+    "Output format (Choices: json, yaml)",
+    "Input files (Choices: txt, md)",
+    "--no-enabled  Disable feature",
+  ]) {
+    if (!usage.includes(expected)) throw new Error(label + " help omitted " + expected + "\\n" + usage);
+  }
+  const parsed = await parseArgs(phaseCommand, [
+    "fast",
+    "txt",
+    "md",
+    "--format=json",
+    "--enabled=false",
+  ]);
+  if (
+    parsed.mode !== "fast" ||
+    parsed.format !== "json" ||
+    parsed.enabled !== false ||
+    parsed.files.join(",") !== "txt,md"
+  ) {
+    throw new Error(label + " combined phase 2 parse failed: " + JSON.stringify(parsed));
+  }
+  const explicitTrue = await parseArgs(phaseCommand, ["safe", "--enabled=true"]);
+  if (explicitTrue.enabled !== true || explicitTrue.files.length !== 0) {
+    throw new Error(label + " explicit true or empty variadic failed");
+  }
+  for (const token of ["--enabled=maybe", "--no-enabled=false"]) {
+    const error = await parseArgs(phaseCommand, ["safe", token]).catch((caught) => caught);
+    if (!(error instanceof ZittyValidationError) || !error.message.includes(token.split("=")[0])) {
+      throw new Error(label + " boolean error missing for " + token + ": " + String(error));
+    }
+  }
+}
+const phaseCommand = defineCommand({
+  args: z.object({
+    mode: z.enum(["fast", "safe"]).describe("Execution mode"),
+    enabled: z.boolean().default(true).describe("Enable feature"),
+    format: z.enum(["json", "yaml"]).optional().describe("Output format"),
+    files: z.array(z.enum(["txt", "md"])).describe("Input files"),
+  }),
+  positional: ["mode"],
+  variadic: "files",
+  argDisplay: {
+    mode: { name: "MODE" },
+    format: { valueName: "FORMAT" },
+    enabled: { negatedDescription: "Disable feature" },
+    files: { name: "INPUT" },
+  },
+});
+const miniPhaseCommand = defineCommand({
+  args: mini.object({
+    mode: mini.enum(["fast", "safe"]).check(mini.describe("Execution mode")),
+    enabled: mini._default(mini.boolean(), true).check(mini.describe("Enable feature")),
+    format: mini.optional(mini.enum(["json", "yaml"])).check(mini.describe("Output format")),
+    files: mini.array(mini.enum(["txt", "md"])).check(mini.describe("Input files")),
+  }),
+  positional: ["mode"],
+  variadic: "files",
+  argDisplay: {
+    mode: { name: "MODE" },
+    format: { valueName: "FORMAT" },
+    enabled: { negatedDescription: "Disable feature" },
+    files: { name: "INPUT" },
+  },
+});
+await verifyPhaseTwo("zod", phaseCommand);
+await verifyPhaseTwo("zod/mini", miniPhaseCommand);
 const command = defineCommand({
   name: "packed-consumer",
   version: "1.2.3",
@@ -161,23 +247,46 @@ import {
   parseArgs,
   renderUsage,
   showUsage,
+  type ArgDisplay,
+  type ArgDisplayMap,
+  type CommandDef,
   type ShowUsageCallback,
 } from "zitty";
 const schema = z.object({
   count: z.coerce.number(),
   label: z.string().default("ok"),
+  mode: z.enum(["fast", "safe"]),
+  enabled: z.boolean().default(true),
+  format: z.enum(["json", "yaml"]).optional(),
   files: z.array(z.string()),
 });
+const display: ArgDisplay = { name: "MODE" };
+const displays: ArgDisplayMap<typeof schema> = {
+  mode: display,
+  format: { valueName: "FORMAT" },
+  enabled: { negatedDescription: "Disable feature" },
+  files: { name: "INPUT" },
+};
 const command = defineCommand({
   args: schema,
+  positional: ["mode"],
   variadic: "files",
+  argDisplay: displays,
   run({ cmd, args }) {
-    const same: import("zitty").CommandDef<typeof schema> = cmd;
-    const output: { count: number; label: string; files: string[] } = args;
+    const same: CommandDef<typeof schema> = cmd;
+    const output: {
+      count: number;
+      label: string;
+      mode: "fast" | "safe";
+      enabled: boolean;
+      format?: "json" | "yaml";
+      files: string[];
+    } = args;
     return { same, output };
   },
 });
-const parsed: Promise<{ count: number; label: string; files: string[] }> = parseArgs(command, [
+const parsed: Promise<z.output<typeof schema>> = parseArgs(command, [
+  "fast",
   "--count",
   "2",
   "one",
@@ -186,9 +295,28 @@ const rendered: Promise<string> = renderUsage(command);
 const shown: Promise<void> = showUsage(command, { write: async (_text) => {} });
 const callback: ShowUsageCallback = async (selected, { write }) => write(await renderUsage(selected));
 const main: (argv?: string[]) => Promise<void> = createMain(command, { showUsage: callback });
-const miniCommand = defineCommand({ args: mini.object({ value: mini.string() }) });
-const miniParsed: Promise<{ value: string }> = parseArgs(miniCommand, ["--value", "ok"]);
-void [parsed, rendered, shown, main, miniParsed];
+const miniSchema = mini.object({
+  mode: mini.enum(["fast", "safe"]),
+  enabled: mini._default(mini.boolean(), true),
+  files: mini.array(mini.string()),
+});
+const miniDisplays: ArgDisplayMap<typeof miniSchema> = {
+  mode: { name: "MODE" },
+  enabled: { negatedDescription: "Disable feature" },
+  files: { name: "INPUT" },
+};
+const miniCommand = defineCommand({
+  args: miniSchema,
+  positional: ["mode"],
+  variadic: "files",
+  argDisplay: miniDisplays,
+});
+const miniParsed: Promise<{
+  mode: "fast" | "safe";
+  enabled: boolean;
+  files: string[];
+}> = parseArgs(miniCommand, ["fast", "one"]);
+void [parsed, rendered, shown, main, miniParsed, displays, miniDisplays];
 `;
 }
 
@@ -246,10 +374,10 @@ try {
     ],
     { cwd: repository },
   );
-  await verifyConsumer("Node", (args) =>
+  await verifyConsumer("Node", (args, environment = {}) =>
     run(minimumNodeExecutable, ["consumer.mjs", ...args], {
       cwd: nodeDirectory,
-      env: minimumNodeEnvironment,
+      env: { ...minimumNodeEnvironment, ...environment },
     }),
   );
 
@@ -306,10 +434,10 @@ try {
     DENO_DIR: join(denoDirectory, "cache"),
     NPM_CONFIG_REGISTRY: registryUrl,
   };
-  await verifyConsumer("Deno", (args) =>
+  await verifyConsumer("Deno", (args, environment = {}) =>
     run("deno", ["run", "--node-modules-dir=auto", "consumer.mjs", ...args], {
       cwd: denoDirectory,
-      env: denoEnvironment,
+      env: { ...denoEnvironment, ...environment },
     }),
   );
 
