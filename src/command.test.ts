@@ -16,6 +16,22 @@ describe("defineCommand", () => {
     defineCommand({ run: ({ args }) => expectTypeOf(args).toBeObject() });
   });
 
+  it("accepts optional boolean hidden metadata without changing output inference", () => {
+    const command = defineCommand({
+      hidden: true,
+      args: z.object({ count: z.coerce.number() }),
+      run({ args }) {
+        expectTypeOf(args).toEqualTypeOf<{ count: number }>();
+      },
+    });
+    const visible = defineCommand({ hidden: false });
+    const defaultVisibility = defineCommand({});
+
+    expect(command.hidden).toBe(true);
+    expect(visible.hidden).toBe(false);
+    expect(defaultVisibility.hidden).toBeUndefined();
+  });
+
   it.each([
     ["unknown positional", { args: z.object({ x: z.string() }), positional: ["y"] }],
     ["duplicate positional", { args: z.object({ x: z.string() }), positional: ["x", "x"] }],
@@ -70,6 +86,14 @@ describe("defineCommand", () => {
       },
     ],
     [
+      "positional and hidden-only subcommands",
+      {
+        args: z.object({ x: z.string() }),
+        positional: ["x"],
+        subCommands: { sub: { hidden: true } },
+      },
+    ],
+    [
       "variadic alias",
       {
         args: z.object({ x: z.array(z.string()) }),
@@ -83,6 +107,14 @@ describe("defineCommand", () => {
         args: z.object({ x: z.array(z.string()) }),
         variadic: "x",
         subCommands: { sub: {} },
+      },
+    ],
+    [
+      "variadic and hidden-only subcommands",
+      {
+        args: z.object({ x: z.array(z.string()) }),
+        variadic: "x",
+        subCommands: { sub: { hidden: true } },
       },
     ],
   ])("rejects invalid definitions: %s", (_name, input) => {
@@ -110,6 +142,8 @@ defineCommand({
 });
 
 if (process.env.ZITTY_TYPE_TESTS) {
+  // @ts-expect-error hidden must be boolean
+  defineCommand({ hidden: "yes" });
   // @ts-expect-error positional keys must exist in the schema
   defineCommand({ args: typedSchema, positional: ["missing"] });
   // @ts-expect-error alias keys must exist in the schema

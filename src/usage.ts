@@ -98,9 +98,12 @@ function formatUsage(command: AnyCommandDef): string {
     }
   }
 
-  if (command.subCommands && Object.keys(command.subCommands).length > 0) {
+  const visibleSubCommands = Object.entries(command.subCommands ?? {}).filter(
+    ([, child]) => !child.hidden,
+  );
+  if (visibleSubCommands.length > 0) {
     lines.push("", "COMMANDS", "");
-    for (const [name, child] of Object.entries(command.subCommands)) {
+    for (const [name, child] of visibleSubCommands) {
       lines.push(`  ${name}  ${child.description ?? ""}`.trimEnd());
     }
   }

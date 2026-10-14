@@ -13,6 +13,18 @@ import {
 afterEach(() => vi.restoreAllMocks());
 
 describe("command routing", () => {
+  it("routes hidden commands normally", async () => {
+    const hiddenRun = vi.fn(() => "hidden result");
+    const root = defineCommand({
+      subCommands: {
+        internal: defineCommand({ hidden: true, run: hiddenRun }),
+      },
+    });
+
+    await expect(runCommand(root, ["internal"])).resolves.toBe("hidden result");
+    expect(hiddenRun).toHaveBeenCalledOnce();
+  });
+
   it("validates the parent prefix, skips option values, and runs only the child", async () => {
     const parentRun = vi.fn();
     const childRun = vi.fn(({ rawArgs }: { rawArgs: string[] }) => rawArgs.join(" "));
@@ -95,6 +107,32 @@ describe("command routing", () => {
 });
 
 describe("help and version", () => {
+  it("shows help for a hidden command without exposing it in parent help", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const root = defineCommand({
+      name: "tool",
+      subCommands: {
+        public: defineCommand({ description: "Public command" }),
+        internal: defineCommand({
+          hidden: true,
+          description: "Internal command",
+          args: z.object({ token: z.string().describe("Internal token") }),
+        }),
+      },
+    });
+
+    await runCommand(root, ["--help"]);
+    const parentHelp = String(log.mock.calls.at(-1)?.[0]);
+    expect(parentHelp).toContain("public  Public command");
+    expect(parentHelp).not.toContain("internal");
+
+    await runCommand(root, ["internal", "--help"]);
+    const hiddenHelp = String(log.mock.calls.at(-1)?.[0]);
+    expect(hiddenHelp).toContain("Internal command (internal)");
+    expect(hiddenHelp).toContain("USAGE internal [OPTIONS]");
+    expect(hiddenHelp).toContain("--token=<token>  Internal token (Required)");
+  });
+
   it("scopes boolean syntax issues across children and builtin bypasses", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const child = defineCommand({
@@ -212,6 +250,27 @@ describe("help and version", () => {
 });
 
 describe("runMain", () => {
+  it("omits hidden commands from usage reported for an unknown command", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const command = defineCommand({
+      name: "tool",
+      subCommands: {
+        public: defineCommand({ description: "Public command" }),
+        internal: defineCommand({ description: "Internal command", hidden: true }),
+      },
+    });
+
+    await expect(runMain(command, { argv: ["unknown"] })).rejects.toThrow("exit:1");
+    expect(exit).toHaveBeenCalledWith(1);
+    const output = error.mock.calls.map(([value]) => String(value)).join("\n");
+    expect(output).toContain("Unknown command `unknown`");
+    expect(output).toContain("public  Public command");
+    expect(output).not.toContain("internal");
+  });
+
   it("uses explicit, empty, and omitted argv with the documented precedence", async () => {
     const seen: string[] = [];
     const command = defineCommand({

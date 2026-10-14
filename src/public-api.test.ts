@@ -88,6 +88,60 @@ describe("public parsing API", () => {
 });
 
 describe("public usage API", () => {
+  it("omits hidden subcommands from parent and nested listings", async () => {
+    const group = defineCommand({
+      subCommands: {
+        nestedVisible: defineCommand({ description: "Nested public command" }),
+        nestedHidden: defineCommand({
+          description: "Nested implementation detail",
+          hidden: true,
+        }),
+      },
+    });
+    const command = defineCommand({
+      name: "tool",
+      subCommands: {
+        visible: defineCommand({ description: "Shown by default" }),
+        explicit: defineCommand({ description: "Explicitly shown", hidden: false }),
+        internal: defineCommand({ description: "Implementation detail", hidden: true }),
+        group,
+      },
+    });
+
+    const usage = await renderUsage(command);
+    expect(usage).toContain("USAGE tool [OPTIONS] <COMMAND>");
+    expect(usage).toContain("visible  Shown by default");
+    expect(usage).toContain("explicit  Explicitly shown");
+    expect(usage).toContain("group");
+    expect(usage).not.toContain("internal");
+
+    const written: string[] = [];
+    await showUsage(command, {
+      write(text) {
+        written.push(text);
+      },
+    });
+    expect(written).toEqual([usage]);
+
+    const nestedUsage = await renderUsage(group);
+    expect(nestedUsage).toContain("nestedVisible  Nested public command");
+    expect(nestedUsage).not.toContain("nestedHidden");
+  });
+
+  it("keeps command syntax but omits an empty listing when every child is hidden", async () => {
+    const command = defineCommand({
+      name: "tool",
+      subCommands: {
+        internal: defineCommand({ description: "Implementation detail", hidden: true }),
+      },
+    });
+
+    const usage = await renderUsage(command);
+    expect(usage).toContain("USAGE tool [OPTIONS] <COMMAND>");
+    expect(usage).not.toContain("COMMANDS");
+    expect(usage).not.toContain("internal");
+  });
+
   it.each([
     [
       "zod",

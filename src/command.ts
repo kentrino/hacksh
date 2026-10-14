@@ -31,6 +31,7 @@ export interface CommandDef<S extends ArgsSchema = EmptyArgs> {
   name?: string;
   version?: string;
   description?: string;
+  hidden?: boolean;
   args?: S;
   alias?: AliasMap<S>;
   argDisplay?: ArgDisplayMap<S>;

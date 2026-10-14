@@ -114,6 +114,12 @@ const main = defineCommand({
         console.log(args.name);
       },
     }),
+    migrate: defineCommand({
+      hidden: true,
+      run() {
+        // Internal or deprecated command, still callable as `worktree migrate`.
+      },
+    }),
   },
   async run() {
     // Runs only when no subcommand is selected.
@@ -123,7 +129,10 @@ const main = defineCommand({
 
 Parent options precede the subcommand (`worktree --repo owner/repo new --name feature`). A selected
 subcommand prevents the parent `run` handler from running. `worktree new --help` displays help for
-`new`.
+`new`. Set `hidden: true` on a subcommand to omit its name and description from its parent's help
+listing, including usage shown for an unknown command. Hidden commands remain available by name and
+their own `--help` output remains available. If every subcommand is hidden, help keeps the generic
+`<COMMAND>` syntax but omits the empty `COMMANDS` section.
 
 ## Programmatic execution and errors
 
