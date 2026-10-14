@@ -7,3 +7,7 @@ Own src implementation and tests, README, scripts/test-packed-consumers.mjs and 
 Implement the recorded API contracts, with meaningful behavior and type assertions, including both schema variants, output and error boundaries, callbacks and return values. Extend actual packed consumers for new APIs under minimum Node and Deno npm. Keep internal tokenizer types private. Document typed usage examples and sync/async contracts. Follow existing repository conventions.
 
 Implementation-and-review mode: make reviewable commits containing only owned changes, run pnpm ready and pnpm test:packed, including minimum supported Node 22.18.0. Retain detailed logs in /tmp and report their paths, runtime versions, exact commits, coverage and unresolved items. Send ISSUE_DONE after implementation and remain available for correction rounds; parent will launch review. Do not publish or edit external consumer repositories.
+
+## Completion
+
+Completed in `91a444a`, `269df37`, `ad085ec`, and `009d2db`. Correctness/quality review accepted the final head with no remaining findings. All requirements and validation evidence are reconciled in [acceptance.md](acceptance.md); lifecycle and API decisions are in [execution.md](execution.md).
