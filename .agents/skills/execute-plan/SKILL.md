@@ -28,6 +28,26 @@ when the user is only asking to discuss, draft, or edit a plan or this skill.
   consumer repositories require authorization from the user's task. Examples of
   consumer scripts in a plan do not by themselves authorize migrating those scripts.
 
+## Context ownership
+
+The supervisor reads this skill plus `supervise-agents` and `review` when used.
+The implementation worker reads its issue, referenced plan sections, applicable
+repository instructions, and owned code; it does not run this supervisor workflow.
+The reviewer reads the review rubrics itself. Do not load those rubrics in the
+supervisor merely to forward their paths.
+
+Use the plan as the specification and one execution record as the requirement
+mapping and evidence index. Issues add ownership, dependencies, and acceptance
+criteria without repeating the plan or the mapping. Follow-ups carry changed
+requirements, decisions, commit IDs, and relevant sections, not the original
+prompt again. Each role still reads the source needed for its own judgment.
+
+Within a continuing session, reuse already-read unchanged material. On resumption,
+read the current status and changes since the last observed revision, then fetch
+missing context as needed; do not automatically reload every skill and source file.
+Search applicable instruction paths in the workspace and its ancestors, not every
+sibling repository or dependency directory.
+
 ## Establish execution state
 
 Keep local Markdown issues and execution records under `docs/issues/`, grouped
@@ -44,7 +64,12 @@ Record:
 - For each issue: referenced requirements, owned files or responsibilities,
   dependencies, observable acceptance criteria, and verification method.
 - Status, unresolved decisions, actual worker/reviewer identifiers, session or run
-  handles, commit revisions, and the next action needed to resume.
+  handles, commit revisions, and the next action needed to resume. Keep the current
+  status separate from historical observations so obsolete next actions are not
+  mistaken for pending work.
+- Verification evidence keyed by source revision (and any uncommitted changes),
+  command, runtime/environment, result, and log location. Store concise summaries;
+  retain detailed logs outside the prompt instead of copying terminal histories.
 
 Choose reviewable tasks based on dependencies; do not force a fixed task count or
 create an issue per checkbox. Tests belong with their implementation. Reserve
@@ -87,7 +112,9 @@ their CLI and session lifecycle rules. If these dependencies
 cannot be found or used, report the concrete blocker; do not silently substitute
 a different delegation workflow.
 
-1. Delegate a ready task with the plan reference, ownership, acceptance criteria,
+1. Start the task prompt with the role: implementation worker, not supervisor;
+   implement directly and leave delegation/review to the parent. Delegate with
+   the plan reference and relevant sections, ownership, acceptance criteria,
    and relevant earlier decisions. Tell the worker that others may share the
    codebase and that it must preserve unrelated work. Explicitly request
    implementation-and-review mode so the worker stays available after its first
@@ -95,8 +122,12 @@ a different delegation workflow.
 2. Process worker questions and inspect actual completion artifacts. Dependent
    tasks run sequentially. Parallelize only when ownership and integration are
    independent and the review workflow can associate findings with each worker.
-3. Invoke `$review` with the worktree, existing worker identity, and applicable
-   scope/base context. That skill owns review and worker-fixable correction rounds.
+3. Wait for the worker's implementation `ISSUE_DONE`, inspect the completion
+   artifacts, and record the implementation head and any remaining uncommitted
+   changes before launching review. Keep implementation edits stopped during that
+   review. Invoke `$review` with the worktree, existing worker identity, baseline,
+   review head, and verification evidence. That skill owns review and worker-fixable
+   correction rounds.
    Keep the implementation worker available until those rounds finish.
 4. Resolve supervisor items using the plan and evidence. Route any resulting
    implementation back to the same worker and obtain the required review outcome.
@@ -127,9 +158,16 @@ Completion requires evidence for the requested plan, not only green existing tes
 
 - Reconcile every in-scope requirement with the final implementation and appropriate
   verification. Missing, skipped, or indirect evidence leaves that item incomplete.
-- Run the repository's required checks, tests, and build against the final state.
-  Verify integration scenarios and environment/package constraints named by the
-  plan. Do not claim an environment was tested if it was unavailable.
+- Ensure the repository's required checks, tests, and build have run against the
+  final state. Inspect recorded evidence and its coverage before reusing it; a
+  worker's bare "passed" claim is insufficient. Rerun affected checks after code,
+  dependency, configuration, or relevant environment changes, failed checks, or
+  evidence gaps. Do not rerun an identical full suite in every role merely to
+  duplicate a verified result. Independent reviewer probes and required final
+  checks remain necessary where the evidence does not answer the requirement.
+- Verify integration scenarios and environment/package constraints named by the
+  plan, including real consumer behavior rather than import-only smoke tests.
+  Do not claim an environment was tested if it was unavailable.
 - Obtain a review covering the full implementation relative to the recorded base,
   including interactions between tasks. If a previous review already covers the
   full final change, reuse that evidence. Otherwise delegate an integration task
