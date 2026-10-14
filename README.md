@@ -82,11 +82,54 @@ subcommand prevents the parent `run` handler from running. `worktree new --help`
 `runCommand(command, argv)` handles help and version output without exiting, throws errors to its
 caller, and returns the selected `run` handler's result.
 
+For parsing and usage rendering without execution, use the async composition APIs. `parseArgs`
+returns the schema output only and throws `ZittyValidationError` on failure. `renderUsage` has no
+output side effects; `showUsage` sends that same text to an optional synchronous or asynchronous
+writer (and otherwise uses `console.log`). These functions are async so future command-resolution
+features can be added without changing their return types.
+
+```ts
+import { parseArgs, renderUsage, showUsage } from "zitty";
+
+const args = await parseArgs(main, ["42", "--repo", "owner/repo"]);
+// args is inferred from the schema as:
+// { pr?: number; repo?: string; verbose: boolean }
+
+const text: string = await renderUsage(main); // does not write output
+await showUsage(main, {
+  async write(usage) {
+    await Promise.resolve();
+    console.info(usage);
+  },
+});
+```
+
+The `run` context includes `cmd`, the actual resolved command definition. An unnamed subcommand is
+represented by a completed copy whose `name` is its key; the original definition is not mutated.
+
 `runMain(command)` reads `process.argv`, prints validation or usage errors, and exits with status 1.
-Pass `onError` to replace its error reporting:
+Use `argv` to inject arguments, or `createMain` to make a reusable entry point. Invocation arguments
+passed to the returned function take precedence over configured `argv`; omitting both falls back to
+`process.argv.slice(2)`. Both functions return `Promise<void>`.
+
+```ts
+import { createMain } from "zitty";
+
+const mainEntry = createMain(main, { argv: ["--verbose"] });
+await mainEntry(); // uses the configured argv
+await mainEntry([]); // an explicit empty invocation overrides it
+```
+
+`showUsage` customizes both ordinary help and the usage appended to validation or routing errors.
+The supplied `write` function targets stdout for help and stderr for errors. The callback may be
+async. Pass `onError` to replace the entire default error display, including usage:
 
 ```ts
 await runMain(main, {
+  argv: ["--help"],
+  async showUsage(command, { write }) {
+    await write(await renderUsage(command));
+  },
   async onError(error) {
     console.error(`gh-pr-commits: ${error instanceof Error ? error.message : String(error)}`);
   },

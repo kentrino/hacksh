@@ -49,6 +49,7 @@ async function verifyConsumer(label, execute) {
   assert(
     behavior.stdout.trim() ===
       JSON.stringify({
+        cmd: "packed-consumer",
         args: { enabled: false, repo: "owner/repo" },
         extraArgs: ["--unknown=value"],
         passthrough: ["--help"],
@@ -76,13 +77,33 @@ async function verifyConsumer(label, execute) {
   const missing = await execute(["--repo"]);
   assert(missing.code === 1, `${label}: missing value exited ${missing.code}`);
   assert(missing.stderr.includes("--repo: requires a value"), `${label}: missing error absent`);
-  assert(missing.stderr.includes("USAGE packed-consumer"), `${label}: usage absent`);
+  assert(
+    missing.stderr.includes("CUSTOM\npacked-consumer v1.2.3") &&
+      missing.stderr.includes("USAGE packed-consumer"),
+    `${label}: usage absent: ${missing.stderr}`,
+  );
+
+  const help = await execute(["--help"]);
+  assert(help.code === 0, `${label}: help exited ${help.code}`);
+  assert(
+    help.stdout.includes("CUSTOM\npacked-consumer v1.2.3") &&
+      help.stdout.includes("USAGE packed-consumer"),
+    `${label}: custom help absent`,
+  );
+  assert(help.stderr === "", `${label}: help wrote to stderr`);
 }
 
-function consumerSource(zodSpecifier, zittySpecifier) {
+function consumerSource(zodSpecifier, miniSpecifier, zittySpecifier) {
   return `
 import { z } from ${JSON.stringify(zodSpecifier)};
-import { defineCommand, runMain } from ${JSON.stringify(zittySpecifier)};
+import * as mini from ${JSON.stringify(miniSpecifier)};
+import {
+  createMain,
+  defineCommand,
+  parseArgs,
+  renderUsage,
+  showUsage,
+} from ${JSON.stringify(zittySpecifier)};
 const command = defineCommand({
   name: "packed-consumer",
   version: "1.2.3",
@@ -91,16 +112,64 @@ const command = defineCommand({
     repo: z.string().optional(),
   }),
   alias: { repo: ["R", "Q"] },
-  run({ args, extraArgs, passthrough }) {
-    console.log(JSON.stringify({ args, extraArgs, passthrough }));
+  run({ cmd, args, extraArgs, passthrough }) {
+    console.log(JSON.stringify({ cmd: cmd.name, args, extraArgs, passthrough }));
   },
 });
-await runMain(command);
+const miniCommand = defineCommand({
+  args: mini.object({ value: mini._default(mini.string(), "mini") }),
+});
+const miniArgs = await parseArgs(miniCommand, []);
+if (miniArgs.value !== "mini") throw new Error("zod/mini parseArgs failed");
+const usage = await renderUsage(command);
+const writes = [];
+await showUsage(command, { async write(text) { writes.push(text); } });
+if (writes.length !== 1 || writes[0] !== usage) throw new Error("usage APIs diverged");
+const main = createMain(command, {
+  async showUsage(selected, { write }) {
+    await write("CUSTOM\\n" + await renderUsage(selected));
+  },
+});
+await main();
+`;
+}
+
+function typeConsumerSource() {
+  return `
+import { z } from "zod";
+import * as mini from "zod/mini";
+import {
+  createMain,
+  defineCommand,
+  parseArgs,
+  renderUsage,
+  showUsage,
+  type ShowUsageCallback,
+} from "zitty";
+const schema = z.object({ count: z.coerce.number(), label: z.string().default("ok") });
+const command = defineCommand({
+  args: schema,
+  run({ cmd, args }) {
+    const same: import("zitty").CommandDef<typeof schema> = cmd;
+    const output: { count: number; label: string } = args;
+    return { same, output };
+  },
+});
+const parsed: Promise<{ count: number; label: string }> = parseArgs(command, ["--count", "2"]);
+const rendered: Promise<string> = renderUsage(command);
+const shown: Promise<void> = showUsage(command, { write: async (_text) => {} });
+const callback: ShowUsageCallback = async (selected, { write }) => write(await renderUsage(selected));
+const main: (argv?: string[]) => Promise<void> = createMain(command, { showUsage: callback });
+const miniCommand = defineCommand({ args: mini.object({ value: mini.string() }) });
+const miniParsed: Promise<{ value: string }> = parseArgs(miniCommand, ["--value", "ok"]);
+void [parsed, rendered, shown, main, miniParsed];
 `;
 }
 
 let registry;
 try {
+  const minimumNode = await runChecked("mise", ["exec", "node@22.18.0", "--", "node", "--version"]);
+  assert(minimumNode.stdout.trim() === "v22.18.0", "Node 22.18.0 is required for packed tests");
   const packDirectory = join(temporaryRoot, "pack");
   await mkdir(packDirectory);
   await runChecked("pnpm", ["build"]);
@@ -112,14 +181,46 @@ try {
   const nodeDirectory = join(temporaryRoot, "node");
   await mkdir(nodeDirectory);
   await writeFile(join(nodeDirectory, "package.json"), JSON.stringify({ type: "module" }));
-  await writeFile(join(nodeDirectory, "consumer.mjs"), consumerSource("zod", "zitty"));
+  await writeFile(join(nodeDirectory, "consumer.mjs"), consumerSource("zod", "zod/mini", "zitty"));
+  await writeFile(join(nodeDirectory, "consumer-types.ts"), typeConsumerSource());
   await runChecked(
-    "npm",
-    ["install", "--ignore-scripts", "--no-package-lock", archivePath, "zod@^4"],
+    "mise",
+    [
+      "exec",
+      "node@22.18.0",
+      "--",
+      "npm",
+      "install",
+      "--ignore-scripts",
+      "--no-package-lock",
+      archivePath,
+      "zod@^4",
+    ],
     { cwd: nodeDirectory },
   );
+  await runChecked(
+    "pnpm",
+    [
+      "exec",
+      "tsc",
+      "--noEmit",
+      "--ignoreConfig",
+      "--strict",
+      "--skipLibCheck",
+      "--target",
+      "ES2023",
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
+      join(nodeDirectory, "consumer-types.ts"),
+    ],
+    { cwd: repository },
+  );
   await verifyConsumer("Node", (args) =>
-    run(process.execPath, ["consumer.mjs", ...args], { cwd: nodeDirectory }),
+    run("mise", ["exec", "node@22.18.0", "--", "node", "consumer.mjs", ...args], {
+      cwd: nodeDirectory,
+    }),
   );
 
   const packageJson = JSON.parse(await readFile(join(repository, "package.json"), "utf8"));
@@ -167,7 +268,7 @@ try {
   await mkdir(denoDirectory);
   await writeFile(
     join(denoDirectory, "consumer.mjs"),
-    consumerSource("npm:zod@4", `npm:zitty@${packageJson.version}`),
+    consumerSource("npm:zod@4", "npm:zod@4/mini", `npm:zitty@${packageJson.version}`),
   );
   const registryUrl = `http://127.0.0.1:${registry.address().port}/`;
   const denoEnvironment = {
@@ -182,7 +283,7 @@ try {
     }),
   );
 
-  console.log("Packed consumers passed: Node and Deno");
+  console.log("Packed consumers passed: Node 22.18.0 and Deno");
 } finally {
   if (registry) await new Promise((resolveClose) => registry.close(resolveClose));
   await rm(temporaryRoot, { recursive: true, force: true });
