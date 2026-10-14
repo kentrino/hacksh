@@ -39,3 +39,8 @@ Initial records precede delegation. Worker/reviewer identifiers, handles, implem
 - `cf78d51`: parser and async validation with tests (R3/R4 foundation).
 - Supervisor ran `pnpm test` at `cf78d51`: 3 files, 19 tests passed. This is intermediate evidence, not release completion; routing, help, process boundary and packaged-consumer verification are still pending.
 - Worker remains live in the recorded pane; no replacement or restart. Review prompt prepared at `/tmp/zitty-review.md`, covering the complete diff from initial revision and both installed review rubrics.
+
+- `36702d7`: routing, usage/help/version, runMain/runCommand and command-layer tests.
+- `09ef753`: consumer integration, process exit tests, package metadata/docs and single-character long-option regression.
+- Review launched using installed review workflow: `c-review` (Cursor), pane `w2P:p3`, tab `w2P:t3`, session `c80ecc21-bf2a-49e6-9786-ff5089ae1efc`; prompt `/tmp/zitty-review.md`; live wait exec session `17325`.
+- Reviewer is informed that worker final acceptance may add commits; final reviewed HEAD must include those changes. Worker is still completing acceptance in the original live session. No review result yet.
