@@ -7,10 +7,10 @@ zitty は、引数を [zod](https://zod.dev/) 4 の `z.object` で定義する C
 ## 方針
 
 - **zod 4 に依存する**。Standard Schema だけではスキーマの中身を調べられず、値を取るオプションかフラグか、必須かどうかを読み取れないため。
-- **引数は `z.object` で定義する**。名前付きオプションは各キー、positional はキー `_` で表す。
-- **positional は固定長に限る**。`_` には 1 個分のスキーマか、要素数が固定の `z.tuple([...])` を渡す。定義した数を超える位置引数は `extraArgs` に入る。可変長の positional は扱わない。
-- **alias と positional の表示名は `defineCommand` のオプションで指定する**。zod の meta や registry には載せない。キーは `args` のスキーマのキーで型チェックする。
-- **スキーマから読み取る情報は 4 つに限る**。値を取るか（`z.boolean()` か、それ以外か）、必須かどうか、デフォルト値、説明文。`_` が `z.tuple` のときは要素ごとに読み取る。zod の内部構造に依存する箇所を、この読み取り層に閉じ込める。
+- **引数は `z.object` で定義する**。各キーに名前を付け、`positional` に指定したキーを位置引数、それ以外を名前付きオプションとして扱う。
+- **positional は固定長に限る**。`positional` にスキーマのキーを順番に並べる。定義した数を超える位置引数は `extraArgs` に入る。可変長の positional は扱わない。
+- **alias と positional のキー・順序は `defineCommand` のオプションで指定する**。zod の meta や registry には載せない。キーは `args` のスキーマのキーで型チェックする。
+- **スキーマから読み取る情報は 4 つに限る**。値を取るか（`z.boolean()` か、それ以外か）、必須かどうか、デフォルト値、説明文。positional も各キーのスキーマから読み取る。zod の内部構造に依存する箇所を、この読み取り層に閉じ込める。
 - **サブコマンドの扱いは citty をもとにする**。ただし、サブコマンド名は親のスキーマを見て探し、サブコマンドを実行したときは親の `run` を呼ばない。
 
 ## API のイメージ
@@ -20,13 +20,11 @@ import { z } from "zod";
 import { defineCommand, runMain } from "zitty";
 
 const main = defineCommand({
-  meta: {
-    name: "gh-pr-commits",
-    version: "0.0.1",
-    description: "List commits in a GitHub pull request",
-  },
+  name: "gh-pr-commits",
+  version: "0.0.1",
+  description: "List commits in a GitHub pull request",
   args: z.object({
-    _: z.coerce
+    pr: z.coerce
       .number()
       .int()
       .optional()
@@ -34,9 +32,9 @@ const main = defineCommand({
     repo: z.string().optional().describe("Repository in OWNER/REPO format"),
   }),
   alias: { repo: "R" },
-  positional: "PR",
+  positional: ["pr"],
   async run({ args }) {
-    args._; // number | undefined
+    args.pr; // number | undefined
     args.repo; // string | undefined
   },
 });
@@ -48,7 +46,7 @@ runMain(main);
 
 ### スキーマからの読み取り規則
 
-各キーのスキーマについて、`optional` / `default` / `nullable` / `pipe` などのラッパーを剥がしながら次の情報を集める。`_` の中身が `z.tuple` なら、各要素について同じ情報を集める。
+各キーのスキーマについて、`optional` / `default` / `nullable` / `pipe` などのラッパーを剥がしながら次の情報を集める。位置引数と名前付きオプションに同じ規則を使う。
 
 | 読み取る情報 | 規則                                                                                      |
 | ------------ | ----------------------------------------------------------------------------------------- |
@@ -57,7 +55,7 @@ runMain(main);
 | デフォルト値 | `default` の値（ヘルプの `(Default: x)` 表示に使う）                                      |
 | 説明文       | `.describe()` / `.meta({ description })` の値。ラッパーの外側と内側のどちらに付いても拾う |
 
-実際の必須チェックとデフォルト値の適用は zod に任せる。パーサは CLI の文字列を `string | boolean | undefined`（`_` が `z.tuple` なら `string[]`）に変換するだけで、数値などへの変換はスキーマ側（`z.coerce.number()` など）で行う。
+実際の必須チェックとデフォルト値の適用は zod に任せる。パーサは CLI の文字列を `string | boolean | undefined` に変換するだけで、数値などへの変換はスキーマ側（`z.coerce.number()` など）で行う。
 
 ## 機能一覧
 
@@ -85,13 +83,13 @@ CLI フレームワークとして考えられる機能の候補。チェック�
 
 ### コマンド定義
 
-- [x] `meta.name` / `meta.version` / `meta.description`: `cdx` は複数行の説明文を持つ
-- [x] サブコマンドの `meta.name` の省略（暗黙）: `subCommands` のキーを名前として使う
-- [ ] `meta.hidden`: ヘルプに出さないサブコマンド
-- [ ] `meta.alias`: サブコマンドの別名
+- [x] `name` / `version` / `description`: `cdx` は複数行の説明文を持つ
+- [x] サブコマンドの `name` の省略（暗黙）: `subCommands` のキーを名前として使う
+- [ ] `hidden`: ヘルプに出さないサブコマンド
+- [ ] `commandAliases`: サブコマンドの別名
 - [x] 静的な `subCommands`: `git-worktree`
 - [ ] `subCommands` の遅延読み込み
-- [ ] `meta` / `args` / `subCommands` を関数や Promise で渡す
+- [ ] コマンドの情報 / `args` / `subCommands` を関数や Promise で渡す
 - [ ] デフォルトのサブコマンド
 - [x] `run`
 - [ ] `setup` / `cleanup`
@@ -112,13 +110,14 @@ CLI フレームワークとして考えられる機能の候補。チェック�
 - [x] 値を取る名前付きオプション
 - [x] フラグ（boolean）
 - [x] positional（1 個）
-- [x] 固定長の複数 positional（`z.tuple`）
+- [x] 固定個数の複数 positional（キーの配列）
 - [ ] 可変長の positional
 - [ ] 列挙値のオプションと、ヘルプへの選択肢の表示
 - [x] 説明文、必須、デフォルト値
 - [x] 1 文字の alias: `-a`, `-b`, `-p`, `-R`
 - [x] 複数の alias
-- [x] ヘルプでの positional の表示名（`<PR>`）
+- [x] キーから生成する positional の表示名（`pr` → `<PR>`）
+- [ ] positional の任意の表示名
 - [ ] ヘルプでのオプションの値の表示名（`--name=<host>`）
 - [ ] 否定フラグの説明文
 
@@ -136,7 +135,7 @@ CLI フレームワークとして考えられる機能の候補。チェック�
 ### ヘルプとエラー
 
 - [x] 組み込みの `--help` / `-h`（暗黙）
-- [x] 組み込みの `--version` / `-v`（暗黙、ほとんどのスクリプトに `meta.version` がある）
+- [x] 組み込みの `--version` / `-v`（暗黙、ほとんどの既存スクリプトがバージョンを定義している）
 - [x] 組み込みの短縮形（`-h` / `-v`）を利用者の alias で上書きする
 - [x] ヘルプの自動生成（暗黙）
 - [x] サブコマンドの一覧と、`<command> --help`: `git-worktree` で暗黙に使う
@@ -147,34 +146,31 @@ CLI フレームワークとして考えられる機能の候補。チェック�
 ## 最初のリリースの範囲
 
 - `defineCommand` / `runMain`（`onError`）/ `runCommand`（`run` の戻り値を返す）
-- `meta`（`name` / `version` / `description`）。値だけを受け付ける。サブコマンドの `name` はキーで補う
+- トップレベルの `name` / `version` / `description`。値だけを受け付ける。サブコマンドの `name` はキーで補う
 - 静的な `subCommands`。親の値を取るオプションの値を飛ばしてサブコマンド名を探し、サブコマンドがなければ親の `run` を実行し、あれば親の `run` は呼ばない。未知のサブコマンドはエラー
 - `run({ args, rawArgs, passthrough, extraArgs })`。`args` は `z.output` の型
-- `z.object` による引数定義。positional はキー `_`（1 個分のスキーマか、固定長の `z.tuple`）
+- `z.object` による引数定義。positional はスキーマのキーを順番に並べた配列
 - スキーマからの読み取り（値を取るか、必須、デフォルト値、説明文）
-- `defineCommand` の `alias`（1 文字、複数可）と `positional`（表示名）
+- `defineCommand` の `alias`（1 文字、複数可）と `positional`（位置引数にするキーとその順序）
 - `--no-` によるフラグの否定、kebab-case での指定、`--name=value`、未知オプションの許容、`--` の扱い、値の欠落のエラー
 - `--help` / `--version`、ヘルプ生成（サブコマンドの一覧を含む）
 - zod の検証エラーを引数名に対応付けて表示し、usage を表示して exit 1
 
-対象外: 列挙値の選択肢表示（`z.enum` は値を取るオプションとして検証だけ効く）, 可変長の positional, `setup` / `cleanup` / `definePlugin`, 遅延読み込み, デフォルトのサブコマンド, `meta.alias` / `meta.hidden`, オプションの値の表示名と否定フラグの説明文, `createMain` / `parseArgs` / `renderUsage` / `showUsage` の公開, 任意データ, 配列やオブジェクトを値に持つオプション
+対象外: 列挙値の選択肢表示（`z.enum` は値を取るオプションとして検証だけ効く）, 可変長の positional, positional の任意の表示名, `setup` / `cleanup` / `definePlugin`, 遅延読み込み, デフォルトのサブコマンド, `commandAliases` / `hidden`, オプションの値の表示名と否定フラグの説明文, `createMain` / `parseArgs` / `renderUsage` / `showUsage` の公開, 任意データ, 配列やオブジェクトを値に持つオプション
 
 ## 決定事項
 
-### positional の形
+### positional の形と表示名
 
-`_` には 1 個分のスキーマか、`z.tuple([...])` を渡す。`z.tuple` のときの決まりは次のとおり。
+`args` の各フィールドに名前を付け、`positional` に位置引数にするキーを順番に並べる。1 個でも配列で指定する。省略した場合はすべて名前付きオプションになる。
 
-- 要素数は固定。rest 付きの `z.tuple([...], rest)` は `defineCommand` の時点でエラーにする。
-- 省略できる要素（`optional` / `default`）は末尾にだけ置ける。省略できる要素の後に必須の要素があれば `defineCommand` の時点でエラーにする。
-- パーサは、受け取った位置引数を要素数まで詰めた `string[]` を渡す。足りない分は配列に入れない（zod が末尾の省略できる要素として扱う）。
-- `_` の `z.tuple` 自体を `optional` / `default` で包むのは `defineCommand` の時点でエラーにする。位置引数がなければ空配列を渡すので、包む意味がない。
+- `positional` に指定したキーは位置引数専用。名前付きオプションや alias としては受け付けない。
+- 存在しないキーや重複したキーは `defineCommand` の時点でエラーにする。キーの存在は型でもチェックする。
+- 省略できる引数（`optional` / `default`）は末尾にだけ置ける。省略できる引数の後に必須の引数があれば `defineCommand` の時点でエラーにする。
+- パーサは位置引数の文字列を対応するキーに割り当てる。足りない分は `undefined` として zod に渡し、必須チェックやデフォルト値の適用を任せる。
+- 定義した数を超える位置引数は `extraArgs` に入れる。
 
-`_` は minimist や citty と違い、全位置引数の配列ではない。定義した数を超える位置引数は `extraArgs` に入る。
-
-### positional の表示名
-
-`defineCommand` の `positional` で指定する。`_` が 1 個分のスキーマなら文字列、`z.tuple` なら要素数と同じ長さの配列を渡す。形が合わなければ `defineCommand` の時点でエラーにする。省略したときは `<ARG>`、`z.tuple` なら `<ARG1> <ARG2>` と表示する。
+ヘルプの表示名はキーを大文字にして生成する（`pr` → `<PR>`、`src` → `<SRC>`）。任意の表示名の指定は最初のリリースでは扱わない。`run` では `args.pr` や `args.src` のように名前で読む。
 
 ### 未知のオプションと位置引数
 
@@ -221,25 +217,23 @@ citty は `-` で始まらない最初の引数をサブコマンド名とし、
 
 chezmoi には、camelCase のキーを kebab-case で指定するケース（`create-branch` / `rebase`）と、kebab-case のキーを camelCase で読むケース（`sanitize-branch`）の両方がある。
 
-CLI 側では、スキーマのキーそのものと kebab-case の両方を受け付ける（キー `dryRun` なら `--dryRun` と `--dry-run`）。`args` はスキーマのキーだけで読み、Proxy などで別名を生やさない。型と実体を一致させるためで、`sanitize-branch` はキーを `removeEmpty` にすれば済む。
+名前付きオプションは、スキーマのキーそのものと kebab-case の両方を受け付ける（キー `dryRun` なら `--dryRun` と `--dry-run`）。`args` はスキーマのキーだけで読み、Proxy などで別名を生やさない。型と実体を一致させるためで、`sanitize-branch` はキーを `removeEmpty` にすれば済む。
 
 ### `no` で始まるキーと否定の衝突
 
 `--no-<name>` を否定として扱うと、`no-focus` のような名前のフラグとの区別がつかない。`--no-focus` が「`no-focus` を有効にする」のか「`focus` を無効にする」のかが曖昧になる。chezmoi の `cdx` は `no-focus` というフラグを定義している。
 
-`/^no[-A-Z]/` に当たるキーは `defineCommand` の時点でエラーにする。`cdx` は `focus: z.boolean().default(true)` にして、`--no-focus` で無効にする。
+名前付きオプションのうち、`/^no[-A-Z]/` に当たるキーは `defineCommand` の時点でエラーにする。`cdx` は `focus: z.boolean().default(true)` にして、`--no-focus` で無効にする。
 
-### `_` に使えるスキーマ
+### positional に使えるスキーマ
 
-positional の値は常に文字列なので、`_`（`z.tuple` なら各要素）の中身が `z.boolean()` だと意味をなさない。
+positional の値は常に文字列なので、指定したフィールドの中身が `z.boolean()` なら `defineCommand` の時点でエラーにする。それ以外は値を取るオプションと同じ扱いにする。
 
-`_` やその要素の中身が `z.boolean()` なら `defineCommand` の時点でエラーにする。それ以外は値を取るオプションと同じ扱いにする。
+### 親の positional とサブコマンド名の衝突
 
-### 親の `_` とサブコマンド名の衝突
+サブコマンド名は親の最初の位置引数なので、親に positional があると、位置引数をサブコマンド名とフィールドのどちらに割り当てるかが決まらない。
 
-サブコマンド名は親の最初の位置引数なので、親に `_` があると、位置引数をサブコマンド名と `_` のどちらとして扱うかが決まらない。
-
-`subCommands` と `_` を両方持つコマンドは `defineCommand` の時点でエラーにする。
+`subCommands` と空でない `positional` を両方持つコマンドは `defineCommand` の時点でエラーにする。
 
 ### zod と zod/mini の両対応
 
@@ -251,7 +245,7 @@ zod 4 には、通常の `zod` と、メソッドチェーンを使わない `zo
 
 - **ラッパーの剥がし方**: `optional` / `default` / `nullable` / `pipe`（`transform` を含む）/ `catch` などを剥がして中身を判定する。`z.union([z.boolean(), z.string()])` のように判定できない形は、値を取るオプションとして扱う。対応表はテストで固める。
 - **バリデーションは非同期にする**: `refine` に async 関数を使えるように、`safeParseAsync` で検証する。
-- **エラーの表示**: zod の issue の path を `--repo` や `<PR>` に対応付けて表示する。`z.tuple` の要素は `["_", 1]` のような path になるので、要素の表示名に対応付ける。issue が複数あるときは全部表示する。
+- **エラーの表示**: zod の issue の path を `--repo` や `<PR>` に対応付けて表示する。位置引数も `["pr"]` のようなフィールド名の path を使い、キーから生成した表示名に対応付ける。issue が複数あるときは全部表示する。
 - **未知のキー**: `z.object` は定義にないキーを出力から落とすので、未知オプションを許容しても `args` には入らない。残りの引数は `extraArgs` から読む。
 - **値の付け忘れ**: `git-worktree --repo new` のように親のオプションの値を書き忘れると、`new` が `--repo` の値になり、サブコマンドなしで親の `run` が実行される。値を取るオプションが次の引数を値として取る以上、避けられない。
 - **パース結果への代入**: `args` は zod の出力をそのまま渡すので、書き換えはできる。readonly にはしない。
@@ -260,10 +254,10 @@ zod 4 には、通常の `zod` と、メソッドチェーンを使わない `zo
 
 ## 進め方
 
-1. スキーマの読み取り層（ラッパーの剥がし、`z.tuple` の要素の展開、4 つの情報の取得）を実装し、zod と zod/mini の両方でテストする
+1. スキーマの読み取り層（ラッパーの剥がし、4 つの情報の取得）を実装し、zod と zod/mini の両方でテストする
 2. パーサ（`node:util` の `parseArgs` ベース、kebab-case、`--no-`、`--name=value`、alias、値の欠落、`extraArgs` / `passthrough` への振り分け）と、`safeParseAsync` による検証、エラー表示を実装する
 3. `defineCommand` / `runCommand` / `runMain`、サブコマンド名の探索、ヘルプ生成を実装する
-4. chezmoi の `sanitize-branch`, `cdx`, `git-worktree`, `gh-pr-commits` 相当のケースと、`z.tuple` の positional、`--repo x new` のサブコマンド名をテストにする
+4. chezmoi の `sanitize-branch`, `cdx`, `git-worktree`, `gh-pr-commits` 相当のケースと、複数の名前付き positional、`--repo x new` のサブコマンド名をテストにする
 
 # Features
 
@@ -277,12 +271,15 @@ import type { $ZodObject, output } from "zod/v4/core";
 type ArgsSchema = $ZodObject;
 type EmptyArgs = $ZodObject<{}>;
 type ShapeOf<S extends ArgsSchema> = S["_zod"]["def"]["shape"];
+type ArgKey<S extends ArgsSchema> = Extract<keyof ShapeOf<S>, string>;
 
 interface CommandDef<S extends ArgsSchema = EmptyArgs> {
-  meta?: CommandMeta;
+  name?: string;
+  version?: string;
+  description?: string;
   args?: S;
   alias?: AliasMap<S>;
-  positional?: PositionalNames;
+  positional?: readonly ArgKey<S>[];
   subCommands?: Record<string, CommandDef<any>>;
   run?: (context: CommandContext<S>) => unknown | Promise<unknown>;
 }
@@ -292,15 +289,9 @@ declare function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef
 
 `args` を省略すると `S` は `EmptyArgs` になり、`run` の `args` は `{}` になる。
 
-## meta
+## コマンドの情報
 
-```ts
-interface CommandMeta {
-  name?: string; // サブコマンドでは省略すると subCommands のキーを使う
-  version?: string;
-  description?: string;
-}
-```
+`name` / `version` / `description` は `defineCommand` のトップレベルに指定する。いずれも省略可。サブコマンドの `name` を省略した場合は `subCommands` のキーを使う。
 
 ## 引数の定義（名前付きオプション）
 
@@ -345,36 +336,32 @@ cmd --no-remove-empty
 ```ts
 defineCommand({
   args: z.object({
-    _: z.string().describe("The commit message"),
+    message: z.string().describe("The commit message"),
   }),
-  positional: "MESSAGE",
+  positional: ["message"],
 });
 ```
 
 ```sh
-cmd "fix: typo"   # args._ === "fix: typo"
+cmd "fix: typo"   # args.message === "fix: typo"
 ```
 
-固定長の複数のとき:
+複数のとき:
 
 ```ts
-type PositionalNames = string | readonly string[];
-
 defineCommand({
   args: z.object({
-    _: z.tuple([
-      z.string().describe("Source path"),
-      z.string().optional().describe("Destination path"),
-    ]),
+    src: z.string().describe("Source path"),
+    dest: z.string().optional().describe("Destination path"),
   }),
-  positional: ["SRC", "DEST"],
+  positional: ["src", "dest"],
 });
 ```
 
 ```sh
-cmd a        # args._ ≡ ["a"]
-cmd a b      # args._ ≡ ["a", "b"]
-cmd a b c    # args._ ≡ ["a", "b"]、extraArgs ≡ ["c"]
+cmd a        # args.src === "a"、args.dest === undefined
+cmd a b      # args.src === "a"、args.dest === "b"
+cmd a b c    # args.src === "a"、args.dest === "b"、extraArgs ≡ ["c"]
 ```
 
 ```text
@@ -394,7 +381,7 @@ z.string().describe("..."); // ヘルプの説明文
 
 ```ts
 type AliasMap<S extends ArgsSchema> = Partial<
-  Record<Exclude<keyof ShapeOf<S>, "_">, string | readonly string[]>
+  Record<ArgKey<S>, string | readonly string[]>
 >;
 
 defineCommand({
@@ -411,7 +398,7 @@ cmd -R owner/repo
 cmd -v           # verbose。組み込みの -v（version）は無効になり、--version は使える
 ```
 
-alias は 1 文字に限る。2 文字以上や、同じ文字を複数のキーに割り当てたときは `defineCommand` の時点でエラーにする。
+alias のキーは `args` のキーで型チェックする。positional に指定したキーへの alias は `defineCommand` の時点でエラーにする。alias は 1 文字に限る。2 文字以上や、同じ文字を複数のキーに割り当てたときは `defineCommand` の時点でエラーにする。
 
 ## camelCase / kebab-case
 
@@ -460,7 +447,7 @@ cdx --model o3
 
 ```ts
 const main = defineCommand({
-  meta: { name: "git-worktree" },
+  name: "git-worktree",
   subCommands: { new: newCommand, select: selectCommand },
   async run() {
     // サブコマンドが指定されなかったときだけ呼ばれる
@@ -500,23 +487,19 @@ runMain(main, {
 ## runCommand
 
 ```ts
-interface RunCommandOptions {
-  rawArgs: string[];
-}
-
 declare function runCommand<S extends ArgsSchema>(
   cmd: CommandDef<S>,
-  options: RunCommandOptions,
+  argv: string[],
 ): Promise<unknown>;
 ```
 
-`--help` / `--version` を処理して `undefined` を返す。それ以外は実行した `run` の戻り値を返す。`process.exit` を呼ばず、エラーは例外として投げる。
+第2引数に引数配列を直接渡す（`runCommand(cmd, ["--repo", "owner/repo"])`）。`--help` / `--version` を処理して `undefined` を返す。それ以外は実行した `run` の戻り値を返す。`process.exit` を呼ばず、エラーは例外として投げる。
 
 ## ヘルプと version
 
 ```sh
 cmd --help      # cmd -h
-cmd --version   # cmd -v、meta.version を表示
+cmd --version   # cmd -v、version を表示
 ```
 
 ```text
@@ -604,8 +587,8 @@ interface CommandDef<S extends ArgsSchema> {
 ## サブコマンドの別名と非表示（対象外）
 
 ```ts
-interface CommandMeta {
-  alias?: string[];
+interface CommandDef<S extends ArgsSchema> {
+  commandAliases?: string[];
   hidden?: boolean;
 }
 ```
