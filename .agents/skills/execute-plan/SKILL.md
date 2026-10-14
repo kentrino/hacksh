@@ -187,6 +187,9 @@ a different delegation workflow.
    codebase and that it must preserve unrelated work. Explicitly request
    implementation-and-review mode so the worker stays available after its first
    `ISSUE_DONE`. Require reviewable commits without including unrelated user edits.
+   When package validation requires a runtime different from the host, include
+   an already verified runtime-selection command from prior evidence in the
+   assignment; verify that its executable is still available.
 2. Process worker questions and inspect actual completion artifacts. Dependent
    tasks run sequentially. Parallelize only when ownership and integration are
    independent and the review workflow can associate findings with each worker.
