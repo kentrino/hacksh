@@ -2,9 +2,9 @@
 
 - Plan: `docs/plan/cli-framework-next/phase-3-hidden-subcommands.md` entirety; parent README common policy/completion.
 - Phase: 3 integration
-- Status: working
+- Status: done
 - depends_on: [P3-01]
-- Worker: s-p3-integration (pane w2P:pG); next action: packed feature integration; blockers: none.
+- Worker: s-p3-integration (pane w2P:pG); next action: none; completion audit passed; blockers: none.
 - Integration baseline: `72789cb`; full review baseline: `555ac6400c2aed7d61c42a8cc8ce786b90f8854e`.
 
 ## Initial state
@@ -22,10 +22,10 @@ Own packed consumer fixtures/scripts and any necessary cross-feature integration
 
 ## Acceptance criteria
 
-- [ ] AC1: Installed tarball consumers use hidden commands with zod and zod/mini, check public types/output inference, parent help suppression, named execution, own help and unknown-name usage (phase acceptance and parent packaging policy; committed packed consumer tests).
-- [ ] AC2: pnpm ready and pnpm test:packed pass final code, including exact Node 22.18.0 and Deno npm consumers; record runtime, command, revision and results (parent completion).
-- [ ] AC3: Full implementation from initial base passes correctness/quality review, including phase 2 help interactions; all required corrections verified.
-- [ ] AC4: Reconcile every requirement to direct committed evidence; P3-01 accepted, original plan hash unchanged, no unresolved requirements (completion audit).
+- [x] AC1: Installed tarball consumers use hidden commands with zod and zod/mini, check public types/output inference, parent help suppression, named execution, own help and unknown-name usage (phase acceptance and parent packaging policy; committed packed consumer tests).
+- [x] AC2: pnpm ready and pnpm test:packed pass final code, including exact Node 22.18.0 and Deno npm consumers; record runtime, command, revision and results (parent completion).
+- [x] AC3: Full implementation from initial base passes correctness/quality review, including phase 2 help interactions; all required corrections verified.
+- [x] AC4: Reconcile every requirement to direct committed evidence; P3-01 accepted, original plan hash unchanged, no unresolved requirements (completion audit).
 
 ## Evidence
 
@@ -64,3 +64,14 @@ consumers passed: Node 22.18.0 and Deno`; exact runtimes were Node `v22.18.0` an
   returned the original `214286c39e5460afa9ecc4171cfb75866442702010e58d4b4e318c9b5d64b407`;
   the plan has no diff from integration baseline `72789cb`. No in-scope implementation requirement
   is unresolved; final review/checkbox/status updates remain with the supervisor.
+
+- Review frozen head: `45d263c`; executable integration head `78afef1`. Tree clean at handoff; only this supervisor lifecycle update is uncommitted during review.
+
+## Completion audit
+
+- Full-phase reviewer `c-review-p3-final` (pane `w2P:pH`) accepted `555ac6400c2aed7d61c42a8cc8ce786b90f8854e..45d263c` without worker or supervisor findings. Implementation was frozen; only supervisor lifecycle metadata was dirty.
+- Reviewer independently ran the packed suite at `45d263c` in a temporary detached worktree with exact Node 22.18.0 and Deno. Removing the hidden filter made parent-help suppression fail; removing `hidden?: boolean` made installed public type checks fail with TS2353/TS2339. Temporary mutations/worktree were removed.
+- Supervisor inspected committed behavior/type tests, packed scenarios and the coverage reconciliation. P3-01 is accepted; AC1–AC4 are satisfied. No in-scope requirement remains unresolved.
+- Final executable revision is `78afef1`, with validation evidence at `45d263c`: readiness passed 93 tests, checks and build; packed consumers passed exact Node 22.18.0 and Deno 2.7.14. Subsequent changes are documentation only, so executable validation remains applicable.
+- Supervisor independently verified zero diff under `docs/plan` from initial base and exact original SHA-256 `214286c39e5460afa9ecc4171cfb75866442702010e58d4b4e318c9b5d64b407`.
+- Remaining limitation: existing non-failing TypeScript 7 experimental API build warning. No publication or external consumer changes. Reviewer and integration worker finished after acceptance.
