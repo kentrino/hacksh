@@ -66,6 +66,13 @@ async function verifyConsumer(label, execute) {
   const version = await execute(["--version"]);
   assert(version.code === 0 && version.stdout.trim() === "1.2.3", `${label}: version failed`);
 
+  const inlineBoolean = await execute(["--enabled=false"]);
+  assert(inlineBoolean.code === 1, `${label}: inline boolean exited ${inlineBoolean.code}`);
+  assert(
+    inlineBoolean.stderr.includes("--enabled:"),
+    `${label}: inline boolean validation error absent`,
+  );
+
   const missing = await execute(["--repo"]);
   assert(missing.code === 1, `${label}: missing value exited ${missing.code}`);
   assert(missing.stderr.includes("--repo: requires a value"), `${label}: missing error absent`);

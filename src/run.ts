@@ -1,19 +1,23 @@
 import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { ZittyUsageError } from "./errors.ts";
-import { parseCommandArgs, tokenizeCommandArgs } from "./parser.ts";
+import {
+  parseCommandArgs,
+  tokenizedBefore,
+  tokenizeCommandArgs,
+  type TokenizedCommandArgs,
+} from "./parser.ts";
 import { renderUsage } from "./usage.ts";
 
-interface ResolvedCommand {
+interface CommandSegment {
   command: AnyCommandDef;
   rawArgs: string[];
-  parents: Array<{ command: AnyCommandDef; rawArgs: string[] }>;
-  segments: Array<{ command: AnyCommandDef; rawArgs: string[] }>;
+  tokenized: TokenizedCommandArgs;
 }
 
-function commandToken(command: AnyCommandDef, rawArgs: readonly string[]): number | undefined {
-  return tokenizeCommandArgs(command, rawArgs).tokens.find((token) => token.kind === "positional")
-    ?.index;
+interface ResolvedCommand extends CommandSegment {
+  parents: CommandSegment[];
+  segments: CommandSegment[];
 }
 
 function namedChild(child: AnyCommandDef, name: string): AnyCommandDef {
@@ -27,17 +31,22 @@ function resolveCommand(root: AnyCommandDef, rawArgs: string[]): ResolvedCommand
   const segments: ResolvedCommand["segments"] = [];
 
   for (;;) {
-    const index = command.subCommands ? commandToken(command, remaining) : undefined;
+    const tokenized = tokenizeCommandArgs(command, remaining);
+    const index = command.subCommands
+      ? tokenized.tokens.find((token) => token.kind === "positional")?.index
+      : undefined;
     if (index === undefined) {
-      segments.push({ command, rawArgs: remaining });
-      return { command, rawArgs: remaining, parents, segments };
+      const segment = { command, rawArgs: remaining, tokenized };
+      segments.push(segment);
+      return { ...segment, parents, segments };
     }
     const name = remaining[index]!;
     const child = command.subCommands?.[name];
     if (!child) throw new ZittyUsageError(`Unknown command \`${name}\``, command);
     const prefix = remaining.slice(0, index);
-    parents.push({ command, rawArgs: prefix });
-    segments.push({ command, rawArgs: prefix });
+    const segment = { command, rawArgs: prefix, tokenized: tokenizedBefore(tokenized, index) };
+    parents.push(segment);
+    segments.push(segment);
     command = namedChild(child, name);
     remaining = remaining.slice(index + 1);
   }
@@ -48,21 +57,19 @@ export async function runCommand<S extends ArgsSchema>(
   argv: string[],
 ): Promise<unknown> {
   const resolved = resolveCommand(root, argv);
-  const tokenizedSegments = resolved.segments.map(({ command, rawArgs }) => ({
-    command,
-    tokenized: tokenizeCommandArgs(command, rawArgs),
-  }));
-  if (tokenizedSegments[0]?.tokenized.version) {
+  if (resolved.segments[0]?.tokenized.version) {
     console.log(root.version ?? "");
     return undefined;
   }
-  if (tokenizedSegments.some(({ tokenized }) => tokenized.help)) {
+  if (resolved.segments.some(({ tokenized }) => tokenized.help)) {
     console.log(renderUsage(resolved.command));
     return undefined;
   }
 
-  for (const parent of resolved.parents) await parseCommandArgs(parent.command, parent.rawArgs);
-  const parsed = await parseCommandArgs(resolved.command, resolved.rawArgs);
+  for (const parent of resolved.parents) {
+    await parseCommandArgs(parent.command, parent.rawArgs, parent.tokenized);
+  }
+  const parsed = await parseCommandArgs(resolved.command, resolved.rawArgs, resolved.tokenized);
   if (!resolved.command.run) {
     throw new ZittyUsageError("No command specified", resolved.command);
   }

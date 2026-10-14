@@ -14,13 +14,11 @@ export interface ParsedCommand<S extends ArgsSchema> {
 interface OptionDefinition {
   readonly key: string;
   readonly kebabName: string;
-  readonly aliases: readonly string[];
   readonly takesValue: boolean;
 }
 
 interface OptionModel {
-  readonly byInputName: Map<string, OptionDefinition>;
-  readonly byParserName: Map<string, OptionDefinition>;
+  readonly definitions: Map<string, OptionDefinition>;
   readonly parserOptions: Record<string, { type: "string" | "boolean"; short?: string }>;
   readonly aliases: Set<string>;
 }
@@ -50,13 +48,15 @@ export interface TokenizedCommandArgs {
   readonly tokens: readonly CommandToken[];
   readonly passthrough: string[];
   readonly missingValue: ZittyIssue | undefined;
+  readonly missingValueIndex: number | undefined;
   readonly help: boolean;
+  readonly helpIndex: number | undefined;
   readonly version: boolean;
+  readonly versionIndex: number | undefined;
 }
 
 function optionModel(command: AnyCommandDef): OptionModel {
-  const byInputName = new Map<string, OptionDefinition>();
-  const byParserName = new Map<string, OptionDefinition>();
+  const definitions = new Map<string, OptionDefinition>();
   const parserOptions: OptionModel["parserOptions"] = {};
   const allAliases = new Set<string>();
   const positional = new Set<string>(command.positional ?? []);
@@ -68,24 +68,21 @@ function optionModel(command: AnyCommandDef): OptionModel {
       const definition: OptionDefinition = {
         key,
         kebabName: kebabCase(key),
-        aliases,
         takesValue: readArgInfo(schema).takesValue,
       };
       const type = definition.takesValue ? "string" : "boolean";
       for (const name of new Set([key, definition.kebabName])) {
-        byInputName.set(name, definition);
-        byParserName.set(name, definition);
+        definitions.set(name, definition);
         parserOptions[name] = { type };
       }
       for (const alias of aliases) {
         allAliases.add(alias);
-        byInputName.set(alias, definition);
-        byParserName.set(alias, definition);
+        definitions.set(alias, definition);
         parserOptions[alias] = { type, short: alias };
       }
     }
   }
-  return { byInputName, byParserName, parserOptions, aliases: allAliases };
+  return { definitions, parserOptions, aliases: allAliases };
 }
 
 function displayName(command: AnyCommandDef, key: string): string {
@@ -102,9 +99,10 @@ export function tokenizeCommandArgs(
   const passthrough = separator === -1 ? [] : rawArgs.slice(separator + 1);
   const negativeIndexes = new Set<number>();
   let missingValue: ZittyIssue | undefined;
+  let missingValueIndex: number | undefined;
   const parserArgs = beforeSeparator.map((raw, index) => {
     if (!raw.startsWith("--no-")) return raw;
-    const definition = model.byInputName.get(raw.slice(5));
+    const definition = model.definitions.get(raw.slice(5));
     if (!definition || definition.takesValue) return raw;
     negativeIndexes.add(index);
     return `--${definition.key}`;
@@ -120,30 +118,48 @@ export function tokenizeCommandArgs(
   const tokens: CommandToken[] = [];
   const unknownIndexes = new Set<number>();
   let help = false;
+  let helpIndex: number | undefined;
   let version = false;
+  let versionIndex: number | undefined;
   for (const token of parsed.tokens) {
     if (token.kind === "positional") {
       tokens.push({ kind: "positional", index: token.index, value: token.value });
       continue;
     }
     if (token.kind !== "option") continue;
-    help ||= token.rawName === "--help" || (token.rawName === "-h" && !model.aliases.has("h"));
-    version ||=
+    const isHelp =
+      token.rawName === "--help" || (token.rawName === "-h" && !model.aliases.has("h"));
+    const isVersion =
       token.rawName === "--version" || (token.rawName === "-v" && !model.aliases.has("v"));
-    const definition = model.byParserName.get(token.name);
+    if (isHelp) {
+      help = true;
+      helpIndex ??= token.index;
+    }
+    if (isVersion) {
+      version = true;
+      versionIndex ??= token.index;
+    }
+    const definition = model.definitions.get(token.name);
     if (definition) {
       if (
         definition.takesValue &&
         (token.value === undefined ||
           (!token.inlineValue && token.value.startsWith("-") && token.value !== "-"))
       ) {
-        missingValue ??= { arg: `--${definition.kebabName}`, message: "requires a value" };
+        if (!missingValue) {
+          missingValue = { arg: `--${definition.kebabName}`, message: "requires a value" };
+          missingValueIndex = token.index;
+        }
       }
       tokens.push({
         kind: "known-option",
         index: token.index,
         definition,
-        value: definition.takesValue ? (token.value ?? "") : !negativeIndexes.has(token.index),
+        value: definition.takesValue
+          ? (token.value ?? "")
+          : negativeIndexes.has(token.index)
+            ? false
+            : (token.value ?? true),
       });
     } else if (!unknownIndexes.has(token.index)) {
       unknownIndexes.add(token.index);
@@ -159,8 +175,33 @@ export function tokenizeCommandArgs(
     tokens,
     passthrough,
     missingValue,
+    missingValueIndex,
     help,
+    helpIndex,
     version,
+    versionIndex,
+  };
+}
+
+export function tokenizedBefore(
+  tokenized: TokenizedCommandArgs,
+  endIndex: number,
+): TokenizedCommandArgs {
+  const missingValue =
+    tokenized.missingValueIndex !== undefined && tokenized.missingValueIndex < endIndex
+      ? tokenized.missingValue
+      : undefined;
+  const help = tokenized.helpIndex !== undefined && tokenized.helpIndex < endIndex;
+  const version = tokenized.versionIndex !== undefined && tokenized.versionIndex < endIndex;
+  return {
+    tokens: tokenized.tokens.filter((token) => token.index < endIndex),
+    passthrough: [],
+    missingValue,
+    missingValueIndex: missingValue ? tokenized.missingValueIndex : undefined,
+    help,
+    helpIndex: help ? tokenized.helpIndex : undefined,
+    version,
+    versionIndex: version ? tokenized.versionIndex : undefined,
   };
 }
 
@@ -178,8 +219,8 @@ function zodIssues(command: AnyCommandDef, issues: readonly $ZodIssue[]): ZittyI
 export async function parseCommandArgs<S extends ArgsSchema>(
   command: CommandDef<S>,
   rawArgs: string[],
+  tokenized: TokenizedCommandArgs = tokenizeCommandArgs(command, rawArgs),
 ): Promise<ParsedCommand<S>> {
-  const tokenized = tokenizeCommandArgs(command, rawArgs);
   if (tokenized.missingValue) {
     throw new ZittyValidationError(command, [tokenized.missingValue]);
   }

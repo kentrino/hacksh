@@ -73,6 +73,22 @@ describe("argument parsing and validation", () => {
     });
   });
 
+  it("rejects inline boolean values instead of silently enabling the flag", async () => {
+    const flags = defineCommand({ args: z.object({ execute: z.boolean().default(false) }) });
+    await expect(parseCommandArgs(flags, ["--execute"])).resolves.toMatchObject({
+      args: { execute: true },
+    });
+    await expect(parseCommandArgs(flags, ["--no-execute"])).resolves.toMatchObject({
+      args: { execute: false },
+    });
+    await expect(parseCommandArgs(flags, ["--execute=false"])).rejects.toMatchObject({
+      issues: [expect.objectContaining({ arg: "--execute" })],
+    });
+    await expect(parseCommandArgs(flags, ["--execute=no"])).rejects.toMatchObject({
+      issues: [expect.objectContaining({ arg: "--execute" })],
+    });
+  });
+
   it("reports missing values without consuming the following option", async () => {
     const error = await parseCommandArgs(command, ["--repo", "--dry-run", "one"]).catch(
       (caught: unknown) => caught,
