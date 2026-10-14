@@ -2,9 +2,9 @@
 
 - Plan: `docs/plan/cli-framework-next/phase-2-args-and-help.md` and parent README common policy/completion.
 - Phase: 2
-- Status: working
+- Status: done
 - depends_on: [P2-01]
-- Worker: s-p2-help (pane w2P:p9); next action: implement then review; blockers: none.
+- Worker: s-p2-help (pane w2P:p9); next action: none; implementation/review complete; blockers: none.
 - Baseline: `cd88d4e`; initial baseline/hash in [03-integration.md](03-integration.md).
 
 ## Scope and ownership
@@ -13,11 +13,11 @@ Own schema enum metadata, command display options, help rendering, boolean token
 Exclusions: other phases, plan edits, publishing and external repositories. Preserve unrelated work. Worker owns implementation/tests/README and evidence updates; supervisor owns status and acceptance checks.
 
 ## Acceptance criteria
-- [ ] AC1: Plan enum/display/negative-description bullets: descriptions, wrapped enum choices, fixed/variadic names and named value names render for zod and mini; union/refine choices are not inferred. Verify help/schema tests.
-- [ ] AC2: Plan typed metadata: display map keys checked against schema; output inference preserved; display metadata leaves error labels/paths unchanged. Verify type and validation tests.
-- [ ] AC3: Plan boolean bullet and explicit decision: --flag=true/false accepted, other strings and --no-flag=VALUE rejected, nonboolean inputs untouched, old boolean regression updated; routing/help boundaries and aliases remain correct. Verify parser/run tests.
-- [ ] AC4: Plan NO_COLOR/CI bullet: rendered and emitted help contains no ANSI under either environment. Verify tests.
-- [ ] AC5: Correctness and quality review accepts revision; required corrections validated.
+- [x] AC1: Plan enum/display/negative-description bullets: descriptions, wrapped enum choices, fixed/variadic names and named value names render for zod and mini; union/refine choices are not inferred. Verify help/schema tests.
+- [x] AC2: Plan typed metadata: display map keys checked against schema; output inference preserved; display metadata leaves error labels/paths unchanged. Verify type and validation tests.
+- [x] AC3: Plan boolean bullet and explicit decision: --flag=true/false accepted, other strings and --no-flag=VALUE rejected, nonboolean inputs untouched, old boolean regression updated; routing/help boundaries and aliases remain correct. Verify parser/run tests.
+- [x] AC4: Plan NO_COLOR/CI bullet: rendered and emitted help contains no ANSI under either environment. Verify tests.
+- [x] AC5: Correctness and quality review accepts revision; required corrections validated.
 
 ## Evidence
 
@@ -77,3 +77,5 @@ Exclusions: other phases, plan edits, publishing and external repositories. Pres
   `/usr/bin/time -p env
   ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm
   test:packed` passed exact Node 22.18.0 and Deno 2.7.14 consumers in 3.09s.
+
+- Review acceptance: c-review-p2-02 accepted `eab6916` after correction `f98d917`, no remaining findings. W1/W2 resolved; reviewer checked issue scoping, builtin bypass and accepted enum values, reusing verified 85-test/build/packed evidence.
