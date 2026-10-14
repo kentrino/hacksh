@@ -8,11 +8,13 @@
 - Baseline: `cd88d4e`; initial baseline/hash in [03-integration.md](03-integration.md).
 
 ## Scope and ownership
+
 Own schema enum metadata, command display options, help rendering, boolean token handling, relevant behavior/type tests and README. Proposed API: `argDisplay` schema-keyed map of `{ name?: string, valueName?: string, negatedDescription?: string }`; name is positional label, valueName is named-option value label, negatedDescription renders a --no-flag help row. Display metadata affects help only; error labels and Zod paths remain stable. Read enum choices through schema layer wrappers, never infer from arbitrary unions/refinements. Boolean inline true/false converts only boolean fields; all other strings and any --no-flag=VALUE are validation errors. Keep shared tokenizer and builtin/child boundaries. Prerequisite: P2-01 trailing variadic contract.
 
 Exclusions: other phases, plan edits, publishing and external repositories. Preserve unrelated work. Worker owns implementation/tests/README and evidence updates; supervisor owns status and acceptance checks.
 
 ## Acceptance criteria
+
 - [x] AC1: Plan enum/display/negative-description bullets: descriptions, wrapped enum choices, fixed/variadic names and named value names render for zod and mini; union/refine choices are not inferred. Verify help/schema tests.
 - [x] AC2: Plan typed metadata: display map keys checked against schema; output inference preserved; display metadata leaves error labels/paths unchanged. Verify type and validation tests.
 - [x] AC3: Plan boolean bullet and explicit decision: --flag=true/false accepted, other strings and --no-flag=VALUE rejected, nonboolean inputs untouched, old boolean regression updated; routing/help boundaries and aliases remain correct. Verify parser/run tests.
@@ -22,7 +24,7 @@ Exclusions: other phases, plan edits, publishing and external repositories. Pres
 ## Evidence
 
 - Implementation revision: `641fd494ce2640ea5697a2d689f65efd7bbceb1b` (`feat: expand
-  help and boolean arguments`), based on accepted P2-01 revision `cd88d4e` plus the issue-assignment
+help and boolean arguments`), based on accepted P2-01 revision `cd88d4e` plus the issue-assignment
   commit.
 - AC1 behavior coverage is committed in `src/schema.test.ts` and `src/public-api.test.ts`. It
   covers enum choices through supported wrappers and variadic array elements for zod and zod/mini,
@@ -41,16 +43,16 @@ Exclusions: other phases, plan edits, publishing and external repositories. Pres
 - README documents enum help, the `argDisplay` API, stable parsing/error semantics, explicit
   boolean values, valued-negation errors, and the `NO_COLOR`/`CI` guarantee.
 - `/usr/bin/time -p pnpm exec vp check README.md scripts/test-packed-consumers.mjs
-  src/command.test.ts src/command.ts src/index.ts src/parser.test.ts src/parser.ts
-  src/public-api.test.ts src/schema.test.ts src/schema.ts src/usage.ts` — passed: all 11 files
+src/command.test.ts src/command.ts src/index.ts src/parser.test.ts src/parser.ts
+src/public-api.test.ts src/schema.test.ts src/schema.ts src/usage.ts` — passed: all 11 files
   formatted and no lint/type errors; 1.09s (pnpm 11.20.0, Node 24.15.0).
 - `/usr/bin/time -p pnpm test` — passed: 7 files, 81 tests; Vitest 364ms, command 0.93s
   (Node 24.15.0).
 - `/usr/bin/time -p pnpm build` — passed in 0.75s; target `node22.18.0`, including emitted public
   `ArgDisplay`, `ArgDisplayMap`, and `CommandDef.argDisplay` declarations (Node 24.15.0).
 - `/usr/bin/time -p env
-  ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm
-  test:packed` — passed in 3.52s: exact Node 22.18.0 and Deno 2.7.14 consumers, including explicit
+ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm
+test:packed` — passed in 3.52s: exact Node 22.18.0 and Deno 2.7.14 consumers, including explicit
   boolean false and valued-negation rejection.
 - `/usr/bin/time -p pnpm ready` — stops in the global formatting check after 1.04s on the four
   previously assigned coordination files: `.agents/skills/execute-plan/SKILL.md`,
@@ -58,7 +60,7 @@ Exclusions: other phases, plan edits, publishing and external repositories. Pres
   those global Markdown formatting corrections remain P2-03 work; the equivalent scoped check,
   full tests, build, and packed consumers above pass.
 - Review correction revision: `f98d91716b1637462446a20b8ee4e3d389b7778d` (`fix: enforce
-  boolean token syntax`) addresses c-review-p2-02 findings W1 and W2 without amending the reviewed
+boolean token syntax`) addresses c-review-p2-02 findings W1 and W2 without amending the reviewed
   implementation.
 - W1: tokenizer-owned indexed issues now reject every invalid inline boolean and every valued
   negation before Zod parsing. Issues survive catch-wrapped schemas and later valid assignments,
@@ -70,12 +72,12 @@ Exclusions: other phases, plan edits, publishing and external repositories. Pres
   mappings. `src/schema.test.ts` and `src/public-api.test.ts` verify the equivalent
   `{ A: 0, B: 1, 0: "A", 1: "B" }` shape for zod and zod/mini and render only choices `0, 1`.
 - Latest correction validation: `/usr/bin/time -p pnpm exec vp check
-  scripts/test-packed-consumers.mjs src/parser.test.ts src/parser.ts src/public-api.test.ts
-  src/run.test.ts src/schema.test.ts src/schema.ts` passed all 7 files with no formatting,
+scripts/test-packed-consumers.mjs src/parser.test.ts src/parser.ts src/public-api.test.ts
+src/run.test.ts src/schema.test.ts src/schema.ts` passed all 7 files with no formatting,
   lint, or type errors in 0.82s; `/usr/bin/time -p pnpm test` passed 7 files and 85 tests in
   0.92s; `/usr/bin/time -p pnpm build` passed in 0.74s targeting Node 22.18.0; and
   `/usr/bin/time -p env
-  ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm
-  test:packed` passed exact Node 22.18.0 and Deno 2.7.14 consumers in 3.09s.
+ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm
+test:packed` passed exact Node 22.18.0 and Deno 2.7.14 consumers in 3.09s.
 
 - Review acceptance: c-review-p2-02 accepted `eab6916` after correction `f98d917`, no remaining findings. W1/W2 resolved; reviewer checked issue scoping, builtin bypass and accepted enum values, reusing verified 85-test/build/packed evidence.

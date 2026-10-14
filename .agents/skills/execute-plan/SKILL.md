@@ -76,10 +76,11 @@ For example:
 
 ```markdown
 ## Acceptance criteria
+
 - [ ] AC1: Unknown option tokens retain their order in extraArgs (plan: Unknown
-  options). Verify with parser tests covering mixed known and unknown tokens.
+      options). Verify with parser tests covering mixed known and unknown tokens.
 - [ ] AC2: Issue changes pass correctness/quality review; required corrections are
-  verified against the accepted revision.
+      verified against the accepted revision.
 ```
 
 Check an item only after inspecting its evidence, not when implementation is

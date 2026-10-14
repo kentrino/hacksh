@@ -60,8 +60,8 @@ For each plan in order:
    - The working tree holds no leftover changes from the supervisor, and the
      reported commits exist.
    - The retrospective file exists.
-   If a check fails, send the failure to the same supervisor and keep waiting.
-   Then run `agent-delegate finish --path . --agent AGENT_NAME`.
+     If a check fails, send the failure to the same supervisor and keep waiting.
+     Then run `agent-delegate finish --path . --agent AGENT_NAME`.
 6. On `PLAN_BLOCKED`, resolve the blocker with the human if possible and send
    the answer to the same supervisor. If it cannot be resolved, stop the loop and
    report the blocked state without starting later plans. Ask before skipping a
