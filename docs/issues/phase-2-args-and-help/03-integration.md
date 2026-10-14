@@ -2,9 +2,9 @@
 
 - Plan: `docs/plan/cli-framework-next/phase-2-args-and-help.md` and parent README common policy/completion.
 - Phase: 2
-- Status: working
+- Status: done
 - depends_on: [P2-01, P2-02]
-- Worker: s-p2-integration (pane w2P:pB); next action: integration validation then full review; blockers: none.
+- Worker: s-p2-integration (pane w2P:pB); next action: none; completion audit passed; blockers: none.
 - Baseline: `757f077` for integration additions; full review baseline `0655f46`; initial baseline/hash in [03-integration.md](03-integration.md).
 
 ## Scope and ownership
@@ -15,10 +15,10 @@ Exclusions: other phases, plan edits, publishing and external repositories. Pres
 
 ## Acceptance criteria
 
-- [ ] AC1: Every phase 2 bullet, kickoff decision and acceptance condition has direct final evidence in P2-01/P2-02 or this issue; reconcile explicitly.
-- [ ] AC2: Parent completion: pnpm ready and pnpm test:packed pass final code; actual new-feature consumers run on Node 22.18.0 and Deno npm, tarball/types verified. Record exact commands/runtimes/results and test references.
-- [ ] AC3: Full change correctness/quality review from initial baseline accepts final implementation and task interactions.
-- [ ] AC4: Original plan hash unchanged; all active implementation issues accepted and no unresolved requirements.
+- [x] AC1: Every phase 2 bullet, kickoff decision and acceptance condition has direct final evidence in P2-01/P2-02 or this issue; reconcile explicitly.
+- [x] AC2: Parent completion: pnpm ready and pnpm test:packed pass final code; actual new-feature consumers run on Node 22.18.0 and Deno npm, tarball/types verified. Record exact commands/runtimes/results and test references.
+- [x] AC3: Full change correctness/quality review from initial baseline accepts final implementation and task interactions.
+- [x] AC4: Original plan hash unchanged; all active implementation issues accepted and no unresolved requirements.
 
 ## Evidence
 
@@ -36,8 +36,7 @@ Exclusions: other phases, plan edits, publishing and external repositories. Pres
 
 All seven phase bullets, the three kickoff decisions, the phase acceptance paragraph, and the
 parent common packaging/environment requirements therefore have direct committed coverage. P2-01
-and P2-02 are accepted; the remaining supervisor action is the full-baseline correctness/quality
-review and acceptance-checkbox update.
+and P2-02 are accepted; full-baseline correctness/quality review and the supervisor completion audit have passed.
 
 ### Integration implementation and final gates
 
@@ -72,5 +71,13 @@ test:packed` at `c94f5dc` — passed in 3.21s. The installed-tarball consumers r
 ## Integration preparation
 
 - P2-01 reviewed by c-review-p2-01 at 1f317a6, accepted without required corrections. Low cleanup nit dropped.
-- P2-02 reviewer c-review-p2-02 (pane w2P:pA) reviewed fc052d9 and sent W1 (tokenizer-owned invalid-boolean errors) and W2 (numeric enum reverse mappings) to s-p2-help for correction. Reviewer remains available.
-- Formatting prerequisite: pnpm ready detects pre-existing formatting in `.agents/skills/execute-plan/SKILL.md` and `.agents/skills/execute-plans/SKILL.md`, plus phase 2 issue Markdown. P2-03 owns formatting-only cleanup of these files; no instruction changes or plan edits.
+- P2-02 reviewer c-review-p2-02 (pane w2P:pA) reviewed fc052d9 and sent W1 (tokenizer-owned invalid-boolean errors) and W2 (numeric enum reverse mappings) to s-p2-help for correction. Both findings were accepted as resolved at eab6916; that reviewer and worker are finished.
+- Formatting prerequisite: pnpm ready detects pre-existing formatting in `.agents/skills/execute-plan/SKILL.md` and `.agents/skills/execute-plans/SKILL.md`, plus phase 2 issue Markdown. Resolved by 9a1b015 with formatting-only cleanup; no instruction changes or plan edits.
+
+## Completion audit
+
+- Full-phase reviewer `c-review-p2-final` (pane `w2P:pC`) accepted `0655f46..58888b1` with no worker or supervisor findings. Implementation was frozen and the tree clean. Review independently exercised mixed variadic/options/passthrough, ordered syntax issues, negated aliases, wrapped arrays, mini enum help and negated help rows.
+- Supervisor inspected the committed test references and coverage reconciliation above, prior issue evidence and review outcomes. AC1–AC4 are satisfied; P2-01 and P2-02 are accepted. No unresolved in-scope requirement remains.
+- Final executable state is `c94f5dc`, with evidence at `58888b1`: `pnpm ready` and exact-minimum-Node `pnpm test:packed` passed again at `58888b1` (85 tests; host Node 24.15.0, pnpm 11.20.0, Node consumer 22.18.0, Deno 2.7.14). Subsequent closeout edits are documentation only.
+- Supervisor independently verified no diff in `docs/plan` from the initial baseline and exact original SHA-256.
+- Remaining caveats: existing non-failing TypeScript 7 experimental API build warning; existing empty `subCommands: {}` routing behavior is unchanged (omit the property for positional-only commands). No publication or external consumer edits performed.
