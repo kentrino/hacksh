@@ -58,3 +58,10 @@ Initial records precede delegation. Worker/reviewer identifiers, handles, implem
   6. Commit repeatable packaged Node/Deno consumer checks covering these real semantics.
 - All corrections sent in one prompt `/tmp/zitty-corrections-1.md` to original worker `s-01-release`; live prompt wait exec session `58161`. Worker must make additional commits, run ready and committed packed-consumer checks, and remain available.
 - Review remains open in `c-review`; wait exec session `17325` may finish after its queued guidance acknowledgement. Next: inspect original worker completion, re-prompt same reviewer over final corrected revision, final requirement audit. No supervisor decision is blocking progress.
+
+### Correction round 1 result / round 2
+
+- Worker ISSUE_DONE with `b30133a` unified token interpretation and `a236dc3` committed `pnpm test:packed`; ready passed (41 tests) and both packed consumers passed.
+- Reviewer rechecked full original-base range through `a236dc3187de82cee454e033e32648d282fdb159`, verified all six round-1 findings fixed, then found a new medium regression: boolean inline strings such as --execute=false were discarded and became true. Plan excludes interpreting them as false; preserve validation rejection.
+- Reviewer also classified identical option maps and repeated tokenization as a low worker cleanup. Both items sent in `/tmp/zitty-corrections-2.md` to original worker, live wait exec session `30789`.
+- Reviewer remains `c-review`; original worker remains `s-01-release`. Round-1 review wait `58427` is terminal. Next: inspect round-2 completion and re-review final revision before final gates in acceptance.md.
