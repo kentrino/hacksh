@@ -24,3 +24,7 @@
 - Target: external `review-correctness` skill. Add: “When exposing enum choices, test numeric enum reverse mappings against the schema's accepted values.” Evidence: W2 displayed rejected names until schema-reader correction.
 
 ## Applied
+
+- Applied `fc61228` to the repository execute-plan skill: format new issue Markdown before its initial commit and distinguish pre-existing check failures. This addresses the repeated aggregate-check friction without weakening verification.
+- External review-correctness proposals remain recommendations for the user; no external skills were edited. They cover malformed boolean syntax through recovery/reassignment and numeric enum reverse mappings.
+- No repository-wide or file-scoped instruction change was warranted beyond that workflow correction.
