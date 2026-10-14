@@ -60,6 +60,7 @@ function optionModel(command: AnyCommandDef): OptionModel {
   const parserOptions: OptionModel["parserOptions"] = {};
   const allAliases = new Set<string>();
   const positional = new Set<string>(command.positional ?? []);
+  if (command.variadic) positional.add(command.variadic);
 
   if (command.args) {
     for (const [key, schema] of Object.entries(schemaShape(command.args))) {
@@ -86,6 +87,7 @@ function optionModel(command: AnyCommandDef): OptionModel {
 }
 
 function displayName(command: AnyCommandDef, key: string): string {
+  if (command.variadic === key) return `<${key.toUpperCase()}...>`;
   return command.positional?.includes(key) ? `<${key.toUpperCase()}>` : `--${kebabCase(key)}`;
 }
 
@@ -225,7 +227,8 @@ export async function parseCommandArgs<S extends ArgsSchema>(
     throw new ZittyValidationError(command, [tokenized.missingValue]);
   }
 
-  const input: Record<string, string | boolean | undefined> = {};
+  const input: Record<string, string | boolean | string[] | undefined> = {};
+  if (command.variadic) input[command.variadic] = [];
   const extraArgs: string[] = [];
   let positionalIndex = 0;
   for (const token of tokenized.tokens) {
@@ -236,6 +239,8 @@ export async function parseCommandArgs<S extends ArgsSchema>(
       if (key) {
         input[key] = token.value;
         positionalIndex += 1;
+      } else if (command.variadic) {
+        (input[command.variadic] as string[]).push(token.value);
       } else extraArgs.push(token.value);
     }
   }

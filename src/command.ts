@@ -1,6 +1,7 @@
 import type { output } from "zod/v4/core";
 import { aliasList } from "./options.ts";
 import {
+  isArrayInput,
   readArgInfo,
   schemaShape,
   type ArgKey,
@@ -25,6 +26,7 @@ export interface CommandDef<S extends ArgsSchema = EmptyArgs> {
   args?: S;
   alias?: AliasMap<S>;
   positional?: readonly ArgKey<S>[];
+  variadic?: ArgKey<S>;
   subCommands?: Record<string, CommandDef<ArgsSchema>>;
   run?(context: CommandContext<S>): unknown;
 }
@@ -35,6 +37,11 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
   const shape = def.args ? schemaShape(def.args) : {};
   const positional = def.positional ?? [];
   const positionalSet = new Set<string>();
+  const rawVariadic: unknown = def.variadic;
+  if (rawVariadic !== undefined && typeof rawVariadic !== "string") {
+    throw new TypeError("Variadic must be exactly one schema key");
+  }
+  const variadic = rawVariadic as string | undefined;
   let sawOptional = false;
 
   for (const key of positional) {
@@ -44,6 +51,9 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
     positionalSet.add(key);
 
     const info = readArgInfo(field);
+    if (isArrayInput(field)) {
+      throw new TypeError(`Array argument \`${key}\` must be declared as variadic`);
+    }
     if (!info.takesValue) throw new TypeError(`Boolean argument \`${key}\` cannot be positional`);
     if (sawOptional && info.required) {
       throw new TypeError(`Required positional \`${key}\` cannot follow an optional positional`);
@@ -51,14 +61,29 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
     sawOptional ||= !info.required;
   }
 
-  if (positional.length > 0 && def.subCommands && Object.keys(def.subCommands).length > 0) {
+  if (variadic !== undefined) {
+    const field = shape[variadic];
+    if (!field) throw new TypeError(`Unknown variadic key \`${variadic}\``);
+    if (positionalSet.has(variadic)) {
+      throw new TypeError(`Variadic argument \`${variadic}\` cannot also be positional`);
+    }
+    if (!isArrayInput(field)) {
+      throw new TypeError(`Variadic argument \`${variadic}\` must use an array schema`);
+    }
+  }
+
+  if (
+    (positional.length > 0 || variadic !== undefined) &&
+    def.subCommands &&
+    Object.keys(def.subCommands).length > 0
+  ) {
     throw new TypeError("A command cannot define both positional arguments and subcommands");
   }
 
   const usedAliases = new Set<string>();
   for (const [key, value] of Object.entries(def.alias ?? {})) {
     if (!shape[key]) throw new TypeError(`Unknown alias key \`${key}\``);
-    if (positionalSet.has(key))
+    if (positionalSet.has(key) || key === variadic)
       throw new TypeError(`Positional argument \`${key}\` cannot have aliases`);
     for (const alias of aliasList(value as string | readonly string[])) {
       if (alias.length !== 1)
@@ -69,7 +94,7 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
   }
 
   for (const key of Object.keys(shape)) {
-    if (!positionalSet.has(key) && /^no[-A-Z]/.test(key)) {
+    if (!positionalSet.has(key) && key !== variadic && /^no[-A-Z]/.test(key)) {
       throw new TypeError(`Option \`${key}\` conflicts with --no- negation`);
     }
   }

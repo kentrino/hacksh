@@ -88,6 +88,22 @@ describe("public parsing API", () => {
 });
 
 describe("public usage API", () => {
+  it("renders a variadic argument as trailing and not as a named option", async () => {
+    const command = defineCommand({
+      name: "copy",
+      args: z.object({
+        destination: z.string().describe("Output directory"),
+        files: z.array(z.string()).describe("Input files"),
+      }),
+      positional: ["destination"],
+      variadic: "files",
+    });
+    const usage = await renderUsage(command);
+    expect(usage).toContain("USAGE copy [OPTIONS] <DESTINATION> [FILES...]");
+    expect(usage).toContain("FILES...  Input files");
+    expect(usage).not.toContain("--files");
+  });
+
   it("shares rendering, supports async writers, and keeps rendering side-effect free", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);

@@ -87,4 +87,23 @@ describe("consumer-equivalent commands", () => {
     });
     await expect(runCommand(command, [])).resolves.toBe("mini");
   });
+
+  it.each([
+    ["zod", z.object({ prefix: z.string(), values: z.array(z.string()) })],
+    ["zod/mini", mini.object({ prefix: mini.string(), values: mini.array(mini.string()) })],
+  ])("runs fixed and variadic arguments with %s", async (_name, args) => {
+    const command = defineCommand({
+      args,
+      positional: ["prefix"],
+      variadic: "values",
+      run: ({ args: parsed, extraArgs, passthrough }) => ({ parsed, extraArgs, passthrough }),
+    });
+    await expect(
+      runCommand(command, ["fixed", "one", "two", "--extra", "--", "tail"]),
+    ).resolves.toEqual({
+      parsed: { prefix: "fixed", values: ["one", "two"] },
+      extraArgs: ["--extra"],
+      passthrough: ["tail"],
+    });
+  });
 });

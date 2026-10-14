@@ -63,6 +63,11 @@ export function readArgInfo(schema: $ZodType): ArgInfo {
   };
 }
 
+/** Whether the schema accepts an array after removing supported input wrappers. */
+export function isArrayInput(schema: $ZodType): boolean {
+  return definition(unwrapInput(schema)).type === "array";
+}
+
 function unwrapInput(schema: $ZodType): $ZodType {
   let current = schema;
   for (;;) {

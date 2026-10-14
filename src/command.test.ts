@@ -27,6 +27,21 @@ describe("defineCommand", () => {
       },
     ],
     ["boolean positional", { args: z.object({ x: z.boolean() }), positional: ["x"] }],
+    ["array positional", { args: z.object({ x: z.array(z.string()) }), positional: ["x"] }],
+    [
+      "multiple variadic keys",
+      { args: z.object({ x: z.array(z.string()) }), variadic: ["x", "x"] },
+    ],
+    ["unknown variadic", { args: z.object({ x: z.array(z.string()) }), variadic: "y" }],
+    ["non-array variadic", { args: z.object({ x: z.string() }), variadic: "x" }],
+    [
+      "variadic also positional",
+      {
+        args: z.object({ x: z.array(z.string()) }),
+        positional: ["x"],
+        variadic: "x",
+      },
+    ],
     [
       "positional alias",
       {
@@ -53,6 +68,22 @@ describe("defineCommand", () => {
         subCommands: { sub: {} },
       },
     ],
+    [
+      "variadic alias",
+      {
+        args: z.object({ x: z.array(z.string()) }),
+        variadic: "x",
+        alias: { x: "x" },
+      },
+    ],
+    [
+      "variadic and subcommands",
+      {
+        args: z.object({ x: z.array(z.string()) }),
+        variadic: "x",
+        subCommands: { sub: {} },
+      },
+    ],
   ])("rejects invalid definitions: %s", (_name, input) => {
     expect(() => defineCommand(input as never)).toThrow();
   });
@@ -60,10 +91,20 @@ describe("defineCommand", () => {
 
 const typedSchema = z.object({ repo: z.string(), verbose: z.boolean() });
 defineCommand({ args: typedSchema, positional: ["repo"], alias: { verbose: "v" } });
+const variadicSchema = z.object({ files: z.array(z.string()) });
+defineCommand({
+  args: variadicSchema,
+  variadic: "files",
+  run({ args }) {
+    expectTypeOf(args).toEqualTypeOf<{ files: string[] }>();
+  },
+});
 
 if (process.env.ZITTY_TYPE_TESTS) {
   // @ts-expect-error positional keys must exist in the schema
   defineCommand({ args: typedSchema, positional: ["missing"] });
   // @ts-expect-error alias keys must exist in the schema
   defineCommand({ args: typedSchema, alias: { missing: "m" } });
+  // @ts-expect-error variadic keys must exist in the schema
+  defineCommand({ args: variadicSchema, variadic: "missing" });
 }

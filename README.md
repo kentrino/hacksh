@@ -50,8 +50,23 @@ are accepted (`--dryRun` and `--dry-run`). A default-on flag can be disabled wit
 `--no-verbose`. Value options accept `--repo owner/repo` and `--repo=owner/repo`.
 
 Keys in `positional` are assigned in order. Optional or defaulted positional arguments must come
-after required ones. Additional positional arguments and unknown options are kept in `extraArgs`;
-arguments after `--` are kept in `passthrough`.
+after required ones. To collect all remaining positional values, set `variadic` to a separate array
+field in the schema. The variadic field is always trailing, is excluded from named options, and is
+an empty array when no values are supplied (including through optional or default wrappers):
+
+```ts
+const copy = defineCommand({
+  args: z.object({
+    destination: z.string(),
+    files: z.array(z.string()),
+  }),
+  positional: ["destination"],
+  variadic: "files",
+});
+```
+
+Without `variadic`, additional positional arguments are kept in `extraArgs`. Unknown options are
+also kept in `extraArgs`; arguments after `--` are kept in `passthrough`.
 
 ## Subcommands
 

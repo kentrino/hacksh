@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { z } from "zod";
+import * as mini from "zod/mini";
 import { defineCommand, ZittyValidationError } from "./index.ts";
 import { parseCommandArgs } from "./parser.ts";
 
@@ -50,6 +51,87 @@ describe("argument parsing and validation", () => {
     expect(result.extraArgs).toEqual(["--model", "overflow", "--temperature=1"]);
     expect(result.passthrough).toEqual(["--sandbox"]);
     expect(result.args).toMatchObject({ first: "one", second: "two" });
+  });
+
+  it("collects trailing values after fixed positionals and preserves boundaries", async () => {
+    const variadic = defineCommand({
+      args: z.object({
+        target: z.string().optional(),
+        files: z.array(z.string().transform((value) => value.toUpperCase())),
+      }),
+      positional: ["target"],
+      variadic: "files",
+    });
+    await expect(
+      parseCommandArgs(variadic, ["dest", "a", "--unknown", "b", "--", "c"]),
+    ).resolves.toEqual({
+      args: { target: "dest", files: ["A", "B"] },
+      extraArgs: ["--unknown"],
+      passthrough: ["c"],
+    });
+    await expect(parseCommandArgs(variadic, [])).resolves.toEqual({
+      args: { files: [] },
+      extraArgs: [],
+      passthrough: [],
+    });
+    await expect(parseCommandArgs(variadic, ["--files", "one"])).resolves.toEqual({
+      args: { target: "one", files: [] },
+      extraArgs: ["--files"],
+      passthrough: [],
+    });
+  });
+
+  it("supplies an empty array through optional and default wrappers", async () => {
+    const optional = defineCommand({
+      args: z.object({ values: z.array(z.string()).optional() }),
+      variadic: "values",
+    });
+    const defaulted = defineCommand({
+      args: z.object({ values: z.array(z.string()).default(["fallback"]) }),
+      variadic: "values",
+    });
+    await expect(parseCommandArgs(optional, [])).resolves.toMatchObject({ args: { values: [] } });
+    await expect(parseCommandArgs(defaulted, [])).resolves.toMatchObject({ args: { values: [] } });
+  });
+
+  it("reports the variadic label while retaining the full element path", async () => {
+    const variadic = defineCommand({
+      args: z.object({ values: z.array(z.coerce.number().int().positive()) }),
+      variadic: "values",
+    });
+    const error = await parseCommandArgs(variadic, ["1", "bad", "0"]).catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(ZittyValidationError);
+    expect((error as ZittyValidationError).issues).toEqual([
+      expect.objectContaining({
+        arg: "<VALUES...>",
+        issue: expect.objectContaining({ path: ["values", 1] }),
+      }),
+      expect.objectContaining({
+        arg: "<VALUES...>",
+        issue: expect.objectContaining({ path: ["values", 2] }),
+      }),
+    ]);
+  });
+
+  it("supports zod/mini variadic arrays", async () => {
+    const variadic = defineCommand({
+      args: mini.object({
+        values: mini.array(
+          mini.pipe(
+            mini.string(),
+            mini.transform((value) => value.toUpperCase()),
+          ),
+        ),
+      }),
+      variadic: "values",
+    });
+    await expect(parseCommandArgs(variadic, ["a", "b"])).resolves.toEqual({
+      args: { values: ["A", "B"] },
+      extraArgs: [],
+      passthrough: [],
+    });
   });
 
   it("preserves grouped unknown options once, including mixed groups", async () => {

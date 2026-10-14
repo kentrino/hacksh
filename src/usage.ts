@@ -40,22 +40,28 @@ function formatUsage(command: AnyCommandDef): string {
   const shape = command.args ? schemaShape(command.args) : {};
   const positional = command.positional ?? [];
   const positionalSet = new Set<string>(positional);
+  if (command.variadic) positionalSet.add(command.variadic);
   const syntax = positional.map((key) => {
     const info = readArgInfo(shape[key]!);
     return info.required ? `<${key.toUpperCase()}>` : `[${key.toUpperCase()}]`;
   });
+  if (command.variadic) syntax.push(`[${command.variadic.toUpperCase()}...]`);
   if (command.subCommands && Object.keys(command.subCommands).length > 0) syntax.push("<COMMAND>");
   lines.push(
     `USAGE ${command.name ?? "command"} [OPTIONS]${syntax.length ? ` ${syntax.join(" ")}` : ""}`,
   );
 
-  if (positional.length > 0) {
+  if (positional.length > 0 || command.variadic) {
     lines.push("", "ARGUMENTS", "");
     for (const key of positional) {
       const info = readArgInfo(shape[key]!);
       lines.push(
         `  ${key.toUpperCase()}  ${details(info.description, info.required, info.defaultValue)}`.trimEnd(),
       );
+    }
+    if (command.variadic) {
+      const info = readArgInfo(shape[command.variadic]!);
+      lines.push(`  ${command.variadic.toUpperCase()}...  ${info.description ?? ""}`.trimEnd());
     }
   }
 

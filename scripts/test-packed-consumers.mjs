@@ -41,6 +41,8 @@ async function verifyConsumer(label, execute) {
   const behavior = await execute([
     "--no-enabled",
     "-Qowner/repo",
+    "one",
+    "two",
     "--unknown=value",
     "--",
     "--help",
@@ -50,7 +52,7 @@ async function verifyConsumer(label, execute) {
     behavior.stdout.trim() ===
       JSON.stringify({
         cmd: "packed-consumer",
-        args: { enabled: false, repo: "owner/repo" },
+        args: { enabled: false, repo: "owner/repo", files: ["ONE", "TWO"] },
         extraArgs: ["--unknown=value"],
         passthrough: ["--help"],
       }),
@@ -60,8 +62,9 @@ async function verifyConsumer(label, execute) {
   const equals = await execute(["--repo=equal/repo"]);
   assert(equals.code === 0, `${label}: equals command exited ${equals.code}`);
   assert(
-    JSON.parse(equals.stdout).args.repo === "equal/repo",
-    `${label}: equals value was not parsed`,
+    JSON.parse(equals.stdout).args.repo === "equal/repo" &&
+      JSON.parse(equals.stdout).args.files.length === 0,
+    `${label}: equals value or empty variadic was not parsed`,
   );
 
   const version = await execute(["--version"]);
@@ -110,17 +113,25 @@ const command = defineCommand({
   args: z.object({
     enabled: z.boolean().default(true),
     repo: z.string().optional(),
+    files: z.array(z.string().transform((value) => value.toUpperCase())),
   }),
   alias: { repo: ["R", "Q"] },
+  variadic: "files",
   run({ cmd, args, extraArgs, passthrough }) {
     console.log(JSON.stringify({ cmd: cmd.name, args, extraArgs, passthrough }));
   },
 });
 const miniCommand = defineCommand({
-  args: mini.object({ value: mini._default(mini.string(), "mini") }),
+  args: mini.object({
+    value: mini._default(mini.string(), "mini"),
+    rest: mini.optional(mini.array(mini.string())),
+  }),
+  variadic: "rest",
 });
-const miniArgs = await parseArgs(miniCommand, []);
-if (miniArgs.value !== "mini") throw new Error("zod/mini parseArgs failed");
+const miniArgs = await parseArgs(miniCommand, ["one", "two"]);
+if (miniArgs.value !== "mini" || miniArgs.rest?.join(",") !== "one,two") {
+  throw new Error("zod/mini variadic parseArgs failed");
+}
 const usage = await renderUsage(command);
 const writes = [];
 await showUsage(command, { async write(text) { writes.push(text); } });
@@ -146,16 +157,25 @@ import {
   showUsage,
   type ShowUsageCallback,
 } from "zitty";
-const schema = z.object({ count: z.coerce.number(), label: z.string().default("ok") });
+const schema = z.object({
+  count: z.coerce.number(),
+  label: z.string().default("ok"),
+  files: z.array(z.string()),
+});
 const command = defineCommand({
   args: schema,
+  variadic: "files",
   run({ cmd, args }) {
     const same: import("zitty").CommandDef<typeof schema> = cmd;
-    const output: { count: number; label: string } = args;
+    const output: { count: number; label: string; files: string[] } = args;
     return { same, output };
   },
 });
-const parsed: Promise<{ count: number; label: string }> = parseArgs(command, ["--count", "2"]);
+const parsed: Promise<{ count: number; label: string; files: string[] }> = parseArgs(command, [
+  "--count",
+  "2",
+  "one",
+]);
 const rendered: Promise<string> = renderUsage(command);
 const shown: Promise<void> = showUsage(command, { write: async (_text) => {} });
 const callback: ShowUsageCallback = async (selected, { write }) => write(await renderUsage(selected));

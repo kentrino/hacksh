@@ -2,11 +2,12 @@ import { describe, expect, it } from "vite-plus/test";
 import { z } from "zod";
 import * as mini from "zod/mini";
 import type { $ZodType } from "zod/v4/core";
-import { readArgInfo } from "./schema.ts";
+import { isArrayInput, readArgInfo } from "./schema.ts";
 
 type TestApi = {
   string: () => $ZodType;
   boolean: () => $ZodType;
+  array: (schema: $ZodType) => $ZodType;
   optional: (schema: $ZodType) => $ZodType;
   nullable: (schema: $ZodType) => $ZodType;
   default: (schema: $ZodType) => $ZodType;
@@ -22,6 +23,7 @@ const implementations: ReadonlyArray<[string, TestApi]> = [
     {
       string: () => z.string(),
       boolean: () => z.boolean(),
+      array: (schema) => z.array(schema as z.ZodType),
       optional: (schema) => (schema as z.ZodType).optional(),
       nullable: (schema) => (schema as z.ZodType).nullable(),
       default: (schema) => (schema as z.ZodType).default("fallback"),
@@ -36,6 +38,7 @@ const implementations: ReadonlyArray<[string, TestApi]> = [
     {
       string: () => mini.string(),
       boolean: () => mini.boolean(),
+      array: (schema) => mini.array(schema),
       optional: (schema) => mini.optional(schema),
       nullable: (schema) => mini.nullable(schema),
       default: (schema) => mini._default(schema, "fallback"),
@@ -80,5 +83,13 @@ describe.each(implementations)("schema reading with %s", (_name, api) => {
     expect(readArgInfo(api.transform(api.describe(api.string())))).toMatchObject({
       description: "described",
     });
+  });
+
+  it("recognizes array inputs only through the schema reader", () => {
+    expect(isArrayInput(api.array(api.string()))).toBe(true);
+    expect(isArrayInput(api.optional(api.array(api.string())))).toBe(true);
+    expect(isArrayInput(api.default(api.array(api.string())))).toBe(true);
+    expect(isArrayInput(api.transform(api.array(api.string())))).toBe(true);
+    expect(isArrayInput(api.string())).toBe(false);
   });
 });
