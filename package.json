@@ -16,6 +16,7 @@
     "build": "vp pack",
     "check": "vp check",
     "test": "vp test",
+    "test:packed": "node scripts/test-packed-consumers.mjs",
     "ready": "vp run check && vp run test && vp run build",
     "prepare": "vp config"
   },
