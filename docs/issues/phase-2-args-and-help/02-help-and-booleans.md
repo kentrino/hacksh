@@ -57,3 +57,23 @@ Exclusions: other phases, plan edits, publishing and external repositories. Pres
   `.agents/skills/execute-plans/SKILL.md`, this issue file, and `03-integration.md`. Per assignment,
   those global Markdown formatting corrections remain P2-03 work; the equivalent scoped check,
   full tests, build, and packed consumers above pass.
+- Review correction revision: `f98d91716b1637462446a20b8ee4e3d389b7778d` (`fix: enforce
+  boolean token syntax`) addresses c-review-p2-02 findings W1 and W2 without amending the reviewed
+  implementation.
+- W1: tokenizer-owned indexed issues now reject every invalid inline boolean and every valued
+  negation before Zod parsing. Issues survive catch-wrapped schemas and later valid assignments,
+  retain typed labels (`--flag` / `--no-flag`) and dedicated messages, and are filtered with their
+  command segment. Coverage is committed in `src/parser.test.ts` and `src/run.test.ts`, including
+  catch schemas, invalid-then-valid input, multiple issues, child boundaries, and help/version
+  builtin bypasses. The nested value-selection ternary was replaced by explicit branches.
+- W2: enum help reads the schema core accepted-value set, excluding numeric native enum reverse
+  mappings. `src/schema.test.ts` and `src/public-api.test.ts` verify the equivalent
+  `{ A: 0, B: 1, 0: "A", 1: "B" }` shape for zod and zod/mini and render only choices `0, 1`.
+- Latest correction validation: `/usr/bin/time -p pnpm exec vp check
+  scripts/test-packed-consumers.mjs src/parser.test.ts src/parser.ts src/public-api.test.ts
+  src/run.test.ts src/schema.test.ts src/schema.ts` passed all 7 files with no formatting,
+  lint, or type errors in 0.82s; `/usr/bin/time -p pnpm test` passed 7 files and 85 tests in
+  0.92s; `/usr/bin/time -p pnpm build` passed in 0.74s targeting Node 22.18.0; and
+  `/usr/bin/time -p env
+  ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm
+  test:packed` passed exact Node 22.18.0 and Deno 2.7.14 consumers in 3.09s.
