@@ -130,6 +130,15 @@ describe("public usage API", () => {
     expect(usage).toContain("--no-overwrite  Keep existing files");
   });
 
+  it.each([
+    ["zod", z.object({ level: z.enum({ A: 0, B: 1, 0: "A", 1: "B" }) })],
+    ["zod/mini", mini.object({ level: mini.enum({ A: 0, B: 1, 0: "A", 1: "B" }) })],
+  ])("omits numeric enum reverse mappings from %s help", async (_name, args) => {
+    const usage = await renderUsage(defineCommand({ name: "tool", args }));
+    expect(usage).toContain("--level=<level>  (Choices: 0, 1) (Required)");
+    expect(usage).not.toContain("A, B");
+  });
+
   it("renders a variadic argument as trailing and not as a named option", async () => {
     const command = defineCommand({
       name: "copy",

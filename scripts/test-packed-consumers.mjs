@@ -79,7 +79,7 @@ async function verifyConsumer(label, execute) {
 
   const invalidInlineBoolean = await execute(["--no-enabled=false"]);
   assert(
-    invalidInlineBoolean.code === 1 && invalidInlineBoolean.stderr.includes("--enabled:"),
+    invalidInlineBoolean.code === 1 && invalidInlineBoolean.stderr.includes("--no-enabled:"),
     `${label}: valued negation was not rejected`,
   );
 

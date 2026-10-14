@@ -47,12 +47,16 @@ type CommandToken = KnownOptionToken | UnknownOptionToken | PositionalToken;
 export interface TokenizedCommandArgs {
   readonly tokens: readonly CommandToken[];
   readonly passthrough: string[];
-  readonly missingValue: ZittyIssue | undefined;
-  readonly missingValueIndex: number | undefined;
+  readonly issues: readonly IndexedIssue[];
   readonly help: boolean;
   readonly helpIndex: number | undefined;
   readonly version: boolean;
   readonly versionIndex: number | undefined;
+}
+
+interface IndexedIssue {
+  readonly index: number;
+  readonly issue: ZittyIssue;
 }
 
 function optionModel(command: AnyCommandDef): OptionModel {
@@ -101,8 +105,8 @@ export function tokenizeCommandArgs(
   const passthrough = separator === -1 ? [] : rawArgs.slice(separator + 1);
   const negativeIndexes = new Set<number>();
   const valuedNegativeIndexes = new Set<number>();
-  let missingValue: ZittyIssue | undefined;
-  let missingValueIndex: number | undefined;
+  const issues: IndexedIssue[] = [];
+  let recordedMissingValue = false;
   const parserArgs = beforeSeparator.map((raw, index) => {
     if (!raw.startsWith("--no-")) return raw;
     const equals = raw.indexOf("=");
@@ -155,28 +159,41 @@ export function tokenizeCommandArgs(
         (token.value === undefined ||
           (!token.inlineValue && token.value.startsWith("-") && token.value !== "-"))
       ) {
-        if (!missingValue) {
-          missingValue = { arg: `--${definition.kebabName}`, message: "requires a value" };
-          missingValueIndex = token.index;
+        if (!recordedMissingValue) {
+          issues.push({
+            index: token.index,
+            issue: { arg: `--${definition.kebabName}`, message: "requires a value" },
+          });
+          recordedMissingValue = true;
+        }
+      }
+      let value: string | boolean = token.value ?? true;
+      if (!definition.takesValue) {
+        if (valuedNegativeIndexes.has(token.index)) {
+          const rawName = beforeSeparator[token.index]!.split("=", 1)[0]!;
+          issues.push({
+            index: token.index,
+            issue: { arg: rawName, message: "does not accept a value" },
+          });
+          value = false;
+        } else if (negativeIndexes.has(token.index)) {
+          value = false;
+        } else if (token.inlineValue) {
+          if (token.value === "true") value = true;
+          else if (token.value === "false") value = false;
+          else {
+            issues.push({
+              index: token.index,
+              issue: { arg: token.rawName, message: "expects true or false" },
+            });
+          }
         }
       }
       tokens.push({
         kind: "known-option",
         index: token.index,
         definition,
-        value: definition.takesValue
-          ? (token.value ?? "")
-          : valuedNegativeIndexes.has(token.index)
-            ? (token.value ?? "")
-            : negativeIndexes.has(token.index)
-              ? false
-              : token.inlineValue
-                ? token.value === "true"
-                  ? true
-                  : token.value === "false"
-                    ? false
-                    : (token.value ?? "")
-                : (token.value ?? true),
+        value: definition.takesValue ? (token.value ?? "") : value,
       });
     } else if (!unknownIndexes.has(token.index)) {
       unknownIndexes.add(token.index);
@@ -191,8 +208,7 @@ export function tokenizeCommandArgs(
   return {
     tokens,
     passthrough,
-    missingValue,
-    missingValueIndex,
+    issues,
     help,
     helpIndex,
     version,
@@ -204,17 +220,12 @@ export function tokenizedBefore(
   tokenized: TokenizedCommandArgs,
   endIndex: number,
 ): TokenizedCommandArgs {
-  const missingValue =
-    tokenized.missingValueIndex !== undefined && tokenized.missingValueIndex < endIndex
-      ? tokenized.missingValue
-      : undefined;
   const help = tokenized.helpIndex !== undefined && tokenized.helpIndex < endIndex;
   const version = tokenized.versionIndex !== undefined && tokenized.versionIndex < endIndex;
   return {
     tokens: tokenized.tokens.filter((token) => token.index < endIndex),
     passthrough: [],
-    missingValue,
-    missingValueIndex: missingValue ? tokenized.missingValueIndex : undefined,
+    issues: tokenized.issues.filter(({ index }) => index < endIndex),
     help,
     helpIndex: help ? tokenized.helpIndex : undefined,
     version,
@@ -238,8 +249,11 @@ export async function parseCommandArgs<S extends ArgsSchema>(
   rawArgs: string[],
   tokenized: TokenizedCommandArgs = tokenizeCommandArgs(command, rawArgs),
 ): Promise<ParsedCommand<S>> {
-  if (tokenized.missingValue) {
-    throw new ZittyValidationError(command, [tokenized.missingValue]);
+  if (tokenized.issues.length > 0) {
+    throw new ZittyValidationError(
+      command,
+      tokenized.issues.map(({ issue }) => issue),
+    );
   }
 
   const input: Record<string, string | boolean | string[] | undefined> = {};

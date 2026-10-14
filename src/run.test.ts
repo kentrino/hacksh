@@ -95,6 +95,31 @@ describe("command routing", () => {
 });
 
 describe("help and version", () => {
+  it("scopes boolean syntax issues across children and builtin bypasses", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const child = defineCommand({
+      args: z.object({ childFlag: z.boolean().catch(false) }),
+      run: ({ extraArgs }) => extraArgs,
+    });
+    const root = defineCommand({
+      name: "root",
+      version: "1.0.0",
+      args: z.object({ enabled: z.boolean().catch(true) }),
+      subCommands: { child },
+    });
+
+    await expect(runCommand(root, ["--enabled=no", "child"])).rejects.toMatchObject({
+      issues: [{ arg: "--enabled", message: "expects true or false" }],
+    });
+    await expect(runCommand(root, ["child", "--child-flag=no"])).rejects.toMatchObject({
+      issues: [{ arg: "--child-flag", message: "expects true or false" }],
+    });
+    await expect(runCommand(root, ["child", "--enabled=no"])).resolves.toEqual(["--enabled=no"]);
+    await expect(runCommand(root, ["--enabled=no", "child", "--help"])).resolves.toBeUndefined();
+    await expect(runCommand(root, ["--enabled=no", "--version"])).resolves.toBeUndefined();
+    expect(log.mock.calls.at(-1)?.[0]).toBe("1.0.0");
+  });
+
   it("renders the deepest command help and bypasses required validation", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const leaf = defineCommand({

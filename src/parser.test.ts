@@ -179,9 +179,37 @@ describe("argument parsing and validation", () => {
     });
     for (const value of ["false", "true", "no", ""]) {
       await expect(parseCommandArgs(flags, [`--no-execute=${value}`])).rejects.toMatchObject({
-        issues: [expect.objectContaining({ arg: "--execute" })],
+        issues: [
+          expect.objectContaining({
+            arg: "--no-execute",
+            message: "does not accept a value",
+          }),
+        ],
       });
     }
+  });
+
+  it("reports boolean syntax before schema catches and later assignments", async () => {
+    const flags = defineCommand({
+      args: z.object({
+        caught: z.boolean().catch(true),
+        enabled: z.boolean().default(false),
+      }),
+    });
+    await expect(parseCommandArgs(flags, ["--caught=no"])).rejects.toMatchObject({
+      issues: [{ arg: "--caught", message: "expects true or false" }],
+    });
+    await expect(parseCommandArgs(flags, ["--no-caught=false"])).rejects.toMatchObject({
+      issues: [{ arg: "--no-caught", message: "does not accept a value" }],
+    });
+    await expect(
+      parseCommandArgs(flags, ["--enabled=no", "--enabled", "--no-caught=", "--caught"]),
+    ).rejects.toMatchObject({
+      issues: [
+        { arg: "--enabled", message: "expects true or false" },
+        { arg: "--no-caught", message: "does not accept a value" },
+      ],
+    });
   });
 
   it("reports missing values without consuming the following option", async () => {
