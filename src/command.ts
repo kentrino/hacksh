@@ -70,9 +70,9 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
     }
   }
 
-  for (const [key, field] of Object.entries(shape)) {
-    if (!positionalSet.has(key) && /^no[-A-Z]/.test(key) && !readArgInfo(field).takesValue) {
-      throw new TypeError(`Boolean option \`${key}\` conflicts with --no- negation`);
+  for (const key of Object.keys(shape)) {
+    if (!positionalSet.has(key) && /^no[-A-Z]/.test(key)) {
+      throw new TypeError(`Option \`${key}\` conflicts with --no- negation`);
     }
   }
 

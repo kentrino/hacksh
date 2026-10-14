@@ -74,5 +74,11 @@ describe.each(implementations)("schema reading with %s", (_name, api) => {
       required: false,
       description: "described",
     });
+    expect(readArgInfo(api.pipe(api.describe(api.string())))).toMatchObject({
+      description: "described",
+    });
+    expect(readArgInfo(api.transform(api.describe(api.string())))).toMatchObject({
+      description: "described",
+    });
   });
 });

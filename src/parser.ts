@@ -86,6 +86,22 @@ function missingValueIssue(
   return undefined;
 }
 
+function normalizeAliases(command: AnyCommandDef, rawArgs: readonly string[]): string[] {
+  const replacements = new Map<string, string>();
+  for (const [key, value] of Object.entries(command.alias ?? {})) {
+    if (!value) continue;
+    for (const alias of aliasList(value)) replacements.set(alias, key);
+  }
+  return rawArgs.map((raw) => {
+    if (!raw.startsWith("-") || raw.startsWith("--")) return raw;
+    const equals = raw.indexOf("=");
+    const alias = raw.slice(1, equals === -1 ? undefined : equals);
+    const key = replacements.get(alias);
+    if (!key) return raw;
+    return `--${key}${equals === -1 ? "" : raw.slice(equals)}`;
+  });
+}
+
 function displayName(command: AnyCommandDef, key: string): string {
   return command.positional?.includes(key) ? `<${key.toUpperCase()}>` : `--${kebabCase(key)}`;
 }
@@ -112,7 +128,7 @@ export async function parseCommandArgs<S extends ArgsSchema>(
   if (missing) throw new ZittyValidationError(command, [missing]);
 
   const parsed = parseArgs({
-    args: argsToParse,
+    args: normalizeAliases(command, argsToParse),
     options: parserOptions(command),
     allowPositionals: true,
     strict: false,

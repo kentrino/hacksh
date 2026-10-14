@@ -12,7 +12,7 @@ describe("argument parsing and validation", () => {
       first: z.string(),
       second: z.string().optional(),
     }),
-    alias: { repo: "R", dryRun: ["d", "D"] },
+    alias: { repo: ["R", "Q"], dryRun: ["d", "D"] },
     positional: ["first", "second"],
   });
 
@@ -25,6 +25,9 @@ describe("argument parsing and validation", () => {
     await expect(
       parseCommandArgs(command, ["--repo=a/b", "--dryRun", "one"]),
     ).resolves.toMatchObject({ args: { repo: "a/b", dryRun: true, first: "one" } });
+    await expect(parseCommandArgs(command, ["-Q", "a/b", "-D", "one"])).resolves.toMatchObject({
+      args: { repo: "a/b", dryRun: true, first: "one" },
+    });
   });
 
   it("keeps unknown options and positional overflow in original order", async () => {
@@ -49,6 +52,9 @@ describe("argument parsing and validation", () => {
     );
     expect(error).toMatchObject({ issues: [{ arg: "--repo", message: "requires a value" }] });
     expect((error as ZittyValidationError).issues[0]).not.toHaveProperty("issue");
+    await expect(parseCommandArgs(command, ["--repo"])).rejects.toMatchObject({
+      issues: [{ arg: "--repo", message: "requires a value" }],
+    });
   });
 
   it("runs async validation and maps every issue to CLI names", async () => {
