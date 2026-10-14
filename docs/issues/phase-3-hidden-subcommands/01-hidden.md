@@ -2,10 +2,10 @@
 
 - Plan: `docs/plan/cli-framework-next/phase-3-hidden-subcommands.md`, feature and acceptance paragraph; parent README common policy.
 - Phase: 3 feature
-- Status: pending
+- Status: working
 - depends_on: []
-- Worker: unassigned; next action: delegate implementation; blockers: none.
-- Review baseline: initial issue commit (record at delegation). Initial state: [02-integration.md](02-integration.md).
+- Worker: s-p3-hidden (pane w2P:pE); next action: implementation; blockers: none.
+- Review baseline: `a843989`. Initial state: [02-integration.md](02-integration.md).
 
 ## Scope and ownership
 
@@ -22,4 +22,31 @@ Prerequisite: phase 1 API and phase 2 help already implemented. Exclude aliases,
 
 ## Evidence
 
-Pending implementation.
+- Source state: baseline `a843989`; implementation commit `9301166430061662082eebada79623ea6ce68ebe`
+  (`feat: support hidden subcommands`). Validation below ran from that implementation commit with
+  only this issue's coordinator assignment/evidence edit left uncommitted.
+- AC1: `src/command.test.ts` has `accepts optional boolean hidden metadata without changing output
+inference`, including `true`, `false`, omitted metadata and a compile-time non-boolean rejection.
+  `src/public-api.test.ts` has `omits hidden subcommands from parent and nested listings` and `keeps
+command syntax but omits an empty listing when every child is hidden`; these exercise both
+  `renderUsage` and `showUsage`, mixed visibility, nested lists, and the all-hidden `<COMMAND>` case.
+- AC2: `src/run.test.ts` has `routes hidden commands normally`, `shows help for a hidden command
+without exposing it in parent help`, and `omits hidden commands from usage reported for an unknown
+command`. The latter uses `runMain`; the first two cover named `runCommand` execution and direct
+  help.
+- AC3: `src/command.test.ts` has explicit `positional and hidden-only subcommands` and `variadic and
+hidden-only subcommands` rejection cases. The full routing/parser suite remained green, including
+  parent-prefix validation, option-value skipping, nesting, passthrough boundaries, and phase 2
+  boolean/help behavior.
+- AC4 documentation: `README.md` documents `hidden: true`, parent-list/unknown-usage suppression,
+  direct execution/help availability, and all-hidden rendering. Correctness/quality review remains a
+  supervisor action.
+- Validation at source `9301166430061662082eebada79623ea6ce68ebe` on macOS arm64, Node `v24.15.0`,
+  pnpm `11.20.0`: `pnpm ready` passed formatting/lint/type checks (18 checked source files), all 93
+  tests in 7 files, and the Node 22.18-targeted package build. Generated `dist/index.d.ts` includes
+  `hidden?: boolean`.
+- Packed compatibility validation at the same source, with exact Node `v22.18.0` from mise and Deno
+  `2.7.14`: `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm
+test:packed` passed (`Packed consumers passed: Node 22.18.0 and Deno`). An initial plain `pnpm
+test:packed` correctly stopped before consumer execution because the active Node was `v24.15.0`;
+  rerunning with the required absolute minimum-Node path produced the recorded pass.
