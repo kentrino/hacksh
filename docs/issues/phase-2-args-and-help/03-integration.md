@@ -29,3 +29,8 @@ Pending implementation and verification.
 - Decisions: use plan proposal [] for absent variadic (Zod defaults/optional see []), reject values on negated flags, keep help display names separate from stable error names/paths.
 - Coverage: P2-01 owns variadic bullet and corresponding acceptance; P2-02 owns remaining six bullets, typed display options and schema enum boundary; P2-03 owns common packaging/environment/final-review obligations. Dependencies are acyclic.
 - Issue location follows task-requested phase-specific directory; historical phase 1 records remain untouched.
+
+## Integration preparation
+- P2-01 reviewed by c-review-p2-01 at 1f317a6, accepted without required corrections. Low cleanup nit dropped.
+- P2-02 reviewer c-review-p2-02 (pane w2P:pA) reviewed fc052d9 and sent W1 (tokenizer-owned invalid-boolean errors) and W2 (numeric enum reverse mappings) to s-p2-help for correction. Reviewer remains available.
+- Formatting prerequisite: pnpm ready detects pre-existing formatting in `.agents/skills/execute-plan/SKILL.md` and `.agents/skills/execute-plans/SKILL.md`, plus phase 2 issue Markdown. P2-03 owns formatting-only cleanup of these files; no instruction changes or plan edits.
