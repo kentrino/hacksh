@@ -1,0 +1,21 @@
+catalogMode: prefer
+
+catalog:
+  "@types/node": ^24
+  "@vitest/coverage-v8": 4.1.10
+  typescript: ^7.0.2
+  vite: npm:@voidzero-dev/vite-plus-core@0.2.8
+  vite-plus: 0.2.8
+  vitest: 4.1.10
+
+overrides:
+  vite: "catalog:"
+  vitest: "catalog:"
+
+peerDependencyRules:
+  allowAny:
+    - vite
+    - vitest
+  allowedVersions:
+    vite: "*"
+    vitest: "*"
