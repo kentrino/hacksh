@@ -136,7 +136,9 @@ express additional execution grouping through issue metadata without editing the
 - Delegate one ready issue at a time per worker, rather than passing a phase's
   entire backlog as one implementation assignment.
 
-Commit the initial issues before delegating implementation.
+Format new issue Markdown with the repository formatter before the initial issue
+commit. Record pre-existing check failures separately from failures introduced by
+the current work. Commit the initial issues before delegating implementation.
 Make this a documentation-only commit containing only this plan's issues; preserve unrelated staged and unstaged changes. On resumption, reuse
 the existing initial commit rather than recreating the issue set.
 
