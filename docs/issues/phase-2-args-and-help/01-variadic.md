@@ -2,9 +2,9 @@
 
 - Plan: `docs/plan/cli-framework-next/phase-2-args-and-help.md` and parent README common policy/completion.
 - Phase: 2
-- Status: working
+- Status: done
 - depends_on: []
-- Worker: s-p2-variadic (pane w2P:p7); next action: implement then review; blockers: none.
+- Worker: s-p2-variadic (pane w2P:p7); next action: none; implementation/review complete; blockers: none.
 - Baseline: `1b1567a`; initial baseline/hash in [03-integration.md](03-integration.md).
 
 ## Scope and ownership
@@ -15,10 +15,10 @@ Exclusions: other phases, plan edits, publishing and external repositories. Pres
 
 ## Acceptance criteria
 
-- [ ] AC1: Plan variadic bullet and acceptance: fixed + variadic, zero/multiple values, wrapped optional/default arrays, per-element validation/path, extras/passthrough order work. Verify committed parser/run tests for zod and mini.
-- [ ] AC2: Plan definition constraints: duplicate/multiple/misplaced/non-array/subcommand/alias configurations fail; schema-key typing and inferred output remain correct. Verify command/type tests and public declarations.
-- [ ] AC3: Plan help and parent common policy: variadic syntax and README describe contract; existing positional and routing behavior preserved. Verify focused tests.
-- [ ] AC4: Correctness and quality review accepts the issue revision; all required corrections validated.
+- [x] AC1: Plan variadic bullet and acceptance: fixed + variadic, zero/multiple values, wrapped optional/default arrays, per-element validation/path, extras/passthrough order work. Verify committed parser/run tests for zod and mini.
+- [x] AC2: Plan definition constraints: duplicate/multiple/misplaced/non-array/subcommand/alias configurations fail; schema-key typing and inferred output remain correct. Verify command/type tests and public declarations.
+- [x] AC3: Plan help and parent common policy: variadic syntax and README describe contract; existing positional and routing behavior preserved. Verify focused tests.
+- [x] AC4: Correctness and quality review accepts the issue revision; all required corrections validated.
 
 ## Evidence
 
@@ -48,3 +48,5 @@ src/schema.test.ts src/schema.ts src/usage.ts` — passed; all 11 files formatte
   `.agents/skills/execute-plan/SKILL.md`, `.agents/skills/execute-plans/SKILL.md`,
   `02-help-and-booleans.md`, and `03-integration.md`. Those unrelated contents were not reformatted
   as part of the implementation.
+
+- Review: c-review-p2-01 accepted correctness and AC1–AC3 at `1f317a6`; only low cleanup nit dropped per review skill. Independent probes checked malformed variadic values, nullable/min constraints, unknown option ordering, whole-array transforms and empty subcommands. No required corrections. Variadic help remains optional syntax; Zod minimum lengths are validation-owned. Aggregate ready remains a P2-03 obligation.
