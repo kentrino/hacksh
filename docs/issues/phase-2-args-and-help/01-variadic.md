@@ -2,10 +2,10 @@
 
 - Plan: `docs/plan/cli-framework-next/phase-2-args-and-help.md` and parent README common policy/completion.
 - Phase: 2
-- Status: pending
+- Status: working
 - depends_on: []
-- Worker: unassigned; next action: delegate when ready; blockers: none.
-- Baseline: recorded at assignment; initial baseline/hash in [03-integration.md](03-integration.md).
+- Worker: s-p2-variadic (pane w2P:p7); next action: implement then review; blockers: none.
+- Baseline: `1b1567a`; initial baseline/hash in [03-integration.md](03-integration.md).
 
 ## Scope and ownership
 Own variadic command contract, schema-reader array recognition, common parser collection, usage syntax, related type/behavior tests and README. API: `variadic` is one schema key separate from fixed `positional`, hence always trailing. Reject multiple keys at runtime, duplicates/placement in fixed positionals, non-array fields, aliases and nonempty subcommands. Wrapped arrays supported through schema reader only. Omitted variadic input is always [] (optional/default do not replace it); element transforms and validation remain Zod-owned. Errors keep schema-based argument labels and full element paths. Fixed optional positionals consume first as before. Prerequisite: existing phase 1 public API.
