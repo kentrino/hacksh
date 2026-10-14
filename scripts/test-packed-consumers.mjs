@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
 
 const repository = resolve(import.meta.dirname, "..");
@@ -168,8 +168,21 @@ void [parsed, rendered, shown, main, miniParsed];
 
 let registry;
 try {
-  const minimumNode = await runChecked("mise", ["exec", "node@22.18.0", "--", "node", "--version"]);
-  assert(minimumNode.stdout.trim() === "v22.18.0", "Node 22.18.0 is required for packed tests");
+  const configuredNode = process.env.ZITTY_MINIMUM_NODE;
+  assert(
+    !configuredNode || isAbsolute(configuredNode),
+    "ZITTY_MINIMUM_NODE must be an absolute path to a Node 22.18.0 executable",
+  );
+  const minimumNodeExecutable = configuredNode ?? process.execPath;
+  const minimumNode = await run(minimumNodeExecutable, ["--version"]);
+  assert(
+    minimumNode.code === 0 && minimumNode.stdout.trim() === "v22.18.0",
+    `Packed consumer tests require Node 22.18.0, got ${minimumNode.stdout.trim() || minimumNode.stderr.trim() || `exit ${minimumNode.code}`}. Run pnpm under Node 22.18.0 or set ZITTY_MINIMUM_NODE=/absolute/path/to/node.`,
+  );
+  const minimumNodeEnvironment = {
+    ...process.env,
+    PATH: [dirname(minimumNodeExecutable), process.env.PATH].filter(Boolean).join(delimiter),
+  };
   const packDirectory = join(temporaryRoot, "pack");
   await mkdir(packDirectory);
   await runChecked("pnpm", ["build"]);
@@ -184,19 +197,9 @@ try {
   await writeFile(join(nodeDirectory, "consumer.mjs"), consumerSource("zod", "zod/mini", "zitty"));
   await writeFile(join(nodeDirectory, "consumer-types.ts"), typeConsumerSource());
   await runChecked(
-    "mise",
-    [
-      "exec",
-      "node@22.18.0",
-      "--",
-      "npm",
-      "install",
-      "--ignore-scripts",
-      "--no-package-lock",
-      archivePath,
-      "zod@^4",
-    ],
-    { cwd: nodeDirectory },
+    "npm",
+    ["install", "--ignore-scripts", "--no-package-lock", archivePath, "zod@^4"],
+    { cwd: nodeDirectory, env: minimumNodeEnvironment },
   );
   await runChecked(
     "pnpm",
@@ -218,8 +221,9 @@ try {
     { cwd: repository },
   );
   await verifyConsumer("Node", (args) =>
-    run("mise", ["exec", "node@22.18.0", "--", "node", "consumer.mjs", ...args], {
+    run(minimumNodeExecutable, ["consumer.mjs", ...args], {
       cwd: nodeDirectory,
+      env: minimumNodeEnvironment,
     }),
   );
 

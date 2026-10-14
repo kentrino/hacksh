@@ -83,10 +83,13 @@ subcommand prevents the parent `run` handler from running. `worktree new --help`
 caller, and returns the selected `run` handler's result.
 
 For parsing and usage rendering without execution, use the async composition APIs. `parseArgs`
-returns the schema output only and throws `ZittyValidationError` on failure. `renderUsage` has no
-output side effects; `showUsage` sends that same text to an optional synchronous or asynchronous
-writer (and otherwise uses `console.log`). These functions are async so future command-resolution
-features can be added without changing their return types.
+parses exactly the supplied command definition and argument segment, returns its schema output only,
+and throws `ZittyValidationError` on failure. It does not route subcommands, act on help or version
+tokens, or bypass validation; callers that resolve commands themselves must pass the selected
+command and its segment. `renderUsage` has no output side effects; `showUsage` sends that same text
+to an optional synchronous or asynchronous writer (and otherwise uses `console.log`). These
+functions are async so future command-resolution features can be added without changing their
+return types.
 
 ```ts
 import { parseArgs, renderUsage, showUsage } from "zitty";
@@ -141,9 +144,17 @@ Usage failures are `ZittyUsageError` instances. Argument failures are
 
 ## Development
 
-| Command        | Description                      |
-| -------------- | -------------------------------- |
-| `vp check`     | Format, lint, and type check     |
-| `vp test`      | Run tests                        |
-| `vp pack`      | Build `src/index.ts` into `dist` |
-| `vp run ready` | Run check, test, and build       |
+| Command            | Description                               |
+| ------------------ | ----------------------------------------- |
+| `vp check`         | Format, lint, and type check              |
+| `vp test`          | Run tests                                 |
+| `vp pack`          | Build `src/index.ts` into `dist`          |
+| `vp run ready`     | Run check, test, and build                |
+| `pnpm test:packed` | Test the tarball with Node 22.18 and Deno |
+
+The packed-consumer test must execute its Node consumer with exactly Node 22.18.0. Run pnpm itself
+under that version, or supply an absolute executable path explicitly:
+
+```sh
+ZITTY_MINIMUM_NODE=/absolute/path/to/node-v22.18.0 pnpm test:packed
+```
