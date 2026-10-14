@@ -32,7 +32,7 @@ function heading(command: AnyCommandDef): string | undefined {
   return command.description ?? identity;
 }
 
-export function renderUsage(command: AnyCommandDef): string {
+function formatUsage(command: AnyCommandDef): string {
   const lines: string[] = [];
   const title = heading(command);
   if (title) lines.push(title, "");
@@ -84,4 +84,24 @@ export function renderUsage(command: AnyCommandDef): string {
     }
   }
   return lines.join("\n");
+}
+
+export type UsageWriter = (text: string) => void | Promise<void>;
+
+export interface ShowUsageOptions {
+  write?: UsageWriter;
+}
+
+/** Generate usage text without writing to stdout or stderr. */
+export async function renderUsage(command: AnyCommandDef): Promise<string> {
+  return formatUsage(command);
+}
+
+/** Generate and write usage text, awaiting asynchronous writers. */
+export async function showUsage(
+  command: AnyCommandDef,
+  options: ShowUsageOptions = {},
+): Promise<void> {
+  const text = await renderUsage(command);
+  await Promise.resolve((options.write ?? console.log)(text));
 }

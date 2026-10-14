@@ -1,6 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vite-plus/test";
 import { z } from "zod";
-import { defineCommand, runCommand, runMain, ZittyUsageError } from "./index.ts";
+import {
+  createMain,
+  defineCommand,
+  runCommand,
+  runMain,
+  ZittyUsageError,
+  type CommandDef,
+  type ShowUsageCallback,
+} from "./index.ts";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -45,6 +53,44 @@ describe("command routing", () => {
       command: root,
     });
     await expect(runCommand(root, ["child"])).rejects.toBeInstanceOf(ZittyUsageError);
+  });
+
+  it("provides the actual resolved command and inferred schema on cmd", async () => {
+    const rootArgs = z.object({ rootValue: z.string().default("root") });
+    const rootRun = vi.fn();
+    const root = defineCommand({
+      name: "root",
+      args: rootArgs,
+      run({ cmd, args }) {
+        expectTypeOf(cmd).toEqualTypeOf<CommandDef<typeof rootArgs>>();
+        expectTypeOf(args).toEqualTypeOf<{ rootValue: string }>();
+        rootRun();
+        return cmd;
+      },
+    });
+    await expect(runCommand(root, [])).resolves.toBe(root);
+
+    const unnamedLeaf = defineCommand({
+      args: z.object({ count: z.coerce.number() }),
+      run({ cmd, args }) {
+        expectTypeOf(cmd).toEqualTypeOf<typeof unnamedLeaf>();
+        expectTypeOf(args).toEqualTypeOf<{ count: number }>();
+        return { cmd, args };
+      },
+    });
+    const nested = defineCommand({
+      name: "top",
+      subCommands: {
+        group: defineCommand({ subCommands: { leaf: unnamedLeaf } }),
+      },
+    });
+    const result = await runCommand(nested, ["group", "leaf", "--count", "2"]);
+    expect(result).toMatchObject({ cmd: { name: "leaf" }, args: { count: 2 } });
+    expect(unnamedLeaf).not.toHaveProperty("name");
+
+    const namedLeaf = defineCommand({ name: "custom", run: ({ cmd }) => cmd });
+    const namedRoot = defineCommand({ subCommands: { alias: namedLeaf } });
+    await expect(runCommand(namedRoot, ["alias"])).resolves.toBe(namedLeaf);
   });
 });
 
@@ -141,20 +187,75 @@ describe("help and version", () => {
 });
 
 describe("runMain", () => {
+  it("uses explicit, empty, and omitted argv with the documented precedence", async () => {
+    const seen: string[] = [];
+    const command = defineCommand({
+      args: z.object({ value: z.string().default("empty") }),
+      run: ({ args }) => seen.push(args.value),
+    });
+    vi.spyOn(process, "argv", "get").mockReturnValue(["node", "cli", "--value", "process"]);
+
+    await runMain(command, { argv: ["--value", "explicit"] });
+    await runMain(command, { argv: [] });
+    await runMain(command);
+    expect(seen).toEqual(["explicit", "empty", "process"]);
+  });
+
+  it("creates a reusable main whose invocation argv takes precedence", async () => {
+    const seen: string[] = [];
+    const command = defineCommand({
+      args: z.object({ value: z.string().default("empty") }),
+      run: ({ args }) => seen.push(args.value),
+    });
+    const main = createMain(command, { argv: ["--value", "configured"] });
+    expectTypeOf(main).toEqualTypeOf<(argv?: string[]) => Promise<void>>();
+
+    await main();
+    await main(["--value", "invocation"]);
+    await main([]);
+    expect(seen).toEqual(["configured", "invocation", "empty"]);
+  });
+
+  it("uses one async usage hook with stdout and stderr writers", async () => {
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("stopped");
+    }) as never);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const calls: string[] = [];
+    const display: ShowUsageCallback = async (command, { write }) => {
+      await Promise.resolve();
+      calls.push(command.name ?? "command");
+      await write(`custom:${command.name ?? "command"}`);
+    };
+    const command = defineCommand({ name: "tool", args: z.object({ value: z.string() }) });
+
+    await runMain(command, { argv: ["--help"], showUsage: display });
+    expect(log).toHaveBeenCalledWith("custom:tool");
+    expect(error).not.toHaveBeenCalled();
+
+    await expect(runMain(command, { argv: [], showUsage: display })).rejects.toThrow("stopped");
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("Invalid arguments:"));
+    expect(error).toHaveBeenCalledWith("custom:tool");
+    expect(calls).toEqual(["tool", "tool"]);
+  });
+
   it("uses process argv, replaces reporting with async onError, and exits one", async () => {
     vi.spyOn(process, "argv", "get").mockReturnValue(["node", "cli", "--bad"]);
     const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
     const onError = vi.fn(async () => Promise.resolve());
+    const showUsage = vi.fn();
     const command = defineCommand({
       run: () => {
         throw new Error("boom");
       },
     });
-    await expect(runMain(command, { onError })).rejects.toThrow("exit:1");
+    await expect(runMain(command, { onError, showUsage })).rejects.toThrow("exit:1");
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "boom" }));
     expect(exit).toHaveBeenCalledWith(1);
+    expect(showUsage).not.toHaveBeenCalled();
   });
 
   it("prints usage errors and ordinary errors differently", async () => {

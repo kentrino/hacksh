@@ -7,7 +7,7 @@ import {
   tokenizeCommandArgs,
   type TokenizedCommandArgs,
 } from "./parser.ts";
-import { renderUsage } from "./usage.ts";
+import { showUsage, type UsageWriter } from "./usage.ts";
 
 interface CommandSegment {
   command: AnyCommandDef;
@@ -52,9 +52,10 @@ function resolveCommand(root: AnyCommandDef, rawArgs: string[]): ResolvedCommand
   }
 }
 
-export async function runCommand<S extends ArgsSchema>(
+async function executeCommand<S extends ArgsSchema>(
   root: CommandDef<S>,
   argv: string[],
+  displayUsage: ShowUsageCallback,
 ): Promise<unknown> {
   const resolved = resolveCommand(root, argv);
   if (resolved.segments[0]?.tokenized.version) {
@@ -62,7 +63,7 @@ export async function runCommand<S extends ArgsSchema>(
     return undefined;
   }
   if (resolved.segments.some(({ tokenized }) => tokenized.help)) {
-    console.log(renderUsage(resolved.command));
+    await displayUsage(resolved.command, { write: (text) => console.log(text) });
     return undefined;
   }
 
@@ -73,27 +74,53 @@ export async function runCommand<S extends ArgsSchema>(
   if (!resolved.command.run) {
     throw new ZittyUsageError("No command specified", resolved.command);
   }
-  return resolved.command.run({ ...parsed, rawArgs: resolved.rawArgs });
+  return resolved.command.run({ ...parsed, cmd: resolved.command, rawArgs: resolved.rawArgs });
 }
+
+export async function runCommand<S extends ArgsSchema>(
+  root: CommandDef<S>,
+  argv: string[],
+): Promise<unknown> {
+  return executeCommand(root, argv, showUsage);
+}
+
+export interface UsageOutput {
+  write: UsageWriter;
+}
+
+export type ShowUsageCallback = (
+  command: AnyCommandDef,
+  output: UsageOutput,
+) => void | Promise<void>;
 
 export interface RunMainOptions {
   onError?: (error: unknown) => void | Promise<void>;
+  argv?: string[];
+  showUsage?: ShowUsageCallback;
 }
 
 export async function runMain<S extends ArgsSchema>(
   command: CommandDef<S>,
   options: RunMainOptions = {},
 ): Promise<void> {
+  const displayUsage = options.showUsage ?? showUsage;
   try {
-    await runCommand(command, process.argv.slice(2));
+    await executeCommand(command, options.argv ?? process.argv.slice(2), displayUsage);
   } catch (error) {
     if (options.onError) await options.onError(error);
     else if (error instanceof ZittyUsageError) {
       console.error(error.message);
-      console.error(renderUsage(error.command));
+      await displayUsage(error.command, { write: (text) => console.error(text) });
     } else {
       console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
     }
     process.exit(1);
   }
+}
+
+export function createMain<S extends ArgsSchema>(
+  command: CommandDef<S>,
+  options: RunMainOptions = {},
+): (argv?: string[]) => Promise<void> {
+  return (argv) => runMain(command, argv === undefined ? options : { ...options, argv });
 }

@@ -11,6 +11,15 @@ describe("real process behavior", () => {
     expect(result.stderr).toBe("");
   });
 
+  it("prints help to stdout and exits zero", () => {
+    const result = spawnSync(process.execPath, ["src/fixtures/exit-cli.ts", "--help"], {
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("USAGE exit-fixture [OPTIONS]");
+    expect(result.stderr).toBe("");
+  });
+
   it("exits one and prints validation details plus usage", () => {
     const result = spawnSync(process.execPath, ["src/fixtures/exit-cli.ts", "--count", "bad"], {
       encoding: "utf8",

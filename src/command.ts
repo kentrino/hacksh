@@ -11,6 +11,7 @@ import {
 export type AliasMap<S extends ArgsSchema> = Partial<Record<ArgKey<S>, string | readonly string[]>>;
 
 export interface CommandContext<S extends ArgsSchema> {
+  cmd: CommandDef<S>;
   args: output<S>;
   rawArgs: string[];
   passthrough: string[];
@@ -25,7 +26,7 @@ export interface CommandDef<S extends ArgsSchema = EmptyArgs> {
   alias?: AliasMap<S>;
   positional?: readonly ArgKey<S>[];
   subCommands?: Record<string, CommandDef<ArgsSchema>>;
-  run?: (context: CommandContext<S>) => unknown;
+  run?(context: CommandContext<S>): unknown;
 }
 
 export type AnyCommandDef = CommandDef<ArgsSchema>;

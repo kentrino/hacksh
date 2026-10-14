@@ -1,4 +1,4 @@
-import { parseArgs } from "node:util";
+import { parseArgs as parseNodeArgs } from "node:util";
 import { safeParseAsync, type $ZodIssue, type output } from "zod/v4/core";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { ZittyValidationError, type ZittyIssue } from "./errors.ts";
@@ -108,7 +108,7 @@ export function tokenizeCommandArgs(
     return `--${definition.key}`;
   });
 
-  const parsed = parseArgs({
+  const parsed = parseNodeArgs({
     args: parserArgs,
     options: model.parserOptions,
     allowPositionals: true,
@@ -246,4 +246,12 @@ export async function parseCommandArgs<S extends ArgsSchema>(
   if (!result.success)
     throw new ZittyValidationError(command, zodIssues(command, result.error.issues));
   return { args: result.data, passthrough: tokenized.passthrough, extraArgs };
+}
+
+/** Parse and validate arguments without running the command or writing output. */
+export async function parseArgs<S extends ArgsSchema>(
+  command: CommandDef<S>,
+  argv: string[],
+): Promise<output<S>> {
+  return (await parseCommandArgs(command, argv)).args;
 }
