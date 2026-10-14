@@ -25,7 +25,11 @@
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "zod": "catalog:"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
   },
   "devEngines": {
     "packageManager": {
