@@ -11,6 +11,14 @@ import {
 
 export type AliasMap<S extends ArgsSchema> = Partial<Record<ArgKey<S>, string | readonly string[]>>;
 
+export interface ArgDisplay {
+  name?: string;
+  valueName?: string;
+  negatedDescription?: string;
+}
+
+export type ArgDisplayMap<S extends ArgsSchema> = Partial<Record<ArgKey<S>, ArgDisplay>>;
+
 export interface CommandContext<S extends ArgsSchema> {
   cmd: CommandDef<S>;
   args: output<S>;
@@ -25,6 +33,7 @@ export interface CommandDef<S extends ArgsSchema = EmptyArgs> {
   description?: string;
   args?: S;
   alias?: AliasMap<S>;
+  argDisplay?: ArgDisplayMap<S>;
   positional?: readonly ArgKey<S>[];
   variadic?: ArgKey<S>;
   subCommands?: Record<string, CommandDef<ArgsSchema>>;
@@ -43,6 +52,10 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
   }
   const variadic = rawVariadic as string | undefined;
   let sawOptional = false;
+
+  for (const key of Object.keys(def.argDisplay ?? {})) {
+    if (!shape[key]) throw new TypeError(`Unknown argument display key \`${key}\``);
+  }
 
   for (const key of positional) {
     const field = shape[key];

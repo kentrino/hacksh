@@ -7,6 +7,7 @@ import { isArrayInput, readArgInfo } from "./schema.ts";
 type TestApi = {
   string: () => $ZodType;
   boolean: () => $ZodType;
+  enum: () => $ZodType;
   array: (schema: $ZodType) => $ZodType;
   optional: (schema: $ZodType) => $ZodType;
   nullable: (schema: $ZodType) => $ZodType;
@@ -23,6 +24,7 @@ const implementations: ReadonlyArray<[string, TestApi]> = [
     {
       string: () => z.string(),
       boolean: () => z.boolean(),
+      enum: () => z.enum(["small", "large"]),
       array: (schema) => z.array(schema as z.ZodType),
       optional: (schema) => (schema as z.ZodType).optional(),
       nullable: (schema) => (schema as z.ZodType).nullable(),
@@ -38,6 +40,7 @@ const implementations: ReadonlyArray<[string, TestApi]> = [
     {
       string: () => mini.string(),
       boolean: () => mini.boolean(),
+      enum: () => mini.enum(["small", "large"]),
       array: (schema) => mini.array(schema),
       optional: (schema) => mini.optional(schema),
       nullable: (schema) => mini.nullable(schema),
@@ -68,6 +71,7 @@ describe.each(implementations)("schema reading with %s", (_name, api) => {
       required: false,
       defaultValue: "fallback",
       description: "described",
+      choices: undefined,
     });
     expect(readArgInfo(api.catch(api.describe(api.string())))).toMatchObject({
       required: true,
@@ -92,4 +96,19 @@ describe.each(implementations)("schema reading with %s", (_name, api) => {
     expect(isArrayInput(api.transform(api.array(api.string())))).toBe(true);
     expect(isArrayInput(api.string())).toBe(false);
   });
+
+  it("reads enum choices through wrappers and from variadic array elements", () => {
+    expect(readArgInfo(api.optional(api.enum()))).toMatchObject({
+      choices: ["small", "large"],
+    });
+    expect(readArgInfo(api.array(api.default(api.enum())))).toMatchObject({
+      choices: ["small", "large"],
+    });
+  });
+});
+
+it("does not infer choices from unions, literals, or refinements", () => {
+  expect(readArgInfo(z.union([z.literal("small"), z.literal("large")])).choices).toBeUndefined();
+  expect(readArgInfo(z.literal(["small", "large"])).choices).toBeUndefined();
+  expect(readArgInfo(z.string().refine((value) => value === "small")).choices).toBeUndefined();
 });

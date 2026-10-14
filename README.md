@@ -47,7 +47,10 @@ gh-pr-commits --version
 
 Boolean fields are flags and other fields take a value. Both a schema key and its kebab-case form
 are accepted (`--dryRun` and `--dry-run`). A default-on flag can be disabled with `--no-`, such as
-`--no-verbose`. Value options accept `--repo owner/repo` and `--repo=owner/repo`.
+`--no-verbose`. Boolean flags also accept the explicit forms `--verbose=true` and
+`--verbose=false`; other inline values and values on a negated flag (such as
+`--no-verbose=false`) are validation errors. Value options accept `--repo owner/repo` and
+`--repo=owner/repo`; values such as `false` remain strings for non-boolean fields.
 
 Keys in `positional` are assigned in order. Optional or defaulted positional arguments must come
 after required ones. To collect all remaining positional values, set `variadic` to a separate array
@@ -67,6 +70,36 @@ const copy = defineCommand({
 
 Without `variadic`, additional positional arguments are kept in `extraArgs`. Unknown options are
 also kept in `extraArgs`; arguments after `--` are kept in `passthrough`.
+
+## Customize help arguments
+
+`z.enum` choices and schema descriptions appear in generated help, including enums inside the
+supported schema wrappers and variadic arrays. Use `argDisplay` to customize help labels without
+changing schema keys, parsed output, or validation error paths:
+
+```ts
+const convert = defineCommand({
+  name: "convert",
+  args: z.object({
+    size: z.enum(["small", "large"]).describe("Item size"),
+    format: z.enum(["json", "yaml"]).optional().describe("Output format"),
+    overwrite: z.boolean().default(true).describe("Replace existing files"),
+    files: z.array(z.string()).describe("Input files"),
+  }),
+  positional: ["size"],
+  variadic: "files",
+  argDisplay: {
+    size: { name: "SIZE" },
+    format: { valueName: "FORMAT" },
+    overwrite: { negatedDescription: "Keep existing files" },
+    files: { name: "INPUT" },
+  },
+});
+```
+
+This renders positional labels such as `<SIZE>` and `[INPUT...]`, the named value
+`--format=<FORMAT>`, enum choices, and a separate `--no-overwrite` description. `argDisplay` keys
+are checked against the argument schema. Help remains plain text when `NO_COLOR` or `CI` is set.
 
 ## Subcommands
 

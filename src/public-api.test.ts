@@ -88,6 +88,48 @@ describe("public parsing API", () => {
 });
 
 describe("public usage API", () => {
+  it.each([
+    [
+      "zod",
+      z.object({
+        size: z.enum(["small", "large"]).describe("Item size"),
+        format: z.enum(["json", "yaml"]).optional().describe("Output format"),
+        overwrite: z.boolean().default(false).describe("Replace existing files"),
+        files: z.array(z.enum(["txt", "md"])).describe("Input files"),
+      }),
+    ],
+    [
+      "zod/mini",
+      mini.object({
+        size: mini.enum(["small", "large"]).check(mini.describe("Item size")),
+        format: mini.optional(mini.enum(["json", "yaml"])).check(mini.describe("Output format")),
+        overwrite: mini
+          ._default(mini.boolean(), false)
+          .check(mini.describe("Replace existing files")),
+        files: mini.array(mini.enum(["txt", "md"])).check(mini.describe("Input files")),
+      }),
+    ],
+  ])("renders enum choices and display metadata with %s", async (_name, args) => {
+    const command = defineCommand({
+      name: "convert",
+      args,
+      positional: ["size"],
+      variadic: "files",
+      argDisplay: {
+        size: { name: "SIZE" },
+        format: { valueName: "FORMAT" },
+        overwrite: { negatedDescription: "Keep existing files" },
+        files: { name: "INPUT" },
+      },
+    });
+    const usage = await renderUsage(command);
+    expect(usage).toContain("USAGE convert [OPTIONS] <SIZE> [INPUT...]");
+    expect(usage).toContain("SIZE  Item size (Choices: small, large) (Required)");
+    expect(usage).toContain("INPUT...  Input files (Choices: txt, md)");
+    expect(usage).toContain("--format=<FORMAT>  Output format (Choices: json, yaml)");
+    expect(usage).toContain("--no-overwrite  Keep existing files");
+  });
+
   it("renders a variadic argument as trailing and not as a named option", async () => {
     const command = defineCommand({
       name: "copy",
@@ -138,4 +180,24 @@ describe("public usage API", () => {
     await showUsage(defineCommand({ name: "tool" }));
     expect(log).toHaveBeenCalledWith(expect.stringContaining("USAGE tool"));
   });
+
+  it.each(["NO_COLOR", "CI"])(
+    "keeps rendered and emitted usage ANSI-free under %s",
+    async (key) => {
+      vi.stubEnv(key, "1");
+      const command = defineCommand({
+        name: "tool",
+        args: z.object({ value: z.string().describe("A value") }),
+      });
+      const rendered = await renderUsage(command);
+      const written: string[] = [];
+      await showUsage(command, {
+        write(text) {
+          written.push(text);
+        },
+      });
+      expect(rendered).not.toContain(`${String.fromCodePoint(27)}[`);
+      expect(written).toEqual([rendered]);
+    },
+  );
 });

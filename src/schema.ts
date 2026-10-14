@@ -10,6 +10,7 @@ export interface ArgInfo {
   readonly required: boolean;
   readonly defaultValue: unknown;
   readonly description: string | undefined;
+  readonly choices: readonly string[] | undefined;
 }
 
 type ZodDef = Record<string, unknown> & { type: string };
@@ -60,7 +61,16 @@ export function readArgInfo(schema: $ZodType): ArgInfo {
     required,
     defaultValue,
     description,
+    choices: enumChoices(base),
   };
+}
+
+function enumChoices(schema: $ZodType): readonly string[] | undefined {
+  const def = definition(schema);
+  const candidate = def.type === "array" ? unwrapInput(def.element as $ZodType) : schema;
+  const candidateDef = definition(candidate);
+  if (candidateDef.type !== "enum") return undefined;
+  return [...new Set(Object.values(candidateDef.entries as Record<string, unknown>).map(String))];
 }
 
 /** Whether the schema accepts an array after removing supported input wrappers. */

@@ -71,10 +71,16 @@ async function verifyConsumer(label, execute) {
   assert(version.code === 0 && version.stdout.trim() === "1.2.3", `${label}: version failed`);
 
   const inlineBoolean = await execute(["--enabled=false"]);
-  assert(inlineBoolean.code === 1, `${label}: inline boolean exited ${inlineBoolean.code}`);
+  assert(inlineBoolean.code === 0, `${label}: inline boolean exited ${inlineBoolean.code}`);
   assert(
-    inlineBoolean.stderr.includes("--enabled:"),
-    `${label}: inline boolean validation error absent`,
+    JSON.parse(inlineBoolean.stdout).args.enabled === false,
+    `${label}: inline boolean false was not parsed`,
+  );
+
+  const invalidInlineBoolean = await execute(["--no-enabled=false"]);
+  assert(
+    invalidInlineBoolean.code === 1 && invalidInlineBoolean.stderr.includes("--enabled:"),
+    `${label}: valued negation was not rejected`,
   );
 
   const missing = await execute(["--repo"]);

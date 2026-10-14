@@ -100,13 +100,20 @@ export function tokenizeCommandArgs(
   const beforeSeparator = separator === -1 ? [...rawArgs] : rawArgs.slice(0, separator);
   const passthrough = separator === -1 ? [] : rawArgs.slice(separator + 1);
   const negativeIndexes = new Set<number>();
+  const valuedNegativeIndexes = new Set<number>();
   let missingValue: ZittyIssue | undefined;
   let missingValueIndex: number | undefined;
   const parserArgs = beforeSeparator.map((raw, index) => {
     if (!raw.startsWith("--no-")) return raw;
-    const definition = model.definitions.get(raw.slice(5));
+    const equals = raw.indexOf("=");
+    const name = raw.slice(5, equals === -1 ? undefined : equals);
+    const definition = model.definitions.get(name);
     if (!definition || definition.takesValue) return raw;
     negativeIndexes.add(index);
+    if (equals !== -1) {
+      valuedNegativeIndexes.add(index);
+      return `--${definition.key}${raw.slice(equals)}`;
+    }
     return `--${definition.key}`;
   });
 
@@ -159,9 +166,17 @@ export function tokenizeCommandArgs(
         definition,
         value: definition.takesValue
           ? (token.value ?? "")
-          : negativeIndexes.has(token.index)
-            ? false
-            : (token.value ?? true),
+          : valuedNegativeIndexes.has(token.index)
+            ? (token.value ?? "")
+            : negativeIndexes.has(token.index)
+              ? false
+              : token.inlineValue
+                ? token.value === "true"
+                  ? true
+                  : token.value === "false"
+                    ? false
+                    : (token.value ?? "")
+                : (token.value ?? true),
       });
     } else if (!unknownIndexes.has(token.index)) {
       unknownIndexes.add(token.index);

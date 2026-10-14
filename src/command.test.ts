@@ -60,6 +60,7 @@ describe("defineCommand", () => {
     ],
     ["negation collision", { args: z.object({ noFocus: z.boolean() }) }],
     ["value-option negation collision", { args: z.object({ "no-focus": z.string() }) }],
+    ["unknown argument display", { args: z.object({ x: z.string() }), argDisplay: { y: {} } }],
     [
       "positional and subcommands",
       {
@@ -90,7 +91,15 @@ describe("defineCommand", () => {
 });
 
 const typedSchema = z.object({ repo: z.string(), verbose: z.boolean() });
-defineCommand({ args: typedSchema, positional: ["repo"], alias: { verbose: "v" } });
+defineCommand({
+  args: typedSchema,
+  positional: ["repo"],
+  alias: { verbose: "v" },
+  argDisplay: {
+    repo: { name: "REPOSITORY" },
+    verbose: { negatedDescription: "Hide details" },
+  },
+});
 const variadicSchema = z.object({ files: z.array(z.string()) });
 defineCommand({
   args: variadicSchema,
@@ -107,4 +116,6 @@ if (process.env.ZITTY_TYPE_TESTS) {
   defineCommand({ args: typedSchema, alias: { missing: "m" } });
   // @ts-expect-error variadic keys must exist in the schema
   defineCommand({ args: variadicSchema, variadic: "missing" });
+  // @ts-expect-error argument display keys must exist in the schema
+  defineCommand({ args: typedSchema, argDisplay: { missing: { name: "MISSING" } } });
 }

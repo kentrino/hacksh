@@ -155,20 +155,33 @@ describe("argument parsing and validation", () => {
     });
   });
 
-  it("rejects inline boolean values instead of silently enabling the flag", async () => {
-    const flags = defineCommand({ args: z.object({ execute: z.boolean().default(false) }) });
+  it("accepts explicit true and false only for inline boolean values", async () => {
+    const flags = defineCommand({
+      args: z.object({ execute: z.boolean().default(false), mode: z.string().optional() }),
+    });
     await expect(parseCommandArgs(flags, ["--execute"])).resolves.toMatchObject({
       args: { execute: true },
     });
     await expect(parseCommandArgs(flags, ["--no-execute"])).resolves.toMatchObject({
       args: { execute: false },
     });
-    await expect(parseCommandArgs(flags, ["--execute=false"])).rejects.toMatchObject({
-      issues: [expect.objectContaining({ arg: "--execute" })],
+    await expect(parseCommandArgs(flags, ["--execute=false"])).resolves.toMatchObject({
+      args: { execute: false },
+    });
+    await expect(parseCommandArgs(flags, ["--execute=true"])).resolves.toMatchObject({
+      args: { execute: true },
+    });
+    await expect(parseCommandArgs(flags, ["--mode=false"])).resolves.toMatchObject({
+      args: { execute: false, mode: "false" },
     });
     await expect(parseCommandArgs(flags, ["--execute=no"])).rejects.toMatchObject({
       issues: [expect.objectContaining({ arg: "--execute" })],
     });
+    for (const value of ["false", "true", "no", ""]) {
+      await expect(parseCommandArgs(flags, [`--no-execute=${value}`])).rejects.toMatchObject({
+        issues: [expect.objectContaining({ arg: "--execute" })],
+      });
+    }
   });
 
   it("reports missing values without consuming the following option", async () => {
@@ -192,6 +205,7 @@ describe("argument parsing and validation", () => {
           .refine(async (value) => value > 0, "must be positive"),
       }),
       positional: ["pr"],
+      argDisplay: { repo: { valueName: "OWNER/REPO" }, pr: { name: "NUMBER" } },
     });
     const error = await parseCommandArgs(validated, ["--repo", "bad", "0"]).catch(
       (caught: unknown) => caught,

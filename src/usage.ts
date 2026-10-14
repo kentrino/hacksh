@@ -6,8 +6,10 @@ function details(
   description: string | undefined,
   required: boolean,
   defaultValue: unknown,
+  choices: readonly string[] | undefined,
 ): string {
   const parts = [description];
+  if (choices) parts.push(`(Choices: ${choices.join(", ")})`);
   if (required) parts.push("(Required)");
   if (defaultValue !== undefined) parts.push(`(Default: ${formatDefault(defaultValue)})`);
   return parts.filter(Boolean).join(" ");
@@ -43,9 +45,13 @@ function formatUsage(command: AnyCommandDef): string {
   if (command.variadic) positionalSet.add(command.variadic);
   const syntax = positional.map((key) => {
     const info = readArgInfo(shape[key]!);
-    return info.required ? `<${key.toUpperCase()}>` : `[${key.toUpperCase()}]`;
+    const name = command.argDisplay?.[key]?.name ?? key.toUpperCase();
+    return info.required ? `<${name}>` : `[${name}]`;
   });
-  if (command.variadic) syntax.push(`[${command.variadic.toUpperCase()}...]`);
+  if (command.variadic) {
+    const name = command.argDisplay?.[command.variadic]?.name ?? command.variadic.toUpperCase();
+    syntax.push(`[${name}...]`);
+  }
   if (command.subCommands && Object.keys(command.subCommands).length > 0) syntax.push("<COMMAND>");
   lines.push(
     `USAGE ${command.name ?? "command"} [OPTIONS]${syntax.length ? ` ${syntax.join(" ")}` : ""}`,
@@ -55,13 +61,17 @@ function formatUsage(command: AnyCommandDef): string {
     lines.push("", "ARGUMENTS", "");
     for (const key of positional) {
       const info = readArgInfo(shape[key]!);
+      const name = command.argDisplay?.[key]?.name ?? key.toUpperCase();
       lines.push(
-        `  ${key.toUpperCase()}  ${details(info.description, info.required, info.defaultValue)}`.trimEnd(),
+        `  ${name}  ${details(info.description, info.required, info.defaultValue, info.choices)}`.trimEnd(),
       );
     }
     if (command.variadic) {
       const info = readArgInfo(shape[command.variadic]!);
-      lines.push(`  ${command.variadic.toUpperCase()}...  ${info.description ?? ""}`.trimEnd());
+      const name = command.argDisplay?.[command.variadic]?.name ?? command.variadic.toUpperCase();
+      lines.push(
+        `  ${name}...  ${details(info.description, false, undefined, info.choices)}`.trimEnd(),
+      );
     }
   }
 
@@ -76,10 +86,15 @@ function formatUsage(command: AnyCommandDef): string {
             .map((item) => `-${item}`)
             .join(", ")}, `
         : "";
-      const long = `--${kebabCase(key)}${info.takesValue ? `=<${kebabCase(key)}>` : ""}`;
+      const display = command.argDisplay?.[key];
+      const valueName = display?.valueName ?? kebabCase(key);
+      const long = `--${kebabCase(key)}${info.takesValue ? `=<${valueName}>` : ""}`;
       lines.push(
-        `  ${prefix}${long}  ${details(info.description, info.required, info.defaultValue)}`.trimEnd(),
+        `  ${prefix}${long}  ${details(info.description, info.required, info.defaultValue, info.choices)}`.trimEnd(),
       );
+      if (!info.takesValue && display?.negatedDescription) {
+        lines.push(`  --no-${kebabCase(key)}  ${display.negatedDescription}`);
+      }
     }
   }
 
