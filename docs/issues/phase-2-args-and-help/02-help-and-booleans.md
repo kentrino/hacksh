@@ -2,10 +2,10 @@
 
 - Plan: `docs/plan/cli-framework-next/phase-2-args-and-help.md` and parent README common policy/completion.
 - Phase: 2
-- Status: pending
+- Status: working
 - depends_on: [P2-01]
-- Worker: unassigned; next action: delegate when ready; blockers: none.
-- Baseline: recorded at assignment; initial baseline/hash in [03-integration.md](03-integration.md).
+- Worker: s-p2-help (pane w2P:p9); next action: implement then review; blockers: none.
+- Baseline: `cd88d4e`; initial baseline/hash in [03-integration.md](03-integration.md).
 
 ## Scope and ownership
 Own schema enum metadata, command display options, help rendering, boolean token handling, relevant behavior/type tests and README. Proposed API: `argDisplay` schema-keyed map of `{ name?: string, valueName?: string, negatedDescription?: string }`; name is positional label, valueName is named-option value label, negatedDescription renders a --no-flag help row. Display metadata affects help only; error labels and Zod paths remain stable. Read enum choices through schema layer wrappers, never infer from arbitrary unions/refinements. Boolean inline true/false converts only boolean fields; all other strings and any --no-flag=VALUE are validation errors. Keep shared tokenizer and builtin/child boundaries. Prerequisite: P2-01 trailing variadic contract.
