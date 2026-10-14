@@ -1,6 +1,6 @@
 # 01 — Complete the initial CLI framework release
 
-Status: ready. Depends on initial execution-record commit only.
+Status: complete. Implementation, combined full-base review, and final acceptance passed. See `acceptance.md` and `execution.md` for evidence and commit references.
 
 Source: `docs/plan/cli-framework.md`, all first-release scope and decisions. Requirement IDs R1–R10 are mapped in `execution.md`; the plan remains authoritative and unchanged.
 

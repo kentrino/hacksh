@@ -4,7 +4,7 @@
 - Initial SHA-256: `83825f8688dd1055c19af65300161bf6e12588a0e4e5813bd6dae87a8b2077b4`.
 - Initial revision: `ef5268080a5e9a61eebfc4b49c02939f10a7313d`.
 - Scope: local implementation, tests, documentation, packaging verification and review. No publishing or consumer repository edits.
-- Status: initial mapping complete; implementation pending.
+- Status: complete. All first-release requirements implemented, reviewed and verified locally; no publishing requested.
 
 ## Requirement mapping
 
@@ -65,3 +65,14 @@ Initial records precede delegation. Worker/reviewer identifiers, handles, implem
 - Reviewer rechecked full original-base range through `a236dc3187de82cee454e033e32648d282fdb159`, verified all six round-1 findings fixed, then found a new medium regression: boolean inline strings such as --execute=false were discarded and became true. Plan excludes interpreting them as false; preserve validation rejection.
 - Reviewer also classified identical option maps and repeated tokenization as a low worker cleanup. Both items sent in `/tmp/zitty-corrections-2.md` to original worker, live wait exec session `30789`.
 - Reviewer remains `c-review`; original worker remains `s-01-release`. Round-1 review wait `58427` is terminal. Next: inspect round-2 completion and re-review final revision before final gates in acceptance.md.
+
+
+### Final acceptance
+
+- Final implementation revision: `13111cf1da8561d5f719f2e2caabd8eb9e71fab8` (round-2 correction). All implementation commits: `b8749e9`, `cf78d51`, `36702d7`, `09ef753`, `40818bc`, `83652c9`, `b30133a`, `a236dc3`, `13111cf`.
+- Same reviewer `c-review` applied correctness and quality rubrics to the complete original-base range through `13111cf`, returned REVIEW_DONE with no worker or supervisor findings, and independently passed ready and packed checks. Original six findings and inline-boolean regression all verified fixed. Reviewer finished through agent-delegate, closing `w2P:t3`.
+- Supervisor final checks at accepted code: `pnpm check`, `pnpm test`, `pnpm build` passed; 42 tests across 6 files, formatting/lint/types clean. Build has only the existing informational experimental TypeScript 7 API warning.
+- Minimum runtime check: `mise exec node@22.18.0 pnpm@11.20.0 -- pnpm test` passed all 42 tests. `mise exec node@22.18.0 pnpm@11.20.0 -- pnpm test:packed` passed real tarball consumers under Node 22.18.0 and Deno 2.7.14. Worker/reviewer also ran the same packed checks under Node 24.15.0 and Deno 2.7.14.
+- Final archive inspected: `/tmp/zitty-acceptance.6LJtWK/zitty-0.0.0.tgz`; only dist/index.js, dist/index.js.map, dist/index.d.ts, package.json and README.md. Runtime imports are zod/v4/core and node:util; exports are only defineCommand, runCommand, runMain, ZittyUsageError, ZittyValidationError. Declarations use core output/schema/issue types.
+- Plan SHA-256 matches original `83825f8688dd1055c19af65300161bf6e12588a0e4e5813bd6dae87a8b2077b4`; `git diff --check` passed. No external consumer edits or publication performed.
+- Requirement evidence reconciled in acceptance.md. No unresolved decisions or missing first-release deliverables remain. Worker final completion report is preserved above; finish worker after recording this acceptance.

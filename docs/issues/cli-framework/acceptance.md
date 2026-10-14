@@ -1,6 +1,6 @@
 # First-release acceptance evidence
 
-Plan: `docs/plan/cli-framework.md`. This document records evidence, not changes to scope. Final acceptance remains pending review and final command results.
+Plan: `docs/plan/cli-framework.md`. This document records evidence, not changes to scope. Final acceptance passed at implementation revision `13111cf1da8561d5f719f2e2caabd8eb9e71fab8`; see final results below.
 
 ## Requirement coverage
 
@@ -31,10 +31,11 @@ Plan: `docs/plan/cli-framework.md`. This document records evidence, not changes 
 
 `b30133a` consolidates token interpretation and adds regressions for attached short values, grouped unknown extras and root/child builtin passthrough. `a236dc3` adds repeatable real-package checks. The original Deno smoke was insufficient: round 1 review exposed negative-flag failure, now explicitly exercised by the committed packed tests.
 
-## Remaining final gates
+## Final gate results
 
-- Review corrected full implementation against original base.
-- Run required ready checks on accepted final code.
-- Run packed Node/Deno scenarios on accepted final code, including minimum declared Node version where available.
-- Inspect exports/declarations/archive and compare original plan hash.
-- Record final revisions, validation and worker/reviewer lifecycle completion.
+- Full original-base combined correctness/quality review passed at `13111cf`, no remaining findings.
+- Supervisor ran `pnpm check`, `pnpm test`, `pnpm build`: passed; 42 tests in 6 files, no lint/type errors.
+- Minimum Node 22.18.0: all 42 tests passed. `pnpm test:packed` under that runtime passed Node and Deno 2.7.14, including negation and inline-boolean rejection. Node 24.15.0 packed execution also passed in worker and reviewer checks.
+- Final dist declarations/runtime exports and tarball contents inspected: ESM, core-only zod imports, intended public exports and no source/test payload in package.
+- Original plan hash matched; diff whitespace check passed.
+- Exact commands, commits, runtime versions and reviewer lifecycle are recorded in execution.md. No unmet first-release requirements remain.
