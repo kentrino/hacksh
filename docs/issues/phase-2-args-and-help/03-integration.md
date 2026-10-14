@@ -2,10 +2,10 @@
 
 - Plan: `docs/plan/cli-framework-next/phase-2-args-and-help.md` and parent README common policy/completion.
 - Phase: 2
-- Status: pending
+- Status: working
 - depends_on: [P2-01, P2-02]
-- Worker: unassigned; next action: delegate when ready; blockers: none.
-- Baseline: recorded at assignment; initial baseline/hash in [03-integration.md](03-integration.md).
+- Worker: s-p2-integration (pane w2P:pB); next action: integration validation then full review; blockers: none.
+- Baseline: `757f077` for integration additions; full review baseline `0655f46`; initial baseline/hash in [03-integration.md](03-integration.md).
 
 ## Scope and ownership
 Own cross-task integration tests, packed consumer fixtures/scripts, final README coherence and validation. Full baseline review includes all phase 2 changes. Implementation remains delegated. Prerequisite: both feature issues accepted.
