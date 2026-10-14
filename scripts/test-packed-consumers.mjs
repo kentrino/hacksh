@@ -38,7 +38,8 @@ async function runChecked(command, args, options) {
 }
 
 async function verifyConsumer(label, execute) {
-  const behavior = await execute([
+  const phaseTwoBehavior = await execute([
+    "visible",
     "--no-enabled",
     "-Qowner/repo",
     "one",
@@ -48,21 +49,21 @@ async function verifyConsumer(label, execute) {
     "--help",
   ]);
   assert(
-    behavior.code === 0,
-    `${label}: behavior command exited ${behavior.code}\n${behavior.stdout}${behavior.stderr}`,
+    phaseTwoBehavior.code === 0,
+    `${label}: visible behavior command exited ${phaseTwoBehavior.code}\n${phaseTwoBehavior.stdout}${phaseTwoBehavior.stderr}`,
   );
   assert(
-    behavior.stdout.trim() ===
+    phaseTwoBehavior.stdout.trim() ===
       JSON.stringify({
-        cmd: "packed-consumer",
+        cmd: "visible",
         args: { enabled: false, repo: "owner/repo", files: ["ONE", "TWO"] },
         extraArgs: ["--unknown=value"],
         passthrough: ["--help"],
       }),
-    `${label}: unexpected behavior output: ${behavior.stdout}${behavior.stderr}`,
+    `${label}: unexpected visible behavior output: ${phaseTwoBehavior.stdout}${phaseTwoBehavior.stderr}`,
   );
 
-  const equals = await execute(["--repo=equal/repo"]);
+  const equals = await execute(["visible", "--repo=equal/repo"]);
   assert(equals.code === 0, `${label}: equals command exited ${equals.code}`);
   assert(
     JSON.parse(equals.stdout).args.repo === "equal/repo" &&
@@ -70,39 +71,82 @@ async function verifyConsumer(label, execute) {
     `${label}: equals value or empty variadic was not parsed`,
   );
 
-  const version = await execute(["--version"]);
-  assert(version.code === 0 && version.stdout.trim() === "1.2.3", `${label}: version failed`);
-
-  const inlineBoolean = await execute(["--enabled=false"]);
+  const inlineBoolean = await execute(["visible", "--enabled=false"]);
   assert(inlineBoolean.code === 0, `${label}: inline boolean exited ${inlineBoolean.code}`);
   assert(
     JSON.parse(inlineBoolean.stdout).args.enabled === false,
     `${label}: inline boolean false was not parsed`,
   );
 
-  const invalidInlineBoolean = await execute(["--no-enabled=false"]);
+  const invalidInlineBoolean = await execute(["visible", "--no-enabled=false"]);
   assert(
     invalidInlineBoolean.code === 1 && invalidInlineBoolean.stderr.includes("--no-enabled:"),
     `${label}: valued negation was not rejected`,
   );
 
-  const missing = await execute(["--repo"]);
+  const missing = await execute(["visible", "--repo"]);
   assert(missing.code === 1, `${label}: missing value exited ${missing.code}`);
   assert(missing.stderr.includes("--repo: requires a value"), `${label}: missing error absent`);
   assert(
-    missing.stderr.includes("CUSTOM\npacked-consumer v1.2.3") &&
-      missing.stderr.includes("USAGE packed-consumer"),
-    `${label}: usage absent: ${missing.stderr}`,
+    missing.stderr.includes("CUSTOM\nPublic command (visible)") &&
+      missing.stderr.includes("USAGE visible"),
+    `${label}: visible usage absent: ${missing.stderr}`,
   );
 
-  const help = await execute(["--help"]);
-  assert(help.code === 0, `${label}: help exited ${help.code}`);
+  const version = await execute(["--version"]);
+  assert(version.code === 0 && version.stdout.trim() === "1.2.3", `${label}: version failed`);
+
+  const parentHelp = await execute(["--help"]);
+  assert(parentHelp.code === 0, `${label}: parent help exited ${parentHelp.code}`);
   assert(
-    help.stdout.includes("CUSTOM\npacked-consumer v1.2.3") &&
-      help.stdout.includes("USAGE packed-consumer"),
-    `${label}: custom help absent`,
+    parentHelp.stdout.includes("CUSTOM\npacked-consumer v1.2.3") &&
+      parentHelp.stdout.includes("USAGE packed-consumer [OPTIONS] <COMMAND>") &&
+      parentHelp.stdout.includes("visible  Public command") &&
+      !parentHelp.stdout.includes("zod-hidden") &&
+      !parentHelp.stdout.includes("mini-hidden") &&
+      !parentHelp.stdout.includes("Internal zod"),
+    `${label}: parent help did not suppress hidden commands: ${parentHelp.stdout}`,
   );
-  assert(help.stderr === "", `${label}: help wrote to stderr`);
+  assert(parentHelp.stderr === "", `${label}: parent help wrote to stderr`);
+
+  for (const [commandName, flavor] of [
+    ["zod-hidden", "zod"],
+    ["mini-hidden", "zod/mini"],
+  ]) {
+    const executed = await execute([commandName, "--mode=safe", "--enabled=false"]);
+    assert(
+      executed.code === 0,
+      `${label}: ${commandName} exited ${executed.code}\n${executed.stdout}${executed.stderr}`,
+    );
+    assert(
+      executed.stdout.trim() ===
+        JSON.stringify({ flavor, cmd: commandName, args: { mode: "safe", enabled: false } }),
+      `${label}: ${commandName} did not execute by name: ${executed.stdout}${executed.stderr}`,
+    );
+
+    const directHelp = await execute([commandName, "--help"]);
+    assert(directHelp.code === 0, `${label}: ${commandName} help exited ${directHelp.code}`);
+    assert(
+      directHelp.stdout.includes(`CUSTOM\nInternal ${flavor} command (${commandName})`) &&
+        directHelp.stdout.includes(`USAGE ${commandName} [OPTIONS]`) &&
+        directHelp.stdout.includes("--mode=<MODE>  Execution mode (Choices: fast, safe)") &&
+        directHelp.stdout.includes("--no-enabled  Disable feature"),
+      `${label}: ${commandName} direct help was unavailable: ${directHelp.stdout}`,
+    );
+    assert(directHelp.stderr === "", `${label}: ${commandName} help wrote to stderr`);
+  }
+
+  const unknown = await execute(["missing"]);
+  assert(unknown.code === 1, `${label}: unknown command exited ${unknown.code}`);
+  assert(
+    unknown.stderr.includes("Unknown command `missing`") &&
+      unknown.stderr.includes("CUSTOM\npacked-consumer v1.2.3") &&
+      unknown.stderr.includes("visible  Public command") &&
+      !unknown.stderr.includes("zod-hidden") &&
+      !unknown.stderr.includes("mini-hidden") &&
+      !unknown.stderr.includes("Internal zod"),
+    `${label}: unknown-command usage exposed hidden commands: ${unknown.stderr}`,
+  );
 
   for (const environmentName of ["NO_COLOR", "CI"]) {
     const plainHelp = await execute(["--help"], { [environmentName]: "1" });
@@ -199,9 +243,35 @@ const miniPhaseCommand = defineCommand({
 });
 await verifyPhaseTwo("zod", phaseCommand);
 await verifyPhaseTwo("zod/mini", miniPhaseCommand);
-const command = defineCommand({
-  name: "packed-consumer",
-  version: "1.2.3",
+function hiddenCommand(flavor, args) {
+  return defineCommand({
+    hidden: true,
+    description: "Internal " + flavor + " command",
+    args,
+    argDisplay: {
+      mode: { valueName: "MODE" },
+      enabled: { negatedDescription: "Disable feature" },
+    },
+    run({ cmd, args: parsed }) {
+      console.log(JSON.stringify({ flavor, cmd: cmd.name, args: parsed }));
+    },
+  });
+}
+const zodHidden = hiddenCommand(
+  "zod",
+  z.object({
+    mode: z.enum(["fast", "safe"]).describe("Execution mode"),
+    enabled: z.boolean().default(true).describe("Enable feature"),
+  }),
+);
+const miniHidden = hiddenCommand(
+  "zod/mini",
+  mini.object({
+    mode: mini.enum(["fast", "safe"]).check(mini.describe("Execution mode")),
+    enabled: mini._default(mini.boolean(), true).check(mini.describe("Enable feature")),
+  }),
+);
+const legacyCommand = defineCommand({
   args: z.object({
     enabled: z.boolean().default(true),
     repo: z.string().optional(),
@@ -211,6 +281,15 @@ const command = defineCommand({
   variadic: "files",
   run({ cmd, args, extraArgs, passthrough }) {
     console.log(JSON.stringify({ cmd: cmd.name, args, extraArgs, passthrough }));
+  },
+});
+const command = defineCommand({
+  name: "packed-consumer",
+  version: "1.2.3",
+  subCommands: {
+    visible: defineCommand({ ...legacyCommand, description: "Public command" }),
+    "zod-hidden": zodHidden,
+    "mini-hidden": miniHidden,
   },
 });
 const miniCommand = defineCommand({
@@ -224,9 +303,9 @@ const miniArgs = await parseArgs(miniCommand, ["one", "two"]);
 if (miniArgs.value !== "mini" || miniArgs.rest?.join(",") !== "one,two") {
   throw new Error("zod/mini variadic parseArgs failed");
 }
-const usage = await renderUsage(command);
+const usage = await renderUsage(legacyCommand);
 const writes = [];
-await showUsage(command, { async write(text) { writes.push(text); } });
+await showUsage(legacyCommand, { async write(text) { writes.push(text); } });
 if (writes.length !== 1 || writes[0] !== usage) throw new Error("usage APIs diverged");
 const main = createMain(command, {
   async showUsage(selected, { write }) {
@@ -316,7 +395,45 @@ const miniParsed: Promise<{
   enabled: boolean;
   files: string[];
 }> = parseArgs(miniCommand, ["fast", "one"]);
-void [parsed, rendered, shown, main, miniParsed, displays, miniDisplays];
+const hiddenSchema = z.object({
+  mode: z.enum(["fast", "safe"]),
+  enabled: z.boolean().default(true),
+});
+const hiddenZod = defineCommand({
+  hidden: true,
+  args: hiddenSchema,
+  run({ args }) {
+    const output: z.output<typeof hiddenSchema> = args;
+    return output;
+  },
+});
+const hiddenMiniSchema = mini.object({
+  mode: mini.enum(["fast", "safe"]),
+  enabled: mini._default(mini.boolean(), true),
+});
+const hiddenMini = defineCommand({
+  hidden: true,
+  args: hiddenMiniSchema,
+  run({ args }) {
+    const output: { mode: "fast" | "safe"; enabled: boolean } = args;
+    return output;
+  },
+});
+const hiddenRoot = defineCommand({
+  subCommands: { hiddenZod, hiddenMini },
+});
+const hiddenMetadata: boolean | undefined = hiddenZod.hidden;
+void [
+  parsed,
+  rendered,
+  shown,
+  main,
+  miniParsed,
+  displays,
+  miniDisplays,
+  hiddenRoot,
+  hiddenMetadata,
+];
 `;
 }
 
