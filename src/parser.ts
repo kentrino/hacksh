@@ -46,14 +46,17 @@ function parserOptions(
 ): Record<string, { type: "string" | "boolean"; short?: string }> {
   const options: Record<string, { type: "string" | "boolean"; short?: string }> = {};
   if (!command.args) return options;
-  const definitions = optionDefinitions(command);
-  for (const [name, definition] of definitions) {
-    if (name.length === 1) continue;
-    const aliases = command.alias?.[definition.key];
+  const positional = new Set<string>(command.positional ?? []);
+  for (const [key, schema] of Object.entries(schemaShape(command.args))) {
+    if (positional.has(key)) continue;
+    const takesValue = readArgInfo(schema).takesValue;
+    const aliases = command.alias?.[key];
     const short = aliases ? aliasList(aliases)[0] : undefined;
-    options[name] = short
-      ? { type: definition.takesValue ? "string" : "boolean", short }
-      : { type: definition.takesValue ? "string" : "boolean" };
+    const option = short
+      ? { type: takesValue ? ("string" as const) : ("boolean" as const), short }
+      : { type: takesValue ? ("string" as const) : ("boolean" as const) };
+    options[key] = option;
+    options[kebabCase(key)] = option;
   }
   return options;
 }

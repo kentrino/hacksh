@@ -84,4 +84,11 @@ describe("argument parsing and validation", () => {
     result.args.count = 3;
     expect(result.args.count).toBe(3);
   });
+
+  it("accepts single-character long option names", async () => {
+    const shortName = defineCommand({ args: z.object({ n: z.coerce.number() }) });
+    await expect(parseCommandArgs(shortName, ["--n", "21"])).resolves.toMatchObject({
+      args: { n: 21 },
+    });
+  });
 });
