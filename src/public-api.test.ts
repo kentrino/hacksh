@@ -41,6 +41,50 @@ describe("public parsing API", () => {
     expect(error).not.toHaveBeenCalled();
     expect(exit).not.toHaveBeenCalled();
   });
+
+  it("parses only the supplied command segment without subcommand routing", async () => {
+    const childRun = vi.fn();
+    const child = defineCommand({
+      args: z.object({ value: z.string() }),
+      run: childRun,
+    });
+    const root = defineCommand({
+      args: z.object({ rootValue: z.string().default("root") }),
+      subCommands: { child },
+    });
+
+    await expect(parseArgs(root, ["child", "--value", "selected"])).resolves.toEqual({
+      rootValue: "root",
+    });
+    await expect(parseArgs(root, ["unknown", "--value", "ignored"])).resolves.toEqual({
+      rootValue: "root",
+    });
+    await expect(parseArgs(child, ["--value", "selected"])).resolves.toEqual({
+      value: "selected",
+    });
+    expect(childRun).not.toHaveBeenCalled();
+  });
+
+  it("does not treat help or version tokens as validation bypasses", async () => {
+    const command = defineCommand({
+      version: "1.0.0",
+      args: z.object({ value: z.string() }),
+    });
+
+    await expect(parseArgs(command, ["--help"])).rejects.toBeInstanceOf(ZittyValidationError);
+    await expect(parseArgs(command, ["--version"])).rejects.toBeInstanceOf(ZittyValidationError);
+  });
+
+  it("honors the separator while returning only schema output", async () => {
+    const command = defineCommand({ args: z.object({ value: z.string() }) });
+
+    await expect(
+      parseArgs(command, ["--value", "before", "--", "--value", "after"]),
+    ).resolves.toEqual({ value: "before" });
+    await expect(parseArgs(command, ["--", "--value", "after"])).rejects.toBeInstanceOf(
+      ZittyValidationError,
+    );
+  });
 });
 
 describe("public usage API", () => {

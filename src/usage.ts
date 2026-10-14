@@ -92,6 +92,13 @@ export interface ShowUsageOptions {
   write?: UsageWriter;
 }
 
+export type UsageOutput = Required<Pick<ShowUsageOptions, "write">>;
+
+export type ShowUsageCallback = (
+  command: AnyCommandDef,
+  output: UsageOutput,
+) => void | Promise<void>;
+
 /** Generate usage text without writing to stdout or stderr. */
 export async function renderUsage(command: AnyCommandDef): Promise<string> {
   return formatUsage(command);
@@ -103,5 +110,5 @@ export async function showUsage(
   options: ShowUsageOptions = {},
 ): Promise<void> {
   const text = await renderUsage(command);
-  await Promise.resolve((options.write ?? console.log)(text));
+  return (options.write ?? console.log)(text);
 }

@@ -240,6 +240,37 @@ describe("runMain", () => {
     expect(calls).toEqual(["tool", "tool"]);
   });
 
+  it("exits one when an async usage hook rejects while reporting an error", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const showUsage: ShowUsageCallback = async () => {
+      await Promise.resolve();
+      throw new Error("usage rendering failed");
+    };
+
+    await expect(
+      runMain(defineCommand({ name: "empty" }), { argv: [], showUsage }),
+    ).rejects.toThrow("exit:1");
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
+  it("preserves an onError rejection without forcing another exit", async () => {
+    const exit = vi.spyOn(process, "exit");
+    const onError = vi.fn(async () => {
+      throw new Error("reporting failed");
+    });
+    const command = defineCommand({
+      run() {
+        throw new Error("command failed");
+      },
+    });
+
+    await expect(runMain(command, { argv: [], onError })).rejects.toThrow("reporting failed");
+    expect(exit).not.toHaveBeenCalled();
+  });
+
   it("uses process argv, replaces reporting with async onError, and exits one", async () => {
     vi.spyOn(process, "argv", "get").mockReturnValue(["node", "cli", "--bad"]);
     const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {

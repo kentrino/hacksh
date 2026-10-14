@@ -248,7 +248,9 @@ export async function parseCommandArgs<S extends ArgsSchema>(
   return { args: result.data, passthrough: tokenized.passthrough, extraArgs };
 }
 
-/** Parse and validate arguments without running the command or writing output. */
+/**
+ * Parse and validate one command segment without routing, builtin handling, or output.
+ */
 export async function parseArgs<S extends ArgsSchema>(
   command: CommandDef<S>,
   argv: string[],

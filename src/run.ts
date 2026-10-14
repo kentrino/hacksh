@@ -7,7 +7,7 @@ import {
   tokenizeCommandArgs,
   type TokenizedCommandArgs,
 } from "./parser.ts";
-import { showUsage, type UsageWriter } from "./usage.ts";
+import { showUsage, type ShowUsageCallback } from "./usage.ts";
 
 interface CommandSegment {
   command: AnyCommandDef;
@@ -84,15 +84,6 @@ export async function runCommand<S extends ArgsSchema>(
   return executeCommand(root, argv, showUsage);
 }
 
-export interface UsageOutput {
-  write: UsageWriter;
-}
-
-export type ShowUsageCallback = (
-  command: AnyCommandDef,
-  output: UsageOutput,
-) => void | Promise<void>;
-
 export interface RunMainOptions {
   onError?: (error: unknown) => void | Promise<void>;
   argv?: string[];
@@ -107,14 +98,20 @@ export async function runMain<S extends ArgsSchema>(
   try {
     await executeCommand(command, options.argv ?? process.argv.slice(2), displayUsage);
   } catch (error) {
-    if (options.onError) await options.onError(error);
-    else if (error instanceof ZittyUsageError) {
-      console.error(error.message);
-      await displayUsage(error.command, { write: (text) => console.error(text) });
-    } else {
-      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    if (options.onError) {
+      await options.onError(error);
+      process.exit(1);
     }
-    process.exit(1);
+    try {
+      if (error instanceof ZittyUsageError) {
+        console.error(error.message);
+        await displayUsage(error.command, { write: (text) => console.error(text) });
+      } else {
+        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } finally {
+      process.exit(1);
+    }
   }
 }
 
