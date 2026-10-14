@@ -28,6 +28,12 @@ describe("argument parsing and validation", () => {
     await expect(parseCommandArgs(command, ["-Q", "a/b", "-D", "one"])).resolves.toMatchObject({
       args: { repo: "a/b", dryRun: true, first: "one" },
     });
+    await expect(parseCommandArgs(command, ["-Rowner/repo", "one"])).resolves.toMatchObject({
+      args: { repo: "owner/repo", first: "one" },
+    });
+    await expect(parseCommandArgs(command, ["-Qowner/repo", "one"])).resolves.toMatchObject({
+      args: { repo: "owner/repo", first: "one" },
+    });
   });
 
   it("keeps unknown options and positional overflow in original order", async () => {
@@ -44,6 +50,27 @@ describe("argument parsing and validation", () => {
     expect(result.extraArgs).toEqual(["--model", "overflow", "--temperature=1"]);
     expect(result.passthrough).toEqual(["--sandbox"]);
     expect(result.args).toMatchObject({ first: "one", second: "two" });
+  });
+
+  it("preserves grouped unknown options once, including mixed groups", async () => {
+    const grouped = defineCommand({
+      args: z.object({ alpha: z.boolean().default(false) }),
+      alias: { alpha: "a" },
+    });
+    await expect(parseCommandArgs(grouped, ["-ab", "-xy", "tail"])).resolves.toEqual({
+      args: { alpha: true },
+      extraArgs: ["-ab", "-xy", "tail"],
+      passthrough: [],
+    });
+  });
+
+  it("negates only known boolean options and preserves unknown --no-* options", async () => {
+    const negated = defineCommand({ args: z.object({ enabled: z.boolean().default(true) }) });
+    await expect(parseCommandArgs(negated, ["--no-enabled", "--no-mystery"])).resolves.toEqual({
+      args: { enabled: false },
+      extraArgs: ["--no-mystery"],
+      passthrough: [],
+    });
   });
 
   it("reports missing values without consuming the following option", async () => {

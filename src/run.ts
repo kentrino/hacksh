@@ -1,7 +1,7 @@
 import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { ZittyUsageError } from "./errors.ts";
-import { optionDefinitions, parseCommandArgs } from "./parser.ts";
+import { parseCommandArgs, tokenizeCommandArgs } from "./parser.ts";
 import { renderUsage } from "./usage.ts";
 
 interface ResolvedCommand {
@@ -11,41 +11,9 @@ interface ResolvedCommand {
   segments: Array<{ command: AnyCommandDef; rawArgs: string[] }>;
 }
 
-function aliases(command: AnyCommandDef): Set<string> {
-  const result = new Set<string>();
-  for (const value of Object.values(command.alias ?? {})) {
-    if (!value) continue;
-    for (const alias of typeof value === "string" ? [value] : value) result.add(alias);
-  }
-  return result;
-}
-
-function builtin(
-  command: AnyCommandDef,
-  args: readonly string[],
-  long: string,
-  short: string,
-): boolean {
-  const shortAvailable = !aliases(command).has(short);
-  return args.includes(`--${long}`) || (shortAvailable && args.includes(`-${short}`));
-}
-
 function commandToken(command: AnyCommandDef, rawArgs: readonly string[]): number | undefined {
-  const options = optionDefinitions(command);
-  for (let index = 0; index < rawArgs.length; index += 1) {
-    const raw = rawArgs[index]!;
-    if (raw === "--") return undefined;
-    if (!raw.startsWith("-") || raw === "-") return index;
-
-    const equals = raw.indexOf("=");
-    const name = raw.startsWith("--")
-      ? raw.slice(2, equals === -1 ? undefined : equals)
-      : raw.slice(1, 2);
-    const option = options.get(name);
-    const hasInlineShortValue = raw.startsWith("-") && !raw.startsWith("--") && raw.length > 2;
-    if (option?.takesValue && equals === -1 && !hasInlineShortValue) index += 1;
-  }
-  return undefined;
+  return tokenizeCommandArgs(command, rawArgs).tokens.find((token) => token.kind === "positional")
+    ?.index;
 }
 
 function namedChild(child: AnyCommandDef, name: string): AnyCommandDef {
@@ -80,12 +48,15 @@ export async function runCommand<S extends ArgsSchema>(
   argv: string[],
 ): Promise<unknown> {
   const resolved = resolveCommand(root, argv);
-  const rootArgs = resolved.segments[0]?.rawArgs ?? argv;
-  if (builtin(root, rootArgs, "version", "v")) {
+  const tokenizedSegments = resolved.segments.map(({ command, rawArgs }) => ({
+    command,
+    tokenized: tokenizeCommandArgs(command, rawArgs),
+  }));
+  if (tokenizedSegments[0]?.tokenized.version) {
     console.log(root.version ?? "");
     return undefined;
   }
-  if (resolved.segments.some(({ command, rawArgs }) => builtin(command, rawArgs, "help", "h"))) {
+  if (tokenizedSegments.some(({ tokenized }) => tokenized.help)) {
     console.log(renderUsage(resolved.command));
     return undefined;
   }

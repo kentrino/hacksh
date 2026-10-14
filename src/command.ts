@@ -1,4 +1,5 @@
 import type { output } from "zod/v4/core";
+import { aliasList } from "./options.ts";
 import {
   readArgInfo,
   schemaShape,
@@ -29,10 +30,6 @@ export interface CommandDef<S extends ArgsSchema = EmptyArgs> {
 
 export type AnyCommandDef = CommandDef<ArgsSchema>;
 
-function aliases(value: string | readonly string[]): readonly string[] {
-  return typeof value === "string" ? [value] : value;
-}
-
 export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<S>): CommandDef<S> {
   const shape = def.args ? schemaShape(def.args) : {};
   const positional = def.positional ?? [];
@@ -62,7 +59,7 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
     if (!shape[key]) throw new TypeError(`Unknown alias key \`${key}\``);
     if (positionalSet.has(key))
       throw new TypeError(`Positional argument \`${key}\` cannot have aliases`);
-    for (const alias of aliases(value as string | readonly string[])) {
+    for (const alias of aliasList(value as string | readonly string[])) {
       if (alias.length !== 1)
         throw new TypeError(`Alias \`${alias}\` must be exactly one character`);
       if (usedAliases.has(alias)) throw new TypeError(`Duplicate alias \`${alias}\``);

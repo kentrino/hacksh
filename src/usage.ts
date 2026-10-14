@@ -1,13 +1,6 @@
 import type { AnyCommandDef } from "./command.ts";
+import { aliasList, kebabCase } from "./options.ts";
 import { readArgInfo, schemaShape } from "./schema.ts";
-
-function kebabCase(value: string): string {
-  return value.replaceAll(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
-}
-
-function aliases(value: string | readonly string[]): readonly string[] {
-  return typeof value === "string" ? [value] : value;
-}
 
 function details(
   description: string | undefined,
@@ -73,7 +66,7 @@ export function renderUsage(command: AnyCommandDef): string {
       const info = readArgInfo(schema);
       const alias = command.alias?.[key];
       const prefix = alias
-        ? `${aliases(alias)
+        ? `${aliasList(alias)
             .map((item) => `-${item}`)
             .join(", ")}, `
         : "";

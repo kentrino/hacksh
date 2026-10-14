@@ -24,8 +24,9 @@ describe("command routing", () => {
       "--name foo",
     );
     await expect(runCommand(root, ["-R", "x", "new", "--name", "bar"])).resolves.toBe("--name bar");
+    await expect(runCommand(root, ["-Rx", "new", "--name", "baz"])).resolves.toBe("--name baz");
     expect(parentRun).not.toHaveBeenCalled();
-    expect(childRun).toHaveBeenCalledTimes(2);
+    expect(childRun).toHaveBeenCalledTimes(3);
   });
 
   it("runs the parent only when no subcommand is selected", async () => {
@@ -114,6 +115,28 @@ describe("help and version", () => {
       subCommands: { child: defineCommand({ run: childRun }) },
     });
     await expect(runCommand(root, ["child", "--version"])).resolves.toEqual(["--version"]);
+  });
+
+  it("ignores root and child builtin spellings after the passthrough separator", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const rootRun = vi.fn(({ passthrough }) => passthrough);
+    const root = defineCommand({ name: "root", version: "1.0.0", run: rootRun });
+    await expect(runCommand(root, ["--", "--help", "-v"])).resolves.toEqual(["--help", "-v"]);
+    expect(rootRun).toHaveBeenCalledOnce();
+    expect(log).not.toHaveBeenCalled();
+
+    const childRun = vi.fn(({ passthrough }) => passthrough);
+    const withChild = defineCommand({
+      name: "root",
+      version: "1.0.0",
+      subCommands: { child: defineCommand({ run: childRun }) },
+    });
+    await expect(runCommand(withChild, ["child", "--", "--help", "-v"])).resolves.toEqual([
+      "--help",
+      "-v",
+    ]);
+    expect(childRun).toHaveBeenCalledOnce();
+    expect(log).not.toHaveBeenCalled();
   });
 });
 

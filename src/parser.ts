@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { safeParseAsync, type $ZodIssue, type output } from "zod/v4/core";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { ZittyValidationError, type ZittyIssue } from "./errors.ts";
+import { aliasList, kebabCase } from "./options.ts";
 import { readArgInfo, schemaShape, type ArgsSchema } from "./schema.ts";
 
 export interface ParsedCommand<S extends ArgsSchema> {
@@ -11,99 +12,156 @@ export interface ParsedCommand<S extends ArgsSchema> {
 }
 
 interface OptionDefinition {
-  key: string;
-  takesValue: boolean;
+  readonly key: string;
+  readonly kebabName: string;
+  readonly aliases: readonly string[];
+  readonly takesValue: boolean;
 }
 
-function kebabCase(value: string): string {
-  return value.replaceAll(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+interface OptionModel {
+  readonly byInputName: Map<string, OptionDefinition>;
+  readonly byParserName: Map<string, OptionDefinition>;
+  readonly parserOptions: Record<string, { type: "string" | "boolean"; short?: string }>;
+  readonly aliases: Set<string>;
 }
 
-function aliasList(value: string | readonly string[]): readonly string[] {
-  return typeof value === "string" ? [value] : value;
+interface KnownOptionToken {
+  readonly kind: "known-option";
+  readonly index: number;
+  readonly definition: OptionDefinition;
+  readonly value: string | boolean;
 }
 
-export function optionDefinitions(command: AnyCommandDef): Map<string, OptionDefinition> {
-  const definitions = new Map<string, OptionDefinition>();
-  if (!command.args) return definitions;
+interface UnknownOptionToken {
+  readonly kind: "unknown-option";
+  readonly index: number;
+  readonly value: string;
+}
+
+interface PositionalToken {
+  readonly kind: "positional";
+  readonly index: number;
+  readonly value: string;
+}
+
+type CommandToken = KnownOptionToken | UnknownOptionToken | PositionalToken;
+
+export interface TokenizedCommandArgs {
+  readonly tokens: readonly CommandToken[];
+  readonly passthrough: string[];
+  readonly missingValue: ZittyIssue | undefined;
+  readonly help: boolean;
+  readonly version: boolean;
+}
+
+function optionModel(command: AnyCommandDef): OptionModel {
+  const byInputName = new Map<string, OptionDefinition>();
+  const byParserName = new Map<string, OptionDefinition>();
+  const parserOptions: OptionModel["parserOptions"] = {};
+  const allAliases = new Set<string>();
   const positional = new Set<string>(command.positional ?? []);
 
-  for (const [key, schema] of Object.entries(schemaShape(command.args))) {
-    if (positional.has(key)) continue;
-    const definition = { key, takesValue: readArgInfo(schema).takesValue };
-    definitions.set(key, definition);
-    definitions.set(kebabCase(key), definition);
-    const aliases = command.alias?.[key];
-    if (aliases) {
-      for (const alias of aliasList(aliases)) definitions.set(alias, definition);
+  if (command.args) {
+    for (const [key, schema] of Object.entries(schemaShape(command.args))) {
+      if (positional.has(key)) continue;
+      const aliases = command.alias?.[key] ? aliasList(command.alias[key]!) : [];
+      const definition: OptionDefinition = {
+        key,
+        kebabName: kebabCase(key),
+        aliases,
+        takesValue: readArgInfo(schema).takesValue,
+      };
+      const type = definition.takesValue ? "string" : "boolean";
+      for (const name of new Set([key, definition.kebabName])) {
+        byInputName.set(name, definition);
+        byParserName.set(name, definition);
+        parserOptions[name] = { type };
+      }
+      for (const alias of aliases) {
+        allAliases.add(alias);
+        byInputName.set(alias, definition);
+        byParserName.set(alias, definition);
+        parserOptions[alias] = { type, short: alias };
+      }
     }
   }
-  return definitions;
-}
-
-function parserOptions(
-  command: AnyCommandDef,
-): Record<string, { type: "string" | "boolean"; short?: string }> {
-  const options: Record<string, { type: "string" | "boolean"; short?: string }> = {};
-  if (!command.args) return options;
-  const positional = new Set<string>(command.positional ?? []);
-  for (const [key, schema] of Object.entries(schemaShape(command.args))) {
-    if (positional.has(key)) continue;
-    const takesValue = readArgInfo(schema).takesValue;
-    const aliases = command.alias?.[key];
-    const short = aliases ? aliasList(aliases)[0] : undefined;
-    const option = short
-      ? { type: takesValue ? ("string" as const) : ("boolean" as const), short }
-      : { type: takesValue ? ("string" as const) : ("boolean" as const) };
-    options[key] = option;
-    options[kebabCase(key)] = option;
-  }
-  return options;
-}
-
-function optionName(raw: string): string {
-  const withoutEquals = raw.slice(0, raw.indexOf("=") === -1 ? undefined : raw.indexOf("="));
-  return withoutEquals.startsWith("--") ? withoutEquals.slice(2) : withoutEquals.slice(1, 2);
-}
-
-function missingValueIssue(
-  command: AnyCommandDef,
-  rawArgs: readonly string[],
-): ZittyIssue | undefined {
-  const definitions = optionDefinitions(command);
-  for (let index = 0; index < rawArgs.length; index += 1) {
-    const raw = rawArgs[index]!;
-    if (raw === "--") break;
-    if (!raw.startsWith("-") || raw === "-") continue;
-    const definition = definitions.get(optionName(raw));
-    if (!definition?.takesValue || raw.includes("=")) continue;
-    const next = rawArgs[index + 1];
-    if (next === undefined || (next.startsWith("-") && next !== "-")) {
-      return { arg: `--${kebabCase(definition.key)}`, message: "requires a value" };
-    }
-    index += 1;
-  }
-  return undefined;
-}
-
-function normalizeAliases(command: AnyCommandDef, rawArgs: readonly string[]): string[] {
-  const replacements = new Map<string, string>();
-  for (const [key, value] of Object.entries(command.alias ?? {})) {
-    if (!value) continue;
-    for (const alias of aliasList(value)) replacements.set(alias, key);
-  }
-  return rawArgs.map((raw) => {
-    if (!raw.startsWith("-") || raw.startsWith("--")) return raw;
-    const equals = raw.indexOf("=");
-    const alias = raw.slice(1, equals === -1 ? undefined : equals);
-    const key = replacements.get(alias);
-    if (!key) return raw;
-    return `--${key}${equals === -1 ? "" : raw.slice(equals)}`;
-  });
+  return { byInputName, byParserName, parserOptions, aliases: allAliases };
 }
 
 function displayName(command: AnyCommandDef, key: string): string {
   return command.positional?.includes(key) ? `<${key.toUpperCase()}>` : `--${kebabCase(key)}`;
+}
+
+export function tokenizeCommandArgs(
+  command: AnyCommandDef,
+  rawArgs: readonly string[],
+): TokenizedCommandArgs {
+  const model = optionModel(command);
+  const separator = rawArgs.indexOf("--");
+  const beforeSeparator = separator === -1 ? [...rawArgs] : rawArgs.slice(0, separator);
+  const passthrough = separator === -1 ? [] : rawArgs.slice(separator + 1);
+  const negativeIndexes = new Set<number>();
+  let missingValue: ZittyIssue | undefined;
+  const parserArgs = beforeSeparator.map((raw, index) => {
+    if (!raw.startsWith("--no-")) return raw;
+    const definition = model.byInputName.get(raw.slice(5));
+    if (!definition || definition.takesValue) return raw;
+    negativeIndexes.add(index);
+    return `--${definition.key}`;
+  });
+
+  const parsed = parseArgs({
+    args: parserArgs,
+    options: model.parserOptions,
+    allowPositionals: true,
+    strict: false,
+    tokens: true,
+  });
+  const tokens: CommandToken[] = [];
+  const unknownIndexes = new Set<number>();
+  let help = false;
+  let version = false;
+  for (const token of parsed.tokens) {
+    if (token.kind === "positional") {
+      tokens.push({ kind: "positional", index: token.index, value: token.value });
+      continue;
+    }
+    if (token.kind !== "option") continue;
+    help ||= token.rawName === "--help" || (token.rawName === "-h" && !model.aliases.has("h"));
+    version ||=
+      token.rawName === "--version" || (token.rawName === "-v" && !model.aliases.has("v"));
+    const definition = model.byParserName.get(token.name);
+    if (definition) {
+      if (
+        definition.takesValue &&
+        (token.value === undefined ||
+          (!token.inlineValue && token.value.startsWith("-") && token.value !== "-"))
+      ) {
+        missingValue ??= { arg: `--${definition.kebabName}`, message: "requires a value" };
+      }
+      tokens.push({
+        kind: "known-option",
+        index: token.index,
+        definition,
+        value: definition.takesValue ? (token.value ?? "") : !negativeIndexes.has(token.index),
+      });
+    } else if (!unknownIndexes.has(token.index)) {
+      unknownIndexes.add(token.index);
+      tokens.push({
+        kind: "unknown-option",
+        index: token.index,
+        value: beforeSeparator[token.index]!,
+      });
+    }
+  }
+
+  return {
+    tokens,
+    passthrough,
+    missingValue,
+    help,
+    version,
+  };
 }
 
 function zodIssues(command: AnyCommandDef, issues: readonly $ZodIssue[]): ZittyIssue[] {
@@ -121,51 +179,30 @@ export async function parseCommandArgs<S extends ArgsSchema>(
   command: CommandDef<S>,
   rawArgs: string[],
 ): Promise<ParsedCommand<S>> {
-  const separator = rawArgs.indexOf("--");
-  const argsToParse = separator === -1 ? rawArgs : rawArgs.slice(0, separator);
-  const passthrough = separator === -1 ? [] : rawArgs.slice(separator + 1);
-  const missing = missingValueIssue(command, argsToParse);
-  if (missing) throw new ZittyValidationError(command, [missing]);
+  const tokenized = tokenizeCommandArgs(command, rawArgs);
+  if (tokenized.missingValue) {
+    throw new ZittyValidationError(command, [tokenized.missingValue]);
+  }
 
-  const parsed = parseArgs({
-    args: normalizeAliases(command, argsToParse),
-    options: parserOptions(command),
-    allowPositionals: true,
-    strict: false,
-    tokens: true,
-    allowNegative: true,
-  });
-  const definitions = optionDefinitions(command);
   const input: Record<string, string | boolean | undefined> = {};
-  const extra: Array<{ index: number; value: string }> = [];
+  const extraArgs: string[] = [];
   let positionalIndex = 0;
-
-  for (const token of parsed.tokens) {
-    if (token.kind === "option") {
-      const definition = definitions.get(token.name);
-      if (definition) input[definition.key] = token.value ?? !token.rawName.startsWith("--no-");
-      else extra.push({ index: token.index, value: argsToParse[token.index]! });
-      continue;
-    }
-    if (token.kind === "positional") {
+  for (const token of tokenized.tokens) {
+    if (token.kind === "known-option") input[token.definition.key] = token.value;
+    else if (token.kind === "unknown-option") extraArgs.push(token.value);
+    else {
       const key = command.positional?.[positionalIndex];
       if (key) {
         input[key] = token.value;
         positionalIndex += 1;
-      } else {
-        extra.push({ index: token.index, value: token.value });
-      }
+      } else extraArgs.push(token.value);
     }
   }
 
   if (!command.args)
-    return { args: input as output<S>, passthrough, extraArgs: extra.map((x) => x.value) };
+    return { args: input as output<S>, passthrough: tokenized.passthrough, extraArgs };
   const result = await safeParseAsync(command.args, input);
   if (!result.success)
     throw new ZittyValidationError(command, zodIssues(command, result.error.issues));
-  return {
-    args: result.data,
-    passthrough,
-    extraArgs: extra.sort((a, b) => a.index - b.index).map((item) => item.value),
-  };
+  return { args: result.data, passthrough: tokenized.passthrough, extraArgs };
 }
