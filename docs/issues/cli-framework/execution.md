@@ -26,3 +26,9 @@ All requirements belong to [01-release.md](01-release.md). One worker owns imple
 ## Execution history
 
 Initial records precede delegation. Worker/reviewer identifiers, handles, implementation revisions, verification results and next actions will be appended as observed.
+
+- Initial mapping commit: `c24511c`.
+- Worker dispatched through installed `agent-delegate` in implementation-and-review mode: `s-01-release` (Sol), workspace `w2P`, pane `w2P:p2`, tab `w2P:t2`.
+- Implementation prompt: `docs/issues/cli-framework/01-release.md`; role clarification sent to keep implementation direct and supervisor-managed review separate.
+- Live prompt wait: exec session `74329`. Herdr confirmed `working` after prompt delivery. Resume by inspecting that handle and `herdr agent read s-01-release`; do not create a duplicate worker.
+- Next: accept implementation evidence, invoke installed review skill against initial base with the worker kept available, route corrections, then final acceptance audit.
