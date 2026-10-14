@@ -44,3 +44,17 @@ Initial records precede delegation. Worker/reviewer identifiers, handles, implem
 - `09ef753`: consumer integration, process exit tests, package metadata/docs and single-character long-option regression.
 - Review launched using installed review workflow: `c-review` (Cursor), pane `w2P:p3`, tab `w2P:t3`, session `c80ecc21-bf2a-49e6-9786-ff5089ae1efc`; prompt `/tmp/zitty-review.md`; live wait exec session `17325`.
 - Reviewer is informed that worker final acceptance may add commits; final reviewed HEAD must include those changes. Worker is still completing acceptance in the original live session. No review result yet.
+
+### Implementation report and review round 1
+
+- Worker initial ISSUE_DONE at `83652c9`; additional commits `40818bc` (aliases/reserved names), `83652c9` (process assertion). Reported ready passing, 38 tests, Node/Deno basic packaged smoke and unchanged plan hash. This does not establish full completion.
+- User guidance: citty may be used extensively as a code reference; sent to worker and reviewer. Preserve planned zitty-specific semantics.
+- Reviewer audited exact `83652c975be9e9efcb31475d79f8b0c83dae4d09` against original base and returned REVIEW_DONE with worker corrections:
+  1. Deno ignores parseArgs allowNegative; negation silently fails.
+  2. Builtins incorrectly inspect passthrough after `--`.
+  3. Attached short option values disagree between router/parser.
+  4. Grouped unknown options duplicate original tokens in extraArgs.
+  5. Unify competing scanners/option tables into parser-owned tokenization and shared option metadata.
+  6. Commit repeatable packaged Node/Deno consumer checks covering these real semantics.
+- All corrections sent in one prompt `/tmp/zitty-corrections-1.md` to original worker `s-01-release`; live prompt wait exec session `58161`. Worker must make additional commits, run ready and committed packed-consumer checks, and remain available.
+- Review remains open in `c-review`; wait exec session `17325` may finish after its queued guidance acknowledgement. Next: inspect original worker completion, re-prompt same reviewer over final corrected revision, final requirement audit. No supervisor decision is blocking progress.
