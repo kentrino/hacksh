@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
+  consolePrinter,
   createJsonPrinter,
   createPrettyPrinter,
+  createStreamPrinter,
   resolveOutputMode,
   type PrintEvent,
 } from "./index.ts";
@@ -137,16 +139,18 @@ describe("pretty printer", () => {
         level: "info",
         kind: "success",
         category: ["deploy", "upload"],
-        message: "Uploaded files",
-        rawMessage: "Uploaded files",
-        properties: { note: "first line\nsecond line", stats: { files: 2 } },
+        message: "Uploaded files\nWaiting for confirmation",
+        rawMessage: "Uploaded files\nWaiting for confirmation",
+        properties: { "multi\nkey": "first line\nsecond line", stats: { files: 2 } },
         timestamp: 1,
       },
     });
 
     expect(output.stdout).toEqual([
       "+  [deploy:upload] Uploaded files\n" +
-        "|    note: first line\n" +
+        "|  Waiting for confirmation\n" +
+        "|    multi\n" +
+        "|      key: first line\n" +
         "|      second line\n" +
         "|    stats: {\n" +
         "|        files: 2\n" +
@@ -200,6 +204,21 @@ describe("pretty printer", () => {
     const ansiStyle = new RegExp(`${String.fromCodePoint(27)}\\[[0-9;]*m`, "g");
     expect(colored.stdout[0]!.replaceAll(ansiStyle, "")).toBe("●  1.2.3\n");
     expect(plain.stdout).toEqual(["●  1.2.3\n"]);
+  });
+});
+
+describe("undecorated compatibility printers", () => {
+  it("keeps consolePrinter and createStreamPrinter free of pretty decoration", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const streamOutput = memoryWriters();
+    const event: PrintEvent = { type: "version", version: "1.2.3" };
+
+    void consolePrinter.print(event);
+    void createStreamPrinter(streamOutput.writers).print(event);
+
+    expect(log).toHaveBeenCalledWith("1.2.3");
+    expect(streamOutput.stdout).toEqual(["1.2.3\n"]);
+    expect(streamOutput.stderr).toEqual([]);
   });
 });
 

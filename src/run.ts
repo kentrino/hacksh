@@ -11,17 +11,14 @@ import {
 import {
   createJsonPrinter,
   createPrintQueue,
-  resolveOutputMode,
-  type OutputPreference,
-  type OutputWriter,
   type Printer,
   type PrintQueue,
   type PrintStream,
-  type TerminalInput,
-  type TerminalOutput,
 } from "./printer.ts";
-import { createPrettyPrinter } from "./pretty.ts";
+import { selectOutputPrinter, type OutputOptions } from "./output.ts";
 import { showUsage, summarizeUsage, type ShowUsageCallback } from "./usage.ts";
+
+export type { OutputOptions } from "./output.ts";
 
 interface CommandSegment {
   command: AnyCommandDef;
@@ -111,49 +108,13 @@ function printUsage(
   });
 }
 
-export interface OutputOptions {
-  output?: OutputPreference;
-  /** Use Unicode presentation symbols in pretty output. Defaults to true. */
-  unicode?: boolean;
-  env?: Readonly<Record<string, string | undefined>>;
-  stdin?: TerminalInput;
-  stdout?: TerminalOutput;
-  stderr?: OutputWriter;
-}
-
 export interface RunCommandOptions extends OutputOptions {
   printer?: Printer;
   showUsage?: ShowUsageCallback;
 }
 
 function prepareOutput(options: RunCommandOptions): PrintQueue {
-  const stdin = options.stdin ?? process.stdin;
-  const stdout = options.stdout ?? process.stdout;
-  const stderr = options.stderr ?? process.stderr;
-  const mode = resolveOutputMode({
-    output: options.output,
-    env: options.env,
-    inputIsTTY: stdin.isTTY,
-    outputIsTTY: stdout.isTTY,
-  });
-  const useConsole = options.stdout === undefined && options.stderr === undefined;
-  const consoleStdout: OutputWriter = {
-    write: (text) => console.log(text.endsWith("\n") ? text.slice(0, -1) : text),
-  };
-  const consoleStderr: OutputWriter = {
-    write: (text) => console.error(text.endsWith("\n") ? text.slice(0, -1) : text),
-  };
-  const printer =
-    options.printer ??
-    (mode.format === "json"
-      ? createJsonPrinter({ stdout, stderr })
-      : createPrettyPrinter({
-          color: mode.color,
-          unicode: options.unicode ?? true,
-          stdout: options.stdout ?? (useConsole ? consoleStdout : stdout),
-          stderr: options.stderr ?? (useConsole ? consoleStderr : stderr),
-        }));
-  return createPrintQueue(printer);
+  return createPrintQueue(selectOutputPrinter(options, options.printer));
 }
 
 export async function runCommand<S extends ArgsSchema>(

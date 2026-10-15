@@ -1,7 +1,8 @@
 import type { AnyCommandDef } from "./command.ts";
 import { summarizeErrors } from "./errors.ts";
 import { aliasList, kebabCase } from "./options.ts";
-import { consolePrinter, type Printer, type PrintStream } from "./printer.ts";
+import { selectOutputPrinter, type OutputOptions } from "./output.ts";
+import type { Printer, PrintStream } from "./printer.ts";
 import { POSITIONALS_KEY, readArgInfo, readPositionals, schemaShape } from "./schema.ts";
 
 function details(
@@ -200,7 +201,7 @@ function formatUsage(summary: UsageSummary): string {
 
 export type UsageWriter = (text: string) => void | Promise<void>;
 
-export interface ShowUsageOptions {
+export interface ShowUsageOptions extends OutputOptions {
   write?: UsageWriter;
   printer?: Printer;
   stream?: PrintStream;
@@ -226,7 +227,8 @@ export async function showUsage(
   const usage = summarizeUsage(command);
   const text = formatUsage(usage);
   if (options.write) return options.write(text);
-  return (options.printer ?? consolePrinter).print({
+  const printer = options.printer ?? selectOutputPrinter(options);
+  return printer.print({
     type: "usage",
     usage,
     text,

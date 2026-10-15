@@ -23,6 +23,7 @@ import {
   type PrintEvent,
   type RunCommandOptions,
   type RunMainOptions,
+  type ShowUsageOptions,
 } from "./index.ts";
 
 describe("public parsing API", () => {
@@ -178,6 +179,8 @@ describe("public usage API", () => {
       stderr?: { write(text: string): unknown };
     }>();
     expectTypeOf(createPrettyPrinter).parameter(0).toEqualTypeOf<PrettyPrinterOptions>();
+    expectTypeOf<ShowUsageOptions["output"]>().toEqualTypeOf<OutputPreference | undefined>();
+    expectTypeOf<ShowUsageOptions["unicode"]>().toEqualTypeOf<boolean | undefined>();
   });
 
   it("omits hidden subcommands from parent and nested listings", async () => {
@@ -373,10 +376,30 @@ describe("public usage API", () => {
     expect(written).toEqual([text]);
   });
 
-  it("writes to console.log by default", async () => {
+  it("uses automatic pretty output for standalone help", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    await showUsage(defineCommand({ name: "tool" }));
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("USAGE tool"));
+    await showUsage(defineCommand({ name: "tool" }), { env: {} });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("◆  tool\n│\n│  USAGE tool"));
+  });
+
+  it.each([
+    ["CI", { CI: "1" }, undefined],
+    ["HACKSH_OUTPUT", { HACKSH_OUTPUT: "json" }, "pretty"],
+  ] as const)("selects standalone JSON help through %s", async (_name, env, output) => {
+    const stdout: string[] = [];
+    await showUsage(defineCommand({ name: "tool" }), {
+      env,
+      output,
+      stdout: { isTTY: true, write: (text) => void stdout.push(text) },
+    });
+
+    expect(stdout).toHaveLength(1);
+    expect(JSON.parse(stdout[0]!)).toMatchObject({
+      type: "usage",
+      usage: { name: "tool", synopsis: "tool [OPTIONS]" },
+      stream: "stdout",
+    });
+    expect(stdout[0]).not.toContain(`${String.fromCodePoint(27)}[`);
   });
 
   it.each(["NO_COLOR", "CI"])(

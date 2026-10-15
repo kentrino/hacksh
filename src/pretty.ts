@@ -84,8 +84,8 @@ function safelyInspect(value: unknown): string {
 function propertyLines(properties: Readonly<Record<string, unknown>>): string[] {
   const lines: string[] = [];
   for (const key of Object.keys(properties).sort()) {
-    const rendered = safelyInspect(properties[key]).split("\n");
-    lines.push(`  ${key}: ${rendered[0] ?? ""}`);
+    const rendered = `  ${key}: ${safelyInspect(properties[key])}`.split("\n");
+    lines.push(rendered[0] ?? "");
     for (const continuation of rendered.slice(1)) lines.push(`    ${continuation}`);
   }
   return lines;
@@ -93,7 +93,12 @@ function propertyLines(properties: Readonly<Record<string, unknown>>): string[] 
 
 function logLines(record: LogRecord): string[] {
   const category = record.category.length > 0 ? `[${record.category.join(":")}] ` : "";
-  return [`${category}${record.message}`, ...propertyLines(record.properties)];
+  const message = record.message.split("\n");
+  return [
+    `${category}${message[0] ?? ""}`,
+    ...message.slice(1),
+    ...propertyLines(record.properties),
+  ];
 }
 
 function errorLines(error: HackshErrorSummary): string[] {

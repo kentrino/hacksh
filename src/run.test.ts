@@ -1215,7 +1215,7 @@ describe("runMain", () => {
     expect(error).toHaveBeenCalledWith("■  boom");
   });
 
-  it("uses error kind rather than class names for historical text prefixes", async () => {
+  it("uses the same pretty error mark regardless of error class name", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.spyOn(process, "exit").mockImplementation((() => {
       throw new Error("stopped");

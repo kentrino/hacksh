@@ -120,7 +120,7 @@ function formatTextEvent(event: PrintEvent): string {
   }
 }
 
-/** The undecorated text printer used for pretty output until presentation is customized. */
+/** Undecorated console compatibility adapter; automatic output uses the selected format printer. */
 export const consolePrinter: Printer = {
   print(event) {
     const text = formatTextEvent(event);
@@ -150,7 +150,7 @@ export interface StreamPrinterOptions {
   stderr: OutputWriter;
 }
 
-/** Create the undecorated stream-backed printer used by embedded pretty invocations. */
+/** Create an undecorated stream-backed compatibility adapter. */
 export function createStreamPrinter(options: StreamPrinterOptions): Printer {
   return {
     print(event) {

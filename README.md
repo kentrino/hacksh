@@ -314,10 +314,12 @@ parses exactly the supplied command definition and argument segment, returns its
 and throws `ZittyValidationError` on failure. It does not route subcommands, act on help or version
 tokens, or bypass validation; callers that resolve commands themselves must pass the selected
 command and its segment. `renderUsage` has no output side effects; `showUsage` sends that same text
-through an optional printer (and otherwise through the built-in `consolePrinter`). The existing
-synchronous or asynchronous `write` option remains supported and takes precedence when both
-adapters are passed. These functions are async so future command-resolution features can be added
-without changing their return types.
+through an explicit printer or the same automatic pretty/JSON selection used by command
+invocations. Its `output`, `env`, `stdin`, `stdout`, `stderr`, and `unicode` options configure that
+automatic path. The existing synchronous or asynchronous `write` option remains supported and
+takes precedence over printer selection; an explicit `printer` also retains its existing behavior.
+These functions are async so future command-resolution features can be added without changing
+their return types.
 
 ```ts
 import { consolePrinter, parseArgs, renderUsage, showUsage } from "hacksh";
