@@ -75,6 +75,23 @@ function enumerableKeys(value: object): string[] {
   }
 }
 
+function hasToJSON(value: object): boolean {
+  try {
+    return typeof Reflect.get(value, "toJSON") === "function";
+  } catch {
+    return false;
+  }
+}
+
+function isPlainObject(value: object): boolean {
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  } catch {
+    return false;
+  }
+}
+
 function summarizeIssue(
   { arg, message, issue }: ZittyIssue,
   seen: WeakMap<object, unknown>,
@@ -178,6 +195,8 @@ export function summarizeErrors(
     seen.set(value, value);
     return value;
   }
+  if (ArrayBuffer.isView(value) || hasToJSON(value) || !isPlainObject(value)) return value;
+
   const result: Record<string, unknown> = {};
   seen.set(value, result);
   let changed = false;

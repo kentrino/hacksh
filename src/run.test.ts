@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import {
+  createJsonPrinter,
   createMain,
   defineCommand,
   parseArgs,
@@ -318,6 +319,45 @@ describe("run logger", () => {
     expect(summary).not.toHaveProperty("command");
     expect(summary.properties.related.cause).toBe(summary);
     expect(summary).not.toHaveProperty("issues.0.issue.inst");
+  });
+
+  it("preserves class serialization and Buffer identity before JSON normalization", async () => {
+    class Money {
+      constructor(
+        readonly cents: number,
+        readonly error: Error,
+      ) {}
+
+      toJSON(): string {
+        return `$${(this.cents / 100).toFixed(2)}`;
+      }
+    }
+
+    const money = new Money(250, new Error("not part of the display value"));
+    const buffer = Buffer.from([1, 2, 3]);
+    const events: PrintEvent[] = [];
+    await runCommand(
+      defineCommand({
+        run({ logger }) {
+          logger.info("payment", { money, buffer });
+        },
+      }),
+      [],
+      { printer: { print: (event) => void events.push(event) } },
+    );
+
+    const log = events[0];
+    if (log?.type !== "log") throw new Error("Expected a log event");
+    expect(log.record.properties.money).toBe(money);
+    expect(log.record.properties.buffer).toBe(buffer);
+
+    const lines: string[] = [];
+    const printer = createJsonPrinter({ stdout: { write: (value) => void lines.push(value) } });
+    await printer.print(log);
+    expect(JSON.parse(lines[0]!).record.properties).toMatchObject({
+      money: "$2.50",
+      buffer: { type: "Buffer", data: [1, 2, 3] },
+    });
   });
 
   it("serializes log writes and drains them before preserving the run result", async () => {

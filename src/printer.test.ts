@@ -211,7 +211,7 @@ describe("JSON printer", () => {
           url: new URL("https://example.com/path?q=1"),
           buffer: Buffer.from([1, 2, 255]),
           typed: new Uint16Array([3, 65_535]),
-          custom: { toJSON: () => ({ answer: 42 }) },
+          custom: { toJSON: () => ({ answer: 42, error: new Error("from toJSON") }) },
           throwingToJSON,
           "\u001b[31mcolored\u001b[0m": "\u001b[32mgreen\u001b[0m",
           failure,
@@ -225,7 +225,10 @@ describe("JSON printer", () => {
       url: "https://example.com/path?q=1",
       buffer: { type: "Buffer", data: [1, 2, 255] },
       typed: [3, 65_535],
-      custom: { answer: 42 },
+      custom: {
+        answer: 42,
+        error: { kind: "error", name: "Error", message: "from toJSON" },
+      },
       throwingToJSON: { safe: "still here", toJSON: "[function:toJSON]" },
       colored: "green",
       failure: {

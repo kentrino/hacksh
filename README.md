@@ -223,8 +223,7 @@ Their `output` option accepts `"auto"` (the default), `"pretty"`, or `"json"`. A
 explicit option or environment values never execute the command. `runCommand` rejects with a
 `TypeError`. `runMain` gives that error to `onError` when configured; otherwise it emits the error
 through a supplied printer or as a dedicated JSON error line, drains output, and exits with status
-
-1. Output values are case-sensitive.
+code `1`. Output values are case-sensitive.
 
 ```ts
 await runMain(main, { output: "auto" });
