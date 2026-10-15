@@ -250,6 +250,8 @@ uses `initialValue` when supplied and otherwise means no. Text displays its plac
 using it as input, supports editing, and repeats the prompt only when `validate` returns a nonempty
 message; `""` means valid. Backspace removes one Unicode code point. Input pasted after a selection
 or confirmation is retained for the next sequential prompt instead of being discarded.
+The built-in prompt API intentionally stops at select, confirm, and text; it does not provide a
+multiselect prompt.
 
 Prompts are allowed only when the resolved mode is interactive: pretty output outside CI with TTY
 stdin and stdout. JSON, CI, and non-TTY invocations throw `HackshPromptError` immediately even if a
@@ -434,14 +436,14 @@ Prompt failures are `HackshPromptError` instances with structured `reason` and `
 
 ## Development
 
-| Command                | Description                               |
-| ---------------------- | ----------------------------------------- |
-| `vp check`             | Format, lint, and type check              |
-| `vp test`              | Run tests                                 |
-| `pnpm test:prompt-pty` | Probe prompts in a real terminal          |
-| `vp pack`              | Build `src/index.ts` into `dist`          |
-| `vp run ready`         | Run check, test, and build                |
-| `pnpm test:packed`     | Test the tarball with Node 22.18 and Deno |
+| Command                | Description                                           |
+| ---------------------- | ----------------------------------------------------- |
+| `vp check`             | Format, lint, and type check                          |
+| `vp test`              | Run tests                                             |
+| `pnpm test:prompt-pty` | Probe prompts in a real terminal                      |
+| `vp pack`              | Build `src/index.ts` into `dist`                      |
+| `vp run ready`         | Run check, test, and build                            |
+| `pnpm test:packed`     | Test the tarball with Node 22.18, host Node, and Deno |
 
 The packed-consumer test must execute its Node consumer with exactly Node 22.18.0. Run pnpm itself
 under that version, or supply an absolute executable path explicitly:

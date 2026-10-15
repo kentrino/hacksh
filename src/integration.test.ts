@@ -1,7 +1,22 @@
+import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import * as mini from "zod/mini";
-import { defineCommand, runCommand } from "./index.ts";
+import { defineCommand, runCommand, runMain, type PrintEvent } from "./index.ts";
+
+class IntegrationInput extends PassThrough {
+  readonly isTTY = true;
+  isRaw = false;
+
+  setRawMode(mode: boolean): this {
+    this.isRaw = mode;
+    return this;
+  }
+}
+
+async function nextTurn(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
 
 describe("consumer-equivalent commands", () => {
   it("supports sanitize-branch default-on negatable flags", async () => {
@@ -103,6 +118,136 @@ describe("consumer-equivalent commands", () => {
       parsed: { _: ["fixed", "one", "two"] },
       extraArgs: ["--extra"],
       passthrough: ["tail"],
+    });
+  });
+});
+
+describe("terminal output integration", () => {
+  it("routes every public output kind through the invocation printer", async () => {
+    const events: PrintEvent[] = [];
+    const printer = { print: (event: PrintEvent) => void events.push(event) };
+    const input = new IntegrationInput();
+    const output = { isTTY: true, write: () => undefined };
+    const root = defineCommand({
+      name: "release",
+      version: "1.2.3",
+      subCommands: {
+        deploy: defineCommand({
+          args: z.object({ target: z.string() }),
+          async run({ args, logger }) {
+            logger.info("Preparing {target}", { target: args.target });
+            const environment = await logger.select({
+              message: "Environment",
+              options: [{ value: "staging" }, { value: "production" }] as const,
+              initialValue: "staging",
+            });
+            logger.success("Deploying {target} to {environment}", {
+              target: args.target,
+              environment,
+            });
+          },
+        }),
+        prompt: defineCommand({
+          run: ({ logger }) => logger.confirm({ message: "Continue?", initialValue: true }),
+        }),
+        crash: defineCommand({
+          run() {
+            throw new Error("runtime failed");
+          },
+        }),
+      },
+    });
+
+    const deployment = runCommand(root, ["deploy", "--target", "api"], {
+      printer,
+      stdin: input,
+      stdout: output,
+      env: {},
+    });
+    await nextTurn();
+    input.write("\r");
+    await deployment;
+    await runCommand(root, ["--help"], { printer, env: {} });
+    await runCommand(root, ["--version"], { printer, env: {} });
+
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    try {
+      await expect(runMain(root, { argv: ["deploy"], printer, env: {} })).rejects.toThrow("exit:1");
+      await expect(runMain(root, { argv: ["missing"], printer, env: {} })).rejects.toThrow(
+        "exit:1",
+      );
+      await expect(runMain(root, { argv: ["crash"], printer, env: {} })).rejects.toThrow("exit:1");
+      await expect(
+        runMain(root, {
+          argv: ["prompt"],
+          printer,
+          stdin: input,
+          stdout: { isTTY: false, write: () => undefined },
+          env: {},
+        }),
+      ).rejects.toThrow("exit:1");
+    } finally {
+      exit.mockRestore();
+    }
+
+    expect(new Set(events.map(({ type }) => type))).toEqual(
+      new Set(["log", "prompt", "usage", "version", "error"]),
+    );
+    expect(
+      events.filter((event) => event.type === "prompt").map(({ prompt }) => prompt.status),
+    ).toEqual(["active", "submitted"]);
+    expect(events.filter((event) => event.type === "error").map(({ error }) => error.kind)).toEqual(
+      ["validation", "usage", "error", "prompt"],
+    );
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      error: {
+        kind: "prompt",
+        properties: {
+          reason: "non-interactive",
+          prompt: { kind: "confirm", message: "Continue?" },
+        },
+      },
+    });
+    expect(input.isRaw).toBe(false);
+    expect(input.listenerCount("keypress")).toBe(0);
+  });
+
+  it("runs identical logger code through pretty and JSON printers", async () => {
+    const run = vi.fn(({ logger }) => {
+      logger.info("built {count}", { count: 2 });
+      logger.warn("check output", { target: "dist" });
+    });
+    const command = defineCommand({ name: "build", run });
+    const prettyStdout: string[] = [];
+    const prettyStderr: string[] = [];
+    await runCommand(command, [], {
+      output: "pretty",
+      env: { NO_COLOR: "1" },
+      stdout: { isTTY: true, write: (text) => void prettyStdout.push(text) },
+      stderr: { write: (text) => void prettyStderr.push(text) },
+    });
+    const jsonStdout: string[] = [];
+    const jsonStderr: string[] = [];
+    await runCommand(command, [], {
+      output: "json",
+      env: {},
+      stdout: { isTTY: true, write: (text) => void jsonStdout.push(text) },
+      stderr: { write: (text) => void jsonStderr.push(text) },
+    });
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(prettyStdout.join("")).toContain("built 2");
+    expect(prettyStderr.join("")).toContain("check output");
+    expect(JSON.parse(jsonStdout.join(""))).toMatchObject({
+      type: "log",
+      record: { level: "info", message: "built 2", properties: { count: 2 } },
+    });
+    expect(JSON.parse(jsonStderr.join(""))).toMatchObject({
+      type: "log",
+      record: { level: "warning", properties: { target: "dist" } },
     });
   });
 });

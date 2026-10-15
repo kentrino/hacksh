@@ -10,22 +10,43 @@ const temporaryRoot = await mkdtemp(join(tmpdir(), "hacksh-packed-consumers-"));
 
 function run(command, args, options = {}) {
   return new Promise((resolveRun, reject) => {
+    const startedAt = Date.now();
     const child = spawn(command, args, {
       cwd: options.cwd ?? repository,
       env: options.env ?? process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    let timedOut = false;
+    const timeout = options.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true;
+          child.kill("SIGKILL");
+        }, options.timeoutMs)
+      : undefined;
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8").on("data", (chunk) => (stdout += chunk));
     child.stderr.setEncoding("utf8").on("data", (chunk) => (stderr += chunk));
     child.on("error", reject);
-    child.on("close", (code) => resolveRun({ code, stdout, stderr }));
+    child.on("close", (code) => {
+      if (timeout) clearTimeout(timeout);
+      resolveRun({ code, stdout, stderr, timedOut, durationMs: Date.now() - startedAt });
+    });
   });
 }
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function runtimeEnvironment(base, overrides = {}) {
+  const environment = { ...base };
+  for (const key of ["CI", "NO_COLOR", "HACKSH_OUTPUT"]) delete environment[key];
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete environment[key];
+    else environment[key] = value;
+  }
+  return environment;
 }
 
 async function runChecked(command, args, options) {
@@ -149,13 +170,170 @@ async function verifyConsumer(label, execute) {
   );
 
   for (const environmentName of ["NO_COLOR", "CI"]) {
-    const plainHelp = await execute(["--help"], { [environmentName]: "1" });
+    const plainHelp = await execute(["--help"], { [environmentName]: "0" });
     assert(plainHelp.code === 0, `${label}: ${environmentName} help exited ${plainHelp.code}`);
+    if (environmentName === "CI") {
+      const event = JSON.parse(plainHelp.stdout);
+      assert(event.type === "usage", `${label}: non-empty CI did not select JSON`);
+    } else {
+      assert(
+        !plainHelp.stdout.includes(`${String.fromCharCode(27)}[`),
+        `${label}: non-empty NO_COLOR help used ANSI`,
+      );
+    }
+  }
+
+  const parseLines = (text) =>
+    text
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+  for (const commandName of ["terminal-zod", "terminal-mini"]) {
+    const args = [
+      commandName,
+      "--target",
+      "production",
+      "--json",
+      "--output",
+      "application",
+      "--log-format",
+      "application",
+    ];
+    const pretty = await execute(args, { HACKSH_OUTPUT: "pretty", NO_COLOR: "0" });
+    assert(pretty.code === 0, `${label}: ${commandName} pretty run exited ${pretty.code}`);
+    for (const message of ["trace", "debug", "info", "step", "success"]) {
+      assert(pretty.stdout.includes(message), `${label}: pretty stdout omitted ${message}`);
+    }
+    for (const message of ["warning", "error", "fatal"]) {
+      assert(pretty.stderr.includes(message), `${label}: pretty stderr omitted ${message}`);
+    }
     assert(
-      !plainHelp.stdout.includes(`${String.fromCharCode(27)}[`),
-      `${label}: ${environmentName} help used ANSI`,
+      !pretty.stdout.includes(`${String.fromCharCode(27)}[`) &&
+        !pretty.stderr.includes(`${String.fromCharCode(27)}[`),
+      `${label}: non-empty NO_COLOR did not disable color on both streams`,
+    );
+
+    const json = await execute(args, { HACKSH_OUTPUT: "json" });
+    assert(json.code === 0, `${label}: ${commandName} JSON run exited ${json.code}`);
+    const logs = [...parseLines(json.stdout), ...parseLines(json.stderr)];
+    assert(logs.length === 8, `${label}: expected all eight log records, got ${logs.length}`);
+    assert(
+      logs.every((event) => event.type === "log"),
+      `${label}: JSON run emitted non-log data`,
+    );
+    assert(
+      logs.map((event) => `${event.record.level}:${event.record.kind}`).join(",") ===
+        "trace:message,debug:message,info:message,info:step,info:success,warning:message,error:message,fatal:message",
+      `${label}: JSON levels/kinds were incomplete: ${JSON.stringify(logs)}`,
+    );
+    assert(
+      logs.every(
+        (event) =>
+          event.record.category.join("/") === `packed-consumer/${commandName}` &&
+          event.record.properties.target === "production",
+      ),
+      `${label}: JSON logger metadata was not preserved`,
+    );
+
+    const help = await execute([commandName, "--help"], { HACKSH_OUTPUT: "json" });
+    const helpEvents = parseLines(help.stdout);
+    assert(
+      help.code === 0 &&
+        help.stderr === "" &&
+        helpEvents.length === 1 &&
+        helpEvents[0].type === "usage" &&
+        helpEvents[0].usage.name === commandName,
+      `${label}: ${commandName} structured help failed: ${help.stdout}${help.stderr}`,
+    );
+
+    const validation = await execute([commandName], { HACKSH_OUTPUT: "json" });
+    const validationEvents = parseLines(validation.stderr);
+    assert(
+      validation.code === 1 &&
+        validation.stdout === "" &&
+        validationEvents.map((event) => event.type).join(",") === "error,usage" &&
+        validationEvents[0].error.kind === "validation" &&
+        validationEvents[0].error.issues.some((issue) => issue.arg === "--target"),
+      `${label}: ${commandName} structured validation failed: ${validation.stderr}`,
+    );
+
+    const runtime = await execute([commandName, "--target", "explode"], {
+      HACKSH_OUTPUT: "json",
+    });
+    const runtimeEvents = parseLines(runtime.stderr);
+    assert(
+      runtime.code === 1 &&
+        runtimeEvents.length === 1 &&
+        runtimeEvents[0].type === "error" &&
+        runtimeEvents[0].error.message === "runtime exploded" &&
+        runtimeEvents[0].error.properties.code === "E_RUNTIME",
+      `${label}: ${commandName} structured runtime error failed: ${runtime.stderr}`,
     );
   }
+
+  const structuredVersion = await execute(["--version"], { HACKSH_OUTPUT: "json" });
+  assert(
+    structuredVersion.code === 0 &&
+      JSON.parse(structuredVersion.stdout).type === "version" &&
+      JSON.parse(structuredVersion.stdout).version === "1.2.3",
+    `${label}: structured version failed`,
+  );
+
+  const structuredUnknown = await execute(["missing"], { HACKSH_OUTPUT: "json" });
+  const unknownEvents = parseLines(structuredUnknown.stderr);
+  assert(
+    structuredUnknown.code === 1 &&
+      unknownEvents.map((event) => event.type).join(",") === "error,usage" &&
+      unknownEvents[0].error.kind === "usage" &&
+      unknownEvents[0].error.message.includes("Unknown command `missing`"),
+    `${label}: structured unknown-command error failed`,
+  );
+
+  const prompt = await execute(["prompt"], { HACKSH_OUTPUT: "json" }, { timeoutMs: 2_000 });
+  const promptEvents = parseLines(prompt.stderr);
+  assert(!prompt.timedOut, `${label}: noninteractive prompt waited past its deadline`);
+  assert(
+    prompt.code === 1 &&
+      promptEvents.length === 1 &&
+      promptEvents[0].type === "error" &&
+      promptEvents[0].error.kind === "prompt" &&
+      promptEvents[0].error.properties.reason === "non-interactive" &&
+      promptEvents[0].error.properties.prompt.kind === "select" &&
+      promptEvents[0].error.properties.prompt.message === "Environment" &&
+      promptEvents[0].error.properties.prompt.choices.join(",") === "staging,production",
+    `${label}: noninteractive prompt was not identified: ${prompt.stderr}`,
+  );
+
+  const invalidMode = await execute(["terminal-zod", "--target", "production"], {
+    HACKSH_OUTPUT: "JSON",
+  });
+  const invalidEvents = parseLines(invalidMode.stderr);
+  assert(
+    invalidMode.code === 1 &&
+      invalidMode.stdout === "" &&
+      invalidEvents.length === 1 &&
+      invalidEvents[0].type === "error" &&
+      invalidEvents[0].error.message.includes("Invalid HACKSH_OUTPUT value JSON"),
+    `${label}: case-sensitive output setting was not rejected before execution`,
+  );
+
+  const standalonePretty = await execute(["__standalone-help__"], {
+    HACKSH_OUTPUT: "pretty",
+    NO_COLOR: "0",
+  });
+  assert(
+    standalonePretty.code === 0 &&
+      standalonePretty.stdout.includes("USAGE packed-consumer") &&
+      !standalonePretty.stdout.includes(`${String.fromCharCode(27)}[`),
+    `${label}: standalone help did not use automatic pretty policy`,
+  );
+  const standaloneJson = await execute(["__standalone-help__"], { HACKSH_OUTPUT: "json" });
+  assert(
+    standaloneJson.code === 0 && JSON.parse(standaloneJson.stdout).type === "usage",
+    `${label}: standalone help did not use automatic JSON policy`,
+  );
 }
 
 function consumerSource(zodSpecifier, miniSpecifier, packageSpecifier) {
@@ -277,6 +455,26 @@ const legacyCommand = defineCommand({
     console.log(JSON.stringify({ cmd: cmd.name, args, extraArgs, passthrough }));
   },
 });
+function terminalCommand(flavor, args) {
+  return defineCommand({
+    description: "Exercise installed terminal output with " + flavor,
+    args,
+    run({ args: parsed, logger }) {
+      if (parsed.target === "explode") {
+        throw Object.assign(new Error("runtime exploded"), { code: "E_RUNTIME" });
+      }
+      const log = logger.with({ flavor, target: parsed.target });
+      log.trace("trace {target}");
+      log.debug("debug {target}");
+      log.info("info {target}");
+      log.step("step {target}");
+      log.success("success {target}");
+      log.warn("warning {target}");
+      log.error("error {target}");
+      log.fatal("fatal {target}");
+    },
+  });
+}
 const command = defineCommand({
   name: "packed-consumer",
   version: "1.2.3",
@@ -284,6 +482,33 @@ const command = defineCommand({
     visible: defineCommand({ ...legacyCommand, description: "Public command" }),
     "zod-hidden": zodHidden,
     "mini-hidden": miniHidden,
+    "terminal-zod": terminalCommand(
+      "zod",
+      z.object({
+        target: z.string(),
+        json: z.boolean().default(false),
+        output: z.string().optional(),
+        logFormat: z.string().optional(),
+      }),
+    ),
+    "terminal-mini": terminalCommand(
+      "zod/mini",
+      mini.object({
+        target: mini.string(),
+        json: mini._default(mini.boolean(), false),
+        output: mini.optional(mini.string()),
+        logFormat: mini.optional(mini.string()),
+      }),
+    ),
+    prompt: defineCommand({
+      async run({ logger }) {
+        await logger.select({
+          message: "Environment",
+          options: [{ value: "staging" }, { value: "production" }],
+          initialValue: "staging",
+        });
+      },
+    }),
   },
 });
 const miniCommand = defineCommand({
@@ -301,12 +526,13 @@ const writes = [];
 await showUsage(legacyCommand, { async write(text) { writes.push(text); } });
 if (writes.length !== 1 || writes[0] !== usage) throw new Error("usage APIs diverged");
 const main = createMain(command, {
-  output: "pretty",
+  output: "auto",
   async showUsage(selected, { write }) {
     await write("CUSTOM\\n" + await renderUsage(selected));
   },
 });
-await main();
+if (process.argv.slice(2)[0] === "__standalone-help__") await showUsage(command);
+else await main();
 `;
 }
 
@@ -315,14 +541,19 @@ function typeConsumerSource() {
 import { z } from "zod";
 import * as mini from "zod/mini";
 import {
+  consolePrinter,
   createMain,
+  createStreamPrinter,
   defineCommand,
   parseArgs,
   renderUsage,
+  runCommand,
   showUsage,
   type ArgOptions,
   type ArgOptionsMap,
   type CommandDef,
+  type HackshPromptErrorReason,
+  type Printer,
   type ShowUsageCallback,
 } from "hacksh";
 const schema = z.object({
@@ -408,6 +639,24 @@ const hiddenRoot = defineCommand({
   subCommands: { hiddenZod, hiddenMini },
 });
 const hiddenMetadata: boolean | undefined = hiddenZod.hidden;
+const promptCommand = defineCommand({
+  async run({ logger }) {
+    const selected = await logger.select({
+      message: "Environment",
+      options: [{ value: "staging" }, { value: "production" }] as const,
+      initialValue: "staging",
+    });
+    const inferred: "staging" | "production" = selected;
+    return inferred;
+  },
+});
+const promptResult: Promise<unknown> = runCommand(promptCommand, [], { output: "json" });
+const promptReason: HackshPromptErrorReason = "non-interactive";
+const legacyConsole: Printer = consolePrinter;
+const legacyStreams: Printer = createStreamPrinter({
+  stdout: { write: (_text) => undefined },
+  stderr: { write: (_text) => undefined },
+});
 void [
   parsed,
   rendered,
@@ -418,6 +667,10 @@ void [
   miniArgOptions,
   hiddenRoot,
   hiddenMetadata,
+  promptResult,
+  promptReason,
+  legacyConsole,
+  legacyStreams,
 ];
 `;
 }
@@ -476,11 +729,27 @@ try {
     ],
     { cwd: repository },
   );
-  await verifyConsumer("Node", (args, environment = {}) =>
+  await verifyConsumer("Node 22.18.0", (args, environment = {}, executionOptions = {}) =>
     run(minimumNodeExecutable, ["consumer.mjs", ...args], {
+      ...executionOptions,
       cwd: nodeDirectory,
-      env: { ...minimumNodeEnvironment, ...environment },
+      env: runtimeEnvironment(minimumNodeEnvironment, environment),
     }),
+  );
+  const hostNode = await run(process.execPath, ["--version"]);
+  assert(hostNode.code === 0, `Host Node failed: ${hostNode.stderr}`);
+  const hostNodeEnvironment = {
+    ...process.env,
+    PATH: [dirname(process.execPath), process.env.PATH].filter(Boolean).join(delimiter),
+  };
+  await verifyConsumer(
+    `Node ${hostNode.stdout.trim()}`,
+    (args, environment = {}, executionOptions = {}) =>
+      run(process.execPath, ["consumer.mjs", ...args], {
+        ...executionOptions,
+        cwd: nodeDirectory,
+        env: runtimeEnvironment(hostNodeEnvironment, environment),
+      }),
   );
 
   const packageJson = JSON.parse(await readFile(join(repository, "package.json"), "utf8"));
@@ -536,14 +805,34 @@ try {
     DENO_DIR: join(denoDirectory, "cache"),
     NPM_CONFIG_REGISTRY: registryUrl,
   };
-  await verifyConsumer("Deno", (args, environment = {}) =>
-    run("deno", ["run", "--node-modules-dir=auto", "consumer.mjs", ...args], {
-      cwd: denoDirectory,
-      env: { ...denoEnvironment, ...environment },
-    }),
+  const deniedEnvironment = await run(
+    "deno",
+    ["run", "--node-modules-dir=auto", "consumer.mjs", "--help"],
+    { cwd: denoDirectory, env: runtimeEnvironment(denoEnvironment) },
+  );
+  assert(
+    deniedEnvironment.code === 0 && deniedEnvironment.stdout.includes("USAGE packed-consumer"),
+    `Deno without environment permission failed: ${deniedEnvironment.stdout}${deniedEnvironment.stderr}`,
+  );
+  await verifyConsumer("Deno", (args, environment = {}, executionOptions = {}) =>
+    run(
+      "deno",
+      [
+        "run",
+        "--allow-env=CI,NO_COLOR,HACKSH_OUTPUT",
+        "--node-modules-dir=auto",
+        "consumer.mjs",
+        ...args,
+      ],
+      {
+        ...executionOptions,
+        cwd: denoDirectory,
+        env: runtimeEnvironment(denoEnvironment, environment),
+      },
+    ),
   );
 
-  console.log("Packed consumers passed: Node 22.18.0 and Deno");
+  console.log(`Packed consumers passed: Node 22.18.0, host ${hostNode.stdout.trim()}, and Deno`);
 } finally {
   if (registry) await new Promise((resolveClose) => registry.close(resolveClose));
   await rm(temporaryRoot, { recursive: true, force: true });
