@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/kentrino/hacksh/compare/v0.2.0...v0.2.1) (2026-10-15)
+
+
+### Documentation
+
+* organize CLI roadmap and publication rules ([#9](https://github.com/kentrino/hacksh/issues/9)) ([de08dcc](https://github.com/kentrino/hacksh/commit/de08dcca3280350e36431a6655540dff8d5eac37))
+
 ## [0.2.0](https://github.com/kentrino/hacksh/compare/v0.1.2...v0.2.0) (2026-10-15)
 
 
