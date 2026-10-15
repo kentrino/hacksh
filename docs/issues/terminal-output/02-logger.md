@@ -1,7 +1,7 @@
 ---
 id: terminal-output-02-logger
 phase: 2
-status: working
+status: done
 depends_on: ["terminal-output-01-printer"]
 ---
 
@@ -9,7 +9,7 @@ depends_on: ["terminal-output-01-printer"]
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `0018-run-logger` issue and designs.
 
-Current state: correction committed at `5e4bde0`; worker `s-terminal-output-02`, pane `w2P:pM`, session `01a13f0b-35e7-7430-b883-7de71a1216d8`; reviewer `c-review-terminal-output-02`, pane `w2P:pN`; next action: re-review. Blockers: none.
+Current state: implementation and review accepted at `5cb1a78`; next action: issue 03. Blockers: none. Worker `s-terminal-output-02` (session `01a13f0b-35e7-7430-b883-7de71a1216d8`) and reviewer `c-review-terminal-output-02` (session `ad6d287b-4d3e-4926-bed5-f426732bcb64`) completed.
 
 ## Scope and decisions
 
@@ -19,9 +19,9 @@ Ownership: related source modules, tests and public documentation for this respo
 
 ## Acceptance criteria
 
-- [ ] AC1: run logs reach the same printer with structured records, interpolation and automatic nested categories; verify runtime and type tests. (plan: layers / `0018-run-logger`).
-- [ ] AC2: Bound properties, child categories, Error inputs and asynchronous output work without changing command return values; verify focused tests. (plan: layers / `0018-run-logger`).
-- [ ] Review: correctness and quality review accepted; corrections verified.
+- [x] AC1: run logs reach the same printer with structured records, interpolation and automatic nested categories; verify runtime and type tests. (plan: layers / `0018-run-logger`).
+- [x] AC2: Bound properties, child categories, Error inputs and asynchronous output work without changing command return values; verify focused tests. (plan: layers / `0018-run-logger`).
+- [x] Review: correctness and quality review accepted; corrections verified.
 
 ## Evidence
 
@@ -74,3 +74,7 @@ R1 is corrected by containing property string conversion failures within interpo
 record still emits with the original property and unchanged placeholder. R2 is documented in
 the public logger API: every level is emitted and displayed by default, with no built-in severity
 threshold or verbose flag. No unresolved worker items remain pending re-review.
+
+## Acceptance
+
+Parent inspected committed logger/runtime/type coverage and correction evidence for AC1–AC2. Reviewer accepted full `bcc9829..5cb1a78` scope after independently rerunning coercion probes on Node v24.15.0: both formerly throwing values yield unchanged placeholders, preserving records and return behavior. No required findings remain. Final source validation: 103 tests, check, build and Node 22.18.0/Deno packed consumers passed; evidence above identifies source snapshots and committed repeatable tests.
