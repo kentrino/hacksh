@@ -1,7 +1,7 @@
 ---
 id: terminal-output-04-pretty
 phase: 4
-status: working
+status: done
 depends_on: ["terminal-output-03-output-mode"]
 ---
 
@@ -9,7 +9,7 @@ depends_on: ["terminal-output-03-output-mode"]
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `0020-pretty-output` issue and designs.
 
-Current state: worker `s-terminal-output-04`, pane `w2P:pR`, session `01a13f4c-0bde-74a0-9717-ca95737fe3b8`; implementation `49a45eb`; reviewer `c-review-terminal-output-04`, pane `w2P:pS`; next action: corrections R1–R2 and S1, then re-review. Blockers: none.
+Current state: accepted at `f4ac141`; next action: issue 05. Blockers: none. Worker `s-terminal-output-04` (session `01a13f4c-0bde-74a0-9717-ca95737fe3b8`) and reviewer `c-review-terminal-output-04` (session `70bb4484-82eb-4336-bf68-2b26d686cbcf`) completed.
 
 ## Scope and decisions
 
@@ -19,9 +19,9 @@ Ownership: related source modules, tests and public documentation for this respo
 
 ## Acceptance criteria
 
-- [ ] AC1: Human output distinguishes levels, step and success with symbols, even without color; verify rendering snapshots/assertions. (plan: layers / `0020-pretty-output`).
-- [ ] AC2: Multiline help/errors/log properties use consistent rendering; color/ASCII options and NO_COLOR work without corrupting JSON; verify tests. (plan: layers / `0020-pretty-output`).
-- [ ] Review: correctness and quality review accepted; corrections verified.
+- [x] AC1: Human output distinguishes levels, step and success with symbols, even without color; verify rendering snapshots/assertions. (plan: layers / `0020-pretty-output`).
+- [x] AC2: Multiline help/errors/log properties use consistent rendering; color/ASCII options and NO_COLOR work without corrupting JSON; verify tests. (plan: layers / `0020-pretty-output`).
+- [x] Review: correctness and quality review accepted; corrections verified.
 
 ## Evidence
 
@@ -104,3 +104,9 @@ test name. S1 is implemented by one internal automatic-printer selector shared b
 invocations and standalone `showUsage`; explicit `write` and `printer` paths,
 pure `renderUsage`, and invalid invocation-setting behavior remain compatible.
 S2 remains unchanged: stdout TTY and `NO_COLOR` decide color for both streams.
+
+## Acceptance
+
+Parent inspected the rendered output assertions and correction evidence for AC1–AC2. Reviewer accepted full `9a56757..f4ac141` scope without remaining findings. Independent probes verified multiline messages/keys/blank lines remain barred, category appears only on the first line, standalone help selects pretty/JSON and correct stream, explicit adapters preserve behavior, and styleText works on Node 22.18.0/Deno.
+
+Final source validation: 142 tests normal/CI, check, build and Node 22.18.0/Deno packed consumers passed. Committed printer, run and public API tests preserve repeatable evidence. Standalone default selection now shares invocation policy; legacy undecorated adapters remain explicit choices.
