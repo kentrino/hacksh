@@ -13,7 +13,7 @@ Current state: worker unassigned; next action: delegate after prerequisites. Blo
 
 ## Scope and decisions
 
-Choose fixed rendering (design C), with color and Unicode/ASCII configuration. Use node:util styleText, no dependencies. Give records level/kind symbols and consistent bars; render multiline usage/errors in the same style. Avoid implicit start/end output for invocations; use consistent per-event rendering and document this decision.
+Choose fixed rendering (design C), with color and Unicode/ASCII configuration. Use node:util styleText, no dependencies. NO_COLOR disables color only when non-empty (issue 03 review clarification); use the resolved mode consistently. Give records level/kind symbols and consistent bars; render multiline usage/errors in the same style. Avoid implicit start/end output for invocations; use consistent per-event rendering and document this decision.
 
 Ownership: related source modules, tests and public documentation for this responsibility; preserve unrelated work. Exclusions: unrelated themes, publication, external consumer edits. Prerequisite contract: completed dependency APIs and tests; coordinate shared files sequentially. Review baseline: record at assignment. Initial baseline and immutable hashes: see `06-integration.md`.
 
