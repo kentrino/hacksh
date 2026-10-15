@@ -56,7 +56,7 @@ async function verifyConsumer(label, execute) {
     phaseTwoBehavior.stdout.trim() ===
       JSON.stringify({
         cmd: "visible",
-        args: { enabled: false, repo: "owner/repo", files: ["ONE", "TWO"] },
+        args: { enabled: false, repo: "owner/repo", _: ["ONE", "TWO"] },
         extraArgs: ["--unknown=value"],
         passthrough: ["--help"],
       }),
@@ -67,7 +67,7 @@ async function verifyConsumer(label, execute) {
   assert(equals.code === 0, `${label}: equals command exited ${equals.code}`);
   assert(
     JSON.parse(equals.stdout).args.repo === "equal/repo" &&
-      JSON.parse(equals.stdout).args.files.length === 0,
+      JSON.parse(equals.stdout).args._.length === 0,
     `${label}: equals value or empty variadic was not parsed`,
   );
 
@@ -191,15 +191,14 @@ async function verifyPhaseTwo(label, phaseCommand) {
     "--enabled=false",
   ]);
   if (
-    parsed.mode !== "fast" ||
+    parsed._.join(",") !== "fast,txt,md" ||
     parsed.format !== "json" ||
-    parsed.enabled !== false ||
-    parsed.files.join(",") !== "txt,md"
+    parsed.enabled !== false
   ) {
     throw new Error(label + " combined phase 2 parse failed: " + JSON.stringify(parsed));
   }
   const explicitTrue = await parseArgs(phaseCommand, ["safe", "--enabled=true"]);
-  if (explicitTrue.enabled !== true || explicitTrue.files.length !== 0) {
+  if (explicitTrue.enabled !== true || explicitTrue._.join(",") !== "safe") {
     throw new Error(label + " explicit true or empty variadic failed");
   }
   for (const token of ["--enabled=maybe", "--no-enabled=false"]) {
@@ -211,34 +210,30 @@ async function verifyPhaseTwo(label, phaseCommand) {
 }
 const phaseCommand = defineCommand({
   args: z.object({
-    mode: z.enum(["fast", "safe"]).describe("Execution mode"),
+    _: z.tuple(
+      [z.enum(["fast", "safe"]).describe("Execution mode").meta({ title: "MODE" })],
+      z.enum(["txt", "md"]).describe("Input files").meta({ title: "INPUT" }),
+    ),
     enabled: z.boolean().default(true).describe("Enable feature"),
     format: z.enum(["json", "yaml"]).optional().describe("Output format"),
-    files: z.array(z.enum(["txt", "md"])).describe("Input files"),
   }),
-  positional: ["mode"],
-  variadic: "files",
   argOptions: {
-    mode: { name: "MODE" },
     format: { valueName: "FORMAT" },
     enabled: { negatedDescription: "Disable feature" },
-    files: { name: "INPUT" },
   },
 });
 const miniPhaseCommand = defineCommand({
   args: mini.object({
-    mode: mini.enum(["fast", "safe"]).check(mini.describe("Execution mode")),
+    _: mini.tuple(
+      [mini.enum(["fast", "safe"]).check(mini.describe("Execution mode"), mini.meta({ title: "MODE" }))],
+      mini.enum(["txt", "md"]).check(mini.describe("Input files"), mini.meta({ title: "INPUT" })),
+    ),
     enabled: mini._default(mini.boolean(), true).check(mini.describe("Enable feature")),
     format: mini.optional(mini.enum(["json", "yaml"])).check(mini.describe("Output format")),
-    files: mini.array(mini.enum(["txt", "md"])).check(mini.describe("Input files")),
   }),
-  positional: ["mode"],
-  variadic: "files",
   argOptions: {
-    mode: { name: "MODE" },
     format: { valueName: "FORMAT" },
     enabled: { negatedDescription: "Disable feature" },
-    files: { name: "INPUT" },
   },
 });
 await verifyPhaseTwo("zod", phaseCommand);
@@ -275,10 +270,9 @@ const legacyCommand = defineCommand({
   args: z.object({
     enabled: z.boolean().default(true),
     repo: z.string().optional(),
-    files: z.array(z.string().transform((value) => value.toUpperCase())),
+    _: z.array(z.string().transform((value) => value.toUpperCase())),
   }),
   argOptions: { repo: { alias: ["R", "Q"] } },
-  variadic: "files",
   run({ cmd, args, extraArgs, passthrough }) {
     console.log(JSON.stringify({ cmd: cmd.name, args, extraArgs, passthrough }));
   },
@@ -295,12 +289,11 @@ const command = defineCommand({
 const miniCommand = defineCommand({
   args: mini.object({
     value: mini._default(mini.string(), "mini"),
-    rest: mini.optional(mini.array(mini.string())),
+    _: mini.optional(mini.array(mini.string())),
   }),
-  variadic: "rest",
 });
 const miniArgs = await parseArgs(miniCommand, ["one", "two"]);
-if (miniArgs.value !== "mini" || miniArgs.rest?.join(",") !== "one,two") {
+if (miniArgs.value !== "mini" || miniArgs._?.join(",") !== "one,two") {
   throw new Error("zod/mini variadic parseArgs failed");
 }
 const usage = await renderUsage(legacyCommand);
@@ -332,34 +325,28 @@ import {
   type ShowUsageCallback,
 } from "zitty";
 const schema = z.object({
+  _: z.tuple([z.enum(["fast", "safe"]).meta({ title: "MODE" })], z.string()),
   count: z.coerce.number(),
   label: z.string().default("ok"),
-  mode: z.enum(["fast", "safe"]),
   enabled: z.boolean().default(true),
   format: z.enum(["json", "yaml"]).optional(),
-  files: z.array(z.string()),
 });
-const modeOptions: ArgOptions = { name: "MODE" };
+const formatOptions: ArgOptions = { alias: "f", valueName: "FORMAT" };
 const argOptions: ArgOptionsMap<typeof schema> = {
-  mode: modeOptions,
-  format: { valueName: "FORMAT" },
+  format: formatOptions,
   enabled: { negatedDescription: "Disable feature" },
-  files: { name: "INPUT" },
 };
 const command = defineCommand({
   args: schema,
-  positional: ["mode"],
-  variadic: "files",
   argOptions,
   run({ cmd, args }) {
     const same: CommandDef<typeof schema> = cmd;
     const output: {
+      _: ["fast" | "safe", ...string[]];
       count: number;
       label: string;
-      mode: "fast" | "safe";
       enabled: boolean;
       format?: "json" | "yaml";
-      files: string[];
     } = args;
     return { same, output };
   },
@@ -375,25 +362,19 @@ const shown: Promise<void> = showUsage(command, { write: async (_text) => {} });
 const callback: ShowUsageCallback = async (selected, { write }) => write(await renderUsage(selected));
 const main: (argv?: string[]) => Promise<void> = createMain(command, { showUsage: callback });
 const miniSchema = mini.object({
-  mode: mini.enum(["fast", "safe"]),
+  _: mini.tuple([mini.enum(["fast", "safe"])], mini.string()),
   enabled: mini._default(mini.boolean(), true),
-  files: mini.array(mini.string()),
 });
 const miniArgOptions: ArgOptionsMap<typeof miniSchema> = {
-  mode: { name: "MODE" },
   enabled: { negatedDescription: "Disable feature" },
-  files: { name: "INPUT" },
 };
 const miniCommand = defineCommand({
   args: miniSchema,
-  positional: ["mode"],
-  variadic: "files",
   argOptions: miniArgOptions,
 });
 const miniParsed: Promise<{
-  mode: "fast" | "safe";
+  _: ["fast" | "safe", ...string[]];
   enabled: boolean;
-  files: string[];
 }> = parseArgs(miniCommand, ["fast", "one"]);
 const hiddenSchema = z.object({
   mode: z.enum(["fast", "safe"]),

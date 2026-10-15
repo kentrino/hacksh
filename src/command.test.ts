@@ -4,15 +4,13 @@ import { defineCommand } from "./index.ts";
 
 describe("defineCommand", () => {
   it("infers mutable zod output and supports omitted args", () => {
-    const command = defineCommand({
-      args: z.object({ count: z.coerce.number(), label: z.string().optional() }),
-      positional: ["count"],
+    defineCommand({
+      args: z.object({ _: z.tuple([z.coerce.number()]), label: z.string().optional() }),
       run({ args }) {
-        expectTypeOf(args).toEqualTypeOf<{ count: number; label?: string }>();
-        args.count += 1;
+        expectTypeOf(args).toEqualTypeOf<{ _: [number]; label?: string }>();
+        args._[0] += 1;
       },
     });
-    expect(command.positional).toEqual(["count"]);
     defineCommand({ run: ({ args }) => expectTypeOf(args).toBeObject() });
   });
 
@@ -33,38 +31,16 @@ describe("defineCommand", () => {
   });
 
   it.each([
-    ["unknown positional", { args: z.object({ x: z.string() }), positional: ["y"] }],
-    ["duplicate positional", { args: z.object({ x: z.string() }), positional: ["x", "x"] }],
+    ["non-tuple positionals", { args: z.object({ _: z.string() }) }],
     [
       "optional before required",
-      {
-        args: z.object({ x: z.string().optional(), y: z.string() }),
-        positional: ["x", "y"],
-      },
+      { args: z.object({ _: z.tuple([z.string().optional(), z.string()]) }) },
     ],
-    ["boolean positional", { args: z.object({ x: z.boolean() }), positional: ["x"] }],
-    ["array positional", { args: z.object({ x: z.array(z.string()) }), positional: ["x"] }],
+    ["boolean positional", { args: z.object({ _: z.tuple([z.boolean()]) }) }],
+    ["array positional", { args: z.object({ _: z.tuple([z.array(z.string())]) }) }],
     [
-      "multiple variadic keys",
-      { args: z.object({ x: z.array(z.string()) }), variadic: ["x", "x"] },
-    ],
-    ["unknown variadic", { args: z.object({ x: z.array(z.string()) }), variadic: "y" }],
-    ["non-array variadic", { args: z.object({ x: z.string() }), variadic: "x" }],
-    [
-      "variadic also positional",
-      {
-        args: z.object({ x: z.array(z.string()) }),
-        positional: ["x"],
-        variadic: "x",
-      },
-    ],
-    [
-      "positional alias",
-      {
-        args: z.object({ x: z.string() }),
-        positional: ["x"],
-        argOptions: { x: { alias: "x" } },
-      },
+      "positional argument options",
+      { args: z.object({ _: z.tuple([z.string()]) }), argOptions: { _: { alias: "x" } } },
     ],
     ["invalid alias", { args: z.object({ x: z.string() }), argOptions: { x: { alias: "xx" } } }],
     [
@@ -79,74 +55,41 @@ describe("defineCommand", () => {
     ["unknown argument options", { args: z.object({ x: z.string() }), argOptions: { y: {} } }],
     [
       "positional and subcommands",
-      {
-        args: z.object({ x: z.string() }),
-        positional: ["x"],
-        subCommands: { sub: {} },
-      },
+      { args: z.object({ _: z.tuple([z.string()]) }), subCommands: { sub: {} } },
     ],
     [
       "positional and hidden-only subcommands",
-      {
-        args: z.object({ x: z.string() }),
-        positional: ["x"],
-        subCommands: { sub: { hidden: true } },
-      },
-    ],
-    [
-      "variadic alias",
-      {
-        args: z.object({ x: z.array(z.string()) }),
-        variadic: "x",
-        argOptions: { x: { alias: "x" } },
-      },
+      { args: z.object({ _: z.tuple([z.string()]) }), subCommands: { sub: { hidden: true } } },
     ],
     [
       "variadic and subcommands",
-      {
-        args: z.object({ x: z.array(z.string()) }),
-        variadic: "x",
-        subCommands: { sub: {} },
-      },
-    ],
-    [
-      "variadic and hidden-only subcommands",
-      {
-        args: z.object({ x: z.array(z.string()) }),
-        variadic: "x",
-        subCommands: { sub: { hidden: true } },
-      },
+      { args: z.object({ _: z.array(z.string()) }), subCommands: { sub: {} } },
     ],
   ])("rejects invalid definitions: %s", (_name, input) => {
     expect(() => defineCommand(input as never)).toThrow();
   });
 });
 
-const typedSchema = z.object({ repo: z.string(), verbose: z.boolean() });
+const typedSchema = z.object({
+  _: z.tuple([z.string().meta({ title: "REPOSITORY" })]),
+  verbose: z.boolean(),
+});
 defineCommand({
   args: typedSchema,
-  positional: ["repo"],
-  argOptions: {
-    repo: { name: "REPOSITORY" },
-    verbose: { alias: "v", negatedDescription: "Hide details" },
-  },
+  argOptions: { verbose: { alias: "v", negatedDescription: "Hide details" } },
 });
-const variadicSchema = z.object({ files: z.array(z.string()) });
 defineCommand({
-  args: variadicSchema,
-  variadic: "files",
+  args: z.object({ _: z.tuple([z.string()], z.string()) }),
   run({ args }) {
-    expectTypeOf(args).toEqualTypeOf<{ files: string[] }>();
+    expectTypeOf(args).toEqualTypeOf<{ _: [string, ...string[]] }>();
   },
 });
 
 if (process.env.ZITTY_TYPE_TESTS) {
   // @ts-expect-error hidden must be boolean
   defineCommand({ hidden: "yes" });
-  // @ts-expect-error positional keys must exist in the schema
-  defineCommand({ args: typedSchema, positional: ["missing"] });
-  // @ts-expect-error variadic keys must exist in the schema
-  defineCommand({ args: variadicSchema, variadic: "missing" });
   // @ts-expect-error argument options keys must exist in the schema
   defineCommand({ args: typedSchema, argOptions: { missing: { alias: "m" } } });
+  // @ts-expect-error positional arguments cannot have argument options
+  defineCommand({ args: typedSchema, argOptions: { _: { alias: "r" } } });
 }

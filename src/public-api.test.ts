@@ -146,34 +146,40 @@ describe("public usage API", () => {
     [
       "zod",
       z.object({
-        size: z.enum(["small", "large"]).describe("Item size"),
+        _: z.tuple(
+          [z.enum(["small", "large"]).describe("Item size").meta({ title: "SIZE" })],
+          z.enum(["txt", "md"]).describe("Input files").meta({ title: "INPUT" }),
+        ),
         format: z.enum(["json", "yaml"]).optional().describe("Output format"),
         overwrite: z.boolean().default(false).describe("Replace existing files"),
-        files: z.array(z.enum(["txt", "md"])).describe("Input files"),
       }),
     ],
     [
       "zod/mini",
       mini.object({
-        size: mini.enum(["small", "large"]).check(mini.describe("Item size")),
+        _: mini.tuple(
+          [
+            mini
+              .enum(["small", "large"])
+              .check(mini.describe("Item size"), mini.meta({ title: "SIZE" })),
+          ],
+          mini
+            .enum(["txt", "md"])
+            .check(mini.describe("Input files"), mini.meta({ title: "INPUT" })),
+        ),
         format: mini.optional(mini.enum(["json", "yaml"])).check(mini.describe("Output format")),
         overwrite: mini
           ._default(mini.boolean(), false)
           .check(mini.describe("Replace existing files")),
-        files: mini.array(mini.enum(["txt", "md"])).check(mini.describe("Input files")),
       }),
     ],
   ])("renders enum choices and display metadata with %s", async (_name, args) => {
     const command = defineCommand({
       name: "convert",
       args,
-      positional: ["size"],
-      variadic: "files",
       argOptions: {
-        size: { name: "SIZE" },
         format: { valueName: "FORMAT" },
         overwrite: { negatedDescription: "Keep existing files" },
-        files: { name: "INPUT" },
       },
     });
     const usage = await renderUsage(command);
@@ -197,16 +203,17 @@ describe("public usage API", () => {
     const command = defineCommand({
       name: "copy",
       args: z.object({
-        destination: z.string().describe("Output directory"),
-        files: z.array(z.string()).describe("Input files"),
+        _: z.tuple(
+          [z.string().describe("Output directory").meta({ title: "DESTINATION" })],
+          z.string().describe("Input files").meta({ title: "FILES" }),
+        ),
       }),
-      positional: ["destination"],
-      variadic: "files",
     });
     const usage = await renderUsage(command);
     expect(usage).toContain("USAGE copy [OPTIONS] <DESTINATION> [FILES...]");
     expect(usage).toContain("FILES...  Input files");
-    expect(usage).not.toContain("--files");
+    expect(usage).not.toContain("OPTIONS\n");
+    expect(usage).not.toContain("--_");
   });
 
   it("shares rendering, supports async writers, and keeps rendering side-effect free", async () => {

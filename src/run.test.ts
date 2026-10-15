@@ -163,10 +163,9 @@ describe("help and version", () => {
     const leaf = defineCommand({
       description: "Create a worktree\nwith a selected branch",
       args: z.object({
-        path: z.string().describe("Target path"),
+        _: z.tuple([z.string().describe("Target path").meta({ title: "PATH" })]),
         force: z.boolean().default(false).describe("Overwrite target"),
       }),
-      positional: ["path"],
       run: vi.fn(),
     });
     const root = defineCommand({ name: "git-worktree", subCommands: { new: leaf } });

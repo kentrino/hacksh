@@ -3,7 +3,14 @@ import { safeParseAsync, type $ZodIssue, type output } from "zod/v4/core";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { ZittyValidationError, type ZittyIssue } from "./errors.ts";
 import { aliasList, kebabCase } from "./options.ts";
-import { readArgInfo, schemaShape, type ArgsSchema } from "./schema.ts";
+import {
+  POSITIONALS_KEY,
+  readArgInfo,
+  readPositionals,
+  schemaShape,
+  type ArgsSchema,
+  type Positionals,
+} from "./schema.ts";
 
 export interface ParsedCommand<S extends ArgsSchema> {
   args: output<S>;
@@ -63,12 +70,10 @@ function optionModel(command: AnyCommandDef): OptionModel {
   const definitions = new Map<string, OptionDefinition>();
   const parserOptions: OptionModel["parserOptions"] = {};
   const allAliases = new Set<string>();
-  const positional = new Set<string>(command.positional ?? []);
-  if (command.variadic) positional.add(command.variadic);
 
   if (command.args) {
     for (const [key, schema] of Object.entries(schemaShape(command.args))) {
-      if (positional.has(key)) continue;
+      if (key === POSITIONALS_KEY) continue;
       const alias = command.argOptions?.[key]?.alias;
       const aliases = alias ? aliasList(alias) : [];
       const definition: OptionDefinition = {
@@ -91,9 +96,19 @@ function optionModel(command: AnyCommandDef): OptionModel {
   return { definitions, parserOptions, aliases: allAliases };
 }
 
-function displayName(command: AnyCommandDef, key: string): string {
-  if (command.variadic === key) return `<${key.toUpperCase()}...>`;
-  return command.positional?.includes(key) ? `<${key.toUpperCase()}>` : `--${kebabCase(key)}`;
+function commandPositionals(command: AnyCommandDef): Positionals | undefined {
+  return command.args ? readPositionals(schemaShape(command.args)) : undefined;
+}
+
+function displayName(command: AnyCommandDef, path: readonly PropertyKey[]): string {
+  const [first, index] = path;
+  if (typeof first !== "string") return "arguments";
+  if (first !== POSITIONALS_KEY) return `--${kebabCase(first)}`;
+  const positionals = commandPositionals(command);
+  if (!positionals || typeof index !== "number") return "arguments";
+  const item = positionals.items[index];
+  if (item) return `<${item.label}>`;
+  return positionals.rest ? `<${positionals.rest.label}...>` : "arguments";
 }
 
 export function tokenizeCommandArgs(
@@ -235,14 +250,11 @@ export function tokenizedBefore(
 }
 
 function zodIssues(command: AnyCommandDef, issues: readonly $ZodIssue[]): ZittyIssue[] {
-  return issues.map((issue) => {
-    const first = issue.path[0];
-    return {
-      arg: typeof first === "string" ? displayName(command, first) : "arguments",
-      message: issue.message,
-      issue,
-    };
-  });
+  return issues.map((issue) => ({
+    arg: displayName(command, issue.path),
+    message: issue.message,
+    issue,
+  }));
 }
 
 export async function parseCommandArgs<S extends ArgsSchema>(
@@ -258,21 +270,19 @@ export async function parseCommandArgs<S extends ArgsSchema>(
   }
 
   const input: Record<string, string | boolean | string[] | undefined> = {};
-  if (command.variadic) input[command.variadic] = [];
+  const positionals = commandPositionals(command);
+  const positionalValues: string[] = [];
+  if (positionals) input[POSITIONALS_KEY] = positionalValues;
   const extraArgs: string[] = [];
-  let positionalIndex = 0;
   for (const token of tokenized.tokens) {
     if (token.kind === "known-option") input[token.definition.key] = token.value;
     else if (token.kind === "unknown-option") extraArgs.push(token.value);
-    else {
-      const key = command.positional?.[positionalIndex];
-      if (key) {
-        input[key] = token.value;
-        positionalIndex += 1;
-      } else if (command.variadic) {
-        (input[command.variadic] as string[]).push(token.value);
-      } else extraArgs.push(token.value);
-    }
+    else if (
+      positionals &&
+      (positionals.rest || positionalValues.length < positionals.items.length)
+    ) {
+      positionalValues.push(token.value);
+    } else extraArgs.push(token.value);
   }
 
   if (!command.args)

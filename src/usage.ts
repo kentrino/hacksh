@@ -1,6 +1,6 @@
 import type { AnyCommandDef } from "./command.ts";
 import { aliasList, kebabCase } from "./options.ts";
-import { readArgInfo, schemaShape } from "./schema.ts";
+import { POSITIONALS_KEY, readArgInfo, readPositionals, schemaShape } from "./schema.ts";
 
 function details(
   description: string | undefined,
@@ -40,42 +40,35 @@ function formatUsage(command: AnyCommandDef): string {
   if (title) lines.push(title, "");
 
   const shape = command.args ? schemaShape(command.args) : {};
-  const positional = command.positional ?? [];
-  const positionalSet = new Set<string>(positional);
-  if (command.variadic) positionalSet.add(command.variadic);
-  const syntax = positional.map((key) => {
-    const info = readArgInfo(shape[key]!);
-    const name = command.argOptions?.[key]?.name ?? key.toUpperCase();
-    return info.required ? `<${name}>` : `[${name}]`;
-  });
-  if (command.variadic) {
-    const name = command.argOptions?.[command.variadic]?.name ?? command.variadic.toUpperCase();
-    syntax.push(`[${name}...]`);
-  }
+  const positionals = readPositionals(shape);
+  const items = positionals?.items ?? [];
+  const rest = positionals?.rest;
+  const syntax = items.map(({ schema, label }) =>
+    readArgInfo(schema).required ? `<${label}>` : `[${label}]`,
+  );
+  if (rest) syntax.push(`[${rest.label}...]`);
   if (command.subCommands && Object.keys(command.subCommands).length > 0) syntax.push("<COMMAND>");
   lines.push(
     `USAGE ${command.name ?? "command"} [OPTIONS]${syntax.length ? ` ${syntax.join(" ")}` : ""}`,
   );
 
-  if (positional.length > 0 || command.variadic) {
+  if (items.length > 0 || rest) {
     lines.push("", "ARGUMENTS", "");
-    for (const key of positional) {
-      const info = readArgInfo(shape[key]!);
-      const name = command.argOptions?.[key]?.name ?? key.toUpperCase();
+    for (const { schema, label } of items) {
+      const info = readArgInfo(schema);
       lines.push(
-        `  ${name}  ${details(info.description, info.required, info.defaultValue, info.choices)}`.trimEnd(),
+        `  ${label}  ${details(info.description, info.required, info.defaultValue, info.choices)}`.trimEnd(),
       );
     }
-    if (command.variadic) {
-      const info = readArgInfo(shape[command.variadic]!);
-      const name = command.argOptions?.[command.variadic]?.name ?? command.variadic.toUpperCase();
+    if (rest) {
+      const info = readArgInfo(rest.schema);
       lines.push(
-        `  ${name}...  ${details(info.description, false, undefined, info.choices)}`.trimEnd(),
+        `  ${rest.label}...  ${details(info.description, false, undefined, info.choices)}`.trimEnd(),
       );
     }
   }
 
-  const options = Object.entries(shape).filter(([key]) => !positionalSet.has(key));
+  const options = Object.entries(shape).filter(([key]) => key !== POSITIONALS_KEY);
   if (options.length > 0) {
     lines.push("", "OPTIONS", "");
     for (const [key, schema] of options) {

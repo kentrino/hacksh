@@ -57,25 +57,26 @@ describe("consumer-equivalent commands", () => {
 
   it("supports gh-pr-commits coercion, optional positional, and repo alias", async () => {
     const command = defineCommand({
-      args: z.object({ pr: z.coerce.number().int().optional(), repo: z.string().optional() }),
-      positional: ["pr"],
+      args: z.object({
+        _: z.tuple([z.coerce.number().int().optional()]),
+        repo: z.string().optional(),
+      }),
       argOptions: { repo: { alias: "R" } },
       run: ({ args }) => args,
     });
     await expect(runCommand(command, ["42", "-R", "owner/repo"])).resolves.toEqual({
-      pr: 42,
+      _: [42],
       repo: "owner/repo",
     });
   });
 
-  it("supports multiple named positional arguments and overflow", async () => {
+  it("supports multiple positional arguments and overflow", async () => {
     const command = defineCommand({
-      args: z.object({ src: z.string(), dest: z.string().optional() }),
-      positional: ["src", "dest"],
+      args: z.object({ _: z.tuple([z.string(), z.string().optional()]) }),
       run: ({ args, extraArgs }) => ({ args, extraArgs }),
     });
     await expect(runCommand(command, ["a", "b", "c"])).resolves.toEqual({
-      args: { src: "a", dest: "b" },
+      args: { _: ["a", "b"] },
       extraArgs: ["c"],
     });
   });
@@ -89,19 +90,17 @@ describe("consumer-equivalent commands", () => {
   });
 
   it.each([
-    ["zod", z.object({ prefix: z.string(), values: z.array(z.string()) })],
-    ["zod/mini", mini.object({ prefix: mini.string(), values: mini.array(mini.string()) })],
+    ["zod", z.object({ _: z.tuple([z.string()], z.string()) })],
+    ["zod/mini", mini.object({ _: mini.tuple([mini.string()], mini.string()) })],
   ])("runs fixed and variadic arguments with %s", async (_name, args) => {
     const command = defineCommand({
       args,
-      positional: ["prefix"],
-      variadic: "values",
       run: ({ args: parsed, extraArgs, passthrough }) => ({ parsed, extraArgs, passthrough }),
     });
     await expect(
       runCommand(command, ["fixed", "one", "two", "--extra", "--", "tail"]),
     ).resolves.toEqual({
-      parsed: { prefix: "fixed", values: ["one", "two"] },
+      parsed: { _: ["fixed", "one", "two"] },
       extraArgs: ["--extra"],
       passthrough: ["tail"],
     });

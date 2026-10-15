@@ -4,13 +4,27 @@ export type ArgsSchema = $ZodObject;
 export type EmptyArgs = $ZodObject<{}>;
 export type ShapeOf<S extends ArgsSchema> = S["_zod"]["def"]["shape"];
 export type ArgKey<S extends ArgsSchema> = Extract<keyof ShapeOf<S>, string>;
+export type OptionKey<S extends ArgsSchema> = Exclude<ArgKey<S>, typeof POSITIONALS_KEY>;
+
+export const POSITIONALS_KEY = "_";
 
 export interface ArgInfo {
   readonly takesValue: boolean;
   readonly required: boolean;
   readonly defaultValue: unknown;
   readonly description: string | undefined;
+  readonly title: string | undefined;
   readonly choices: readonly string[] | undefined;
+}
+
+export interface Positional {
+  readonly schema: $ZodType;
+  readonly label: string;
+}
+
+export interface Positionals {
+  readonly items: readonly Positional[];
+  readonly rest: Positional | undefined;
 }
 
 type ZodDef = Record<string, unknown> & { type: string };
@@ -42,10 +56,12 @@ export function readArgInfo(schema: $ZodType): ArgInfo {
   let required = true;
   let defaultValue: unknown;
   let description: string | undefined;
+  let title: string | undefined;
 
   while (current) {
     const metadata = globalRegistry.get(current);
     description ??= metadata?.description;
+    title ??= metadata?.title;
 
     const def = definition(current);
     if (def.type === "optional" || def.type === "default" || def.type === "prefault") {
@@ -61,7 +77,33 @@ export function readArgInfo(schema: $ZodType): ArgInfo {
     required,
     defaultValue,
     description,
+    title,
     choices: enumChoices(base),
+  };
+}
+
+/** Read the `_` tuple or array schema that declares positional arguments. */
+export function readPositionals(shape: Record<string, $ZodType>): Positionals | undefined {
+  const field = shape[POSITIONALS_KEY];
+  if (!field) return undefined;
+  const def = definition(unwrapInput(field));
+  let items: readonly $ZodType[];
+  let rest: $ZodType | undefined;
+  if (def.type === "tuple") {
+    items = def.items as readonly $ZodType[];
+    rest = (def.rest as $ZodType | null) ?? undefined;
+  } else if (def.type === "array") {
+    items = [];
+    rest = def.element as $ZodType;
+  } else {
+    throw new TypeError("Positional arguments `_` must use a tuple or array schema");
+  }
+  return {
+    items: items.map((schema, index) => ({
+      schema,
+      label: readArgInfo(schema).title ?? `ARG${index + 1}`,
+    })),
+    rest: rest && { schema: rest, label: readArgInfo(rest).title ?? "ARGS" },
   };
 }
 

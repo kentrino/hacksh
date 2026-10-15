@@ -24,14 +24,15 @@ const main = defineCommand({
   version: "0.1.0",
   description: "List commits in a GitHub pull request",
   args: z.object({
-    pr: z.coerce.number().int().optional().describe("Pull request number"),
+    _: z.tuple([
+      z.coerce.number().int().optional().describe("Pull request number").meta({ title: "PR" }),
+    ]),
     repo: z.string().optional().describe("Repository in OWNER/REPO format"),
     verbose: z.boolean().default(false).describe("Show details"),
   }),
-  positional: ["pr"],
   argOptions: { repo: { alias: "R" }, verbose: { alias: ["v", "V"] } },
   async run({ args, rawArgs, extraArgs, passthrough }) {
-    // args is { pr?: number; repo?: string; verbose: boolean }
+    // args is { _: [number?]; repo?: string; verbose: boolean }
     console.log({ args, rawArgs, extraArgs, passthrough });
   },
 });
@@ -52,56 +53,66 @@ are accepted (`--dryRun` and `--dry-run`). A default-on flag can be disabled wit
 `--no-verbose=false`) are validation errors. Value options accept `--repo owner/repo` and
 `--repo=owner/repo`; values such as `false` remain strings for non-boolean fields.
 
-Keys in `positional` are assigned in order. Optional or defaulted positional arguments must come
-after required ones. To collect all remaining positional values, set `variadic` to a separate array
-field in the schema. The variadic field is always trailing, is excluded from named options, and is
-an empty array when no values are supplied (including through optional or default wrappers):
+## Positional arguments
+
+Declare positional arguments as a `z.tuple` in the `_` field. Tuple items are assigned in order,
+and the tuple rest collects all remaining values. Optional or defaulted items must come after
+required ones, and items cannot be booleans or arrays. The `_` field is never a named option.
 
 ```ts
 const copy = defineCommand({
+  name: "copy",
   args: z.object({
-    destination: z.string(),
-    files: z.array(z.string()),
+    _: z.tuple(
+      [z.string().describe("Output directory").meta({ title: "DESTINATION" })],
+      z.string().describe("Input files").meta({ title: "FILES" }),
+    ),
   }),
-  positional: ["destination"],
-  variadic: "files",
+  run({ args }) {
+    const [destination, ...files] = args._; // [string, ...string[]]
+  },
 });
 ```
 
-Without `variadic`, additional positional arguments are kept in `extraArgs`. Unknown options are
-also kept in `extraArgs`; arguments after `--` are kept in `passthrough`.
+```sh
+copy out a.txt b.txt   # { _: ["out", "a.txt", "b.txt"] }
+```
+
+Help and validation errors label each item with its `.meta({ title })`, such as `<DESTINATION>` and
+`[FILES...]`. Untitled items are labeled by position (`ARG1`, `ARG2`, ...) and an untitled rest is
+labeled `ARGS`. Use `z.array` instead of a tuple to accept only variadic values. Without a rest,
+additional positional arguments are kept in `extraArgs`. Unknown options are also kept in
+`extraArgs`; arguments after `--` are kept in `passthrough`.
 
 ## Argument options
 
-Use `argOptions` to set short aliases and help labels for each argument without changing schema
-keys, parsed output, or validation error paths. `z.enum` choices and schema descriptions appear in
-generated help, including enums inside the supported schema wrappers and variadic arrays.
+Use `argOptions` to set short aliases and help labels for each named option without changing
+schema keys, parsed output, or validation error paths. `z.enum` choices and schema descriptions
+appear in generated help, including enums inside the supported schema wrappers and tuple items.
 
 ```ts
 const convert = defineCommand({
   name: "convert",
   args: z.object({
-    size: z.enum(["small", "large"]).describe("Item size"),
+    _: z.tuple(
+      [z.enum(["small", "large"]).describe("Item size").meta({ title: "SIZE" })],
+      z.string().describe("Input files").meta({ title: "INPUT" }),
+    ),
     format: z.enum(["json", "yaml"]).optional().describe("Output format"),
     overwrite: z.boolean().default(true).describe("Replace existing files"),
     verbose: z.boolean().default(false).describe("Show details"),
-    files: z.array(z.string()).describe("Input files"),
   }),
-  positional: ["size"],
-  variadic: "files",
   argOptions: {
-    size: { name: "SIZE" },
     format: { alias: "f", valueName: "FORMAT" },
     overwrite: { negatedDescription: "Keep existing files" },
     verbose: { alias: ["v", "V"] },
-    files: { name: "INPUT" },
   },
 });
 ```
 
 ```sh
 convert large -f yaml -v a.txt b.txt
-# { size: "large", format: "yaml", overwrite: true, verbose: true, files: ["a.txt", "b.txt"] }
+# { _: ["large", "a.txt", "b.txt"], format: "yaml", overwrite: true, verbose: true }
 ```
 
 ```text
@@ -121,13 +132,12 @@ OPTIONS
 ```
 
 - `alias` gives a named option one or more single-character short forms.
-- `name` sets the label of a positional or variadic argument.
 - `valueName` sets the value label of a named option.
 - `negatedDescription` describes the `--no-` form of a boolean flag.
 
 `argOptions` keys are checked against the argument schema. `defineCommand` throws a `TypeError`
-when an alias is longer than one character, is used by more than one option, or is assigned to a
-positional or variadic argument. Without an alias of the same letter, `-h` and `-v` are shorthands
+when an alias is longer than one character or is used by more than one option, and when
+`argOptions` has a `_` key. Without an alias of the same letter, `-h` and `-v` are shorthands
 for `--help` and `--version`. Defining an `h` or `v` alias replaces the shorthand, so `convert -v`
 above sets `verbose`; `--help` and `--version` remain available. Help remains plain text when
 `NO_COLOR` or `CI` is set.
