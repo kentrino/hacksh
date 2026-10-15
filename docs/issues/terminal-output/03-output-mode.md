@@ -9,7 +9,7 @@ depends_on: ["terminal-output-02-logger"]
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `0019-output-format-selection` issue and designs.
 
-Current state: worker `s-terminal-output-03`, pane `w2P:pP`; implementation committed at `1f57c43`, correction committed at `9b9767c`, session `01a13f15-9f63-7cb1-9ba6-069a8c304efb`; reviewer `c-review-terminal-output-03`, pane `w2P:pQ`; next action: re-review. Blockers: none.
+Current state: worker `s-terminal-output-03`, pane `w2P:pP`, session `01a13f15-9f63-7cb1-9ba6-069a8c304efb`; reviewer `c-review-terminal-output-03`, pane `w2P:pQ`, session `ecab4332-f6b8-405e-bd47-f371e3313656`; corrections R7–R8 committed at `8d01c6f`; next action: re-review. Blockers: none.
 
 ## Scope and decisions
 
@@ -82,7 +82,7 @@ Deno reported `2.7.14`. Committing produced tree
 ':!docs/issues'` exited 0, so the validated source is unchanged after commit.
 
 - `pnpm exec vp test src/printer.test.ts src/run.test.ts src/public-api.test.ts
-  src/process.test.ts`: passed, 4 files and 86 focused tests. Durable regressions
+src/process.test.ts`: passed, 4 files and 86 focused tests. Durable regressions
   cover actual validation errors nested in causes and log properties, custom
   printer canonical cycles, URL/Buffer/typed-array/toJSON values, ANSI keys,
   independently hostile Error properties, explicit error kinds, summary-derived
@@ -95,7 +95,7 @@ Deno reported `2.7.14`. Committing produced tree
 - `pnpm build`: passed; ESM JavaScript, source map, and bundled declarations were
   emitted for target Node 22.18.0.
 - `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node
-  pnpm test:packed`: passed; packed Node 22.18.0 and Deno consumers passed.
+pnpm test:packed`: passed; packed Node 22.18.0 and Deno consumers passed.
 - `CI=1 pnpm test`: passed, 8 files and 133 tests.
 - `git diff --check && git diff --cached --check`: passed on the correction
   validation snapshot.
@@ -106,3 +106,39 @@ guarded platform data; usage text renders from its canonical summary; error kind
 controls historical prefixes; printers share routing/text policy; and only non-empty
 NO_COLOR disables color. S1 is implemented with queued custom/default JSON reporting,
 onError compatibility, guaranteed non-execution, and exit-after-drain behavior.
+
+## Review round 2
+
+Reviewer independently confirmed R1–R6 and S1 fixed at `bcefc90`. Remaining worker corrections: R7 avoid changing class/toJSON values or scanning buffer bytes during error-summary traversal (recurse through Errors, arrays, Maps/Sets and plain objects; preserve other instances for JSON normalization); R8 reword invalid-setting README text to prevent a wrapped `1.` becoming a Markdown list item. No supervisor items. Prior focused and full validation remains evidence for unchanged behavior; affected corrections require fresh tests.
+
+### Round 2 correction evidence
+
+Correction commit: `8d01c6f64bfb6ce664f2b3710673693e812afca8`.
+
+Validation snapshot: base `HEAD^{tree}`
+`28aaf2a7f597af7ef2660b5802f1997cbc1520c3`, uncommitted diff object
+`93e71b6012b3fd750fe09684402c2c75df857d03`. Environment: macOS worktree, Node
+`v24.15.0`, pnpm `11.20.0`; minimum-runtime executable reported `v22.18.0`, and
+Deno reported `2.7.14`. Committing produced tree
+`259fa7caf2a61e8df0c1ca0a996c654da142635c`; `git diff --quiet 8d01c6f -- .
+':!docs/issues'` exited 0, so the validated source is unchanged after commit.
+
+- `pnpm exec vp test src/run.test.ts src/printer.test.ts`: passed, 2 files and 63
+  focused tests. Deterministic regressions verify custom-printer identity for a
+  class with `toJSON` and a Buffer, preserve the class's string serialization
+  despite its nested Error, and canonicalize an Error produced by `toJSON` during
+  JSON normalization.
+- `pnpm check`: passed; all 81 files were formatted and 22 files had no warnings,
+  lint errors, or type errors.
+- `pnpm test`: passed; 8 files and 134 tests.
+- `pnpm build`: passed; ESM JavaScript, source map, and bundled declarations were
+  emitted for target Node 22.18.0.
+- `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node
+  pnpm test:packed`: passed; packed Node 22.18.0 and Deno consumers passed.
+- `git diff --check && git diff --cached --check`: passed on the correction
+  validation snapshot.
+
+R7 limits error-summary traversal to Errors, arrays, Maps/Sets and plain objects;
+ArrayBuffer views, class instances, and values with `toJSON` pass unchanged to the
+JSON normalizer. R8 renders the invalid-setting exit status as status code `1`
+without creating an accidental Markdown list item.
