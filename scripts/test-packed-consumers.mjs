@@ -6,7 +6,7 @@ import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
 
 const repository = resolve(import.meta.dirname, "..");
-const temporaryRoot = await mkdtemp(join(tmpdir(), "zitty-packed-consumers-"));
+const temporaryRoot = await mkdtemp(join(tmpdir(), "hacksh-packed-consumers-"));
 
 function run(command, args, options = {}) {
   return new Promise((resolveRun, reject) => {
@@ -158,7 +158,7 @@ async function verifyConsumer(label, execute) {
   }
 }
 
-function consumerSource(zodSpecifier, miniSpecifier, zittySpecifier) {
+function consumerSource(zodSpecifier, miniSpecifier, packageSpecifier) {
   return `
 import { z } from ${JSON.stringify(zodSpecifier)};
 import * as mini from ${JSON.stringify(miniSpecifier)};
@@ -169,7 +169,7 @@ import {
   renderUsage,
   showUsage,
   ZittyValidationError,
-} from ${JSON.stringify(zittySpecifier)};
+} from ${JSON.stringify(packageSpecifier)};
 async function verifyPhaseTwo(label, phaseCommand) {
   const usage = await renderUsage(phaseCommand);
   for (const expected of [
@@ -323,7 +323,7 @@ import {
   type ArgOptionsMap,
   type CommandDef,
   type ShowUsageCallback,
-} from "zitty";
+} from "hacksh";
 const schema = z.object({
   _: z.tuple([z.enum(["fast", "safe"]).meta({ title: "MODE" })], z.string()),
   count: z.coerce.number(),
@@ -446,7 +446,7 @@ try {
   const nodeDirectory = join(temporaryRoot, "node");
   await mkdir(nodeDirectory);
   await writeFile(join(nodeDirectory, "package.json"), JSON.stringify({ type: "module" }));
-  await writeFile(join(nodeDirectory, "consumer.mjs"), consumerSource("zod", "zod/mini", "zitty"));
+  await writeFile(join(nodeDirectory, "consumer.mjs"), consumerSource("zod", "zod/mini", "hacksh"));
   await writeFile(join(nodeDirectory, "consumer-types.ts"), typeConsumerSource());
   await runChecked(
     "npm",
@@ -483,21 +483,21 @@ try {
   const archive = await readFile(archivePath);
   registry = createServer(async (request, response) => {
     const port = registry.address().port;
-    if (request.url === "/zitty") {
+    if (request.url === "/hacksh") {
       response.setHeader("content-type", "application/json");
       response.end(
         JSON.stringify({
-          name: "zitty",
+          name: "hacksh",
           "dist-tags": { latest: packageJson.version },
           versions: {
             [packageJson.version]: {
-              name: "zitty",
+              name: "hacksh",
               version: packageJson.version,
               type: "module",
               exports: packageJson.exports,
               peerDependencies: packageJson.peerDependencies,
               dist: {
-                tarball: `http://127.0.0.1:${port}/zitty/-/${archiveName}`,
+                tarball: `http://127.0.0.1:${port}/hacksh/-/${archiveName}`,
               },
             },
           },
@@ -505,7 +505,7 @@ try {
       );
       return;
     }
-    if (request.url === `/zitty/-/${archiveName}`) {
+    if (request.url === `/hacksh/-/${archiveName}`) {
       response.setHeader("content-type", "application/octet-stream");
       response.end(archive);
       return;
@@ -524,7 +524,7 @@ try {
   await mkdir(denoDirectory);
   await writeFile(
     join(denoDirectory, "consumer.mjs"),
-    consumerSource("npm:zod@4", "npm:zod@4/mini", `npm:zitty@${packageJson.version}`),
+    consumerSource("npm:zod@4", "npm:zod@4/mini", `npm:hacksh@${packageJson.version}`),
   );
   const registryUrl = `http://127.0.0.1:${registry.address().port}/`;
   const denoEnvironment = {

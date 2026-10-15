@@ -1,15 +1,19 @@
-# zitty
+# hacksh
 
 Define a type-safe command-line interface with a Zod 4 object schema. The same schema parses and
 validates arguments, infers the value passed to `run`, and generates help.
 
+The name comes from 拍手 (_hakushu_), the Japanese word for "clap", as a nod to
+[clap](https://github.com/clap-rs/clap), the command-line argument parser for Rust. It is spelled
+with _hack_ and _sh_, as in shell.
+
 ## Install
 
 ```sh
-pnpm add zitty zod
+pnpm add hacksh zod
 ```
 
-zitty is an ESM package and supports Node.js 22.18 or newer. Zod is a peer dependency, so an
+hacksh is an ESM package and supports Node.js 22.18 or newer. Zod is a peer dependency, so an
 application controls the Zod 4 version it uses. The public schema types and schema inspection use
 the shared `zod/v4/core` API and accept schemas created with either `zod` or `zod/mini`.
 
@@ -17,7 +21,7 @@ the shared `zod/v4/core` API and accept schemas created with either `zod` or `zo
 
 ```ts
 import { z } from "zod";
-import { defineCommand, runMain } from "zitty";
+import { defineCommand, runMain } from "hacksh";
 
 const main = defineCommand({
   name: "gh-pr-commits",
@@ -190,7 +194,7 @@ functions are async so future command-resolution features can be added without c
 return types.
 
 ```ts
-import { parseArgs, renderUsage, showUsage } from "zitty";
+import { parseArgs, renderUsage, showUsage } from "hacksh";
 
 const args = await parseArgs(main, ["42", "--repo", "owner/repo"]);
 // args is inferred from the schema as:
@@ -214,7 +218,7 @@ passed to the returned function take precedence over configured `argv`; omitting
 `process.argv.slice(2)`. Both functions return `Promise<void>`.
 
 ```ts
-import { createMain } from "zitty";
+import { createMain } from "hacksh";
 
 const mainEntry = createMain(main, { argv: ["--verbose"] });
 await mainEntry(); // uses the configured argv
