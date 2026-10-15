@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/kentrino/hacksh/compare/v0.3.0...v0.4.0) (2026-10-15)
+
+
+### Breaking Changes
+
+* Rename the public error classes and issue type to `HackshUsageError`, `HackshValidationError`, and `HackshIssue`. Update imports and serialized error-name checks to the new names. Verification scripts now use `HACKSH_MINIMUM_NODE` and `HACKSH_TYPE_TESTS`.
+
+### Refactoring
+
+* **api:** align public symbols with the Hacksh name ([#13](https://github.com/kentrino/hacksh/issues/13)) ([aa0d55a](https://github.com/kentrino/hacksh/commit/aa0d55aa345eec0b548a10113fbc42defc0eff5a))
+
 ## [0.3.0](https://github.com/kentrino/hacksh/compare/v0.2.1...v0.3.0) (2026-10-15)
 
 
