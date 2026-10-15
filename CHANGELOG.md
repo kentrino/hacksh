@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/kentrino/hacksh/compare/v0.1.0...v0.1.1) (2026-10-15)
+
+
+### CI/CD
+
+* match root release PRs without a component ([#3](https://github.com/kentrino/hacksh/issues/3)) ([8e20950](https://github.com/kentrino/hacksh/commit/8e20950fed522ecac097b7f44e9a170746d6bc1e))
+
 ## 0.1.0 (2026-10-15)
 
 
