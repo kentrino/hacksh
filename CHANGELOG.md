@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/kentrino/hacksh/compare/v0.1.1...v0.1.2) (2026-10-15)
+
+
+### Bug Fixes
+
+* declare bundled types for npm discovery ([#5](https://github.com/kentrino/hacksh/issues/5)) ([97d4fe5](https://github.com/kentrino/hacksh/commit/97d4fe56aa2d3397e0b36634d65e61c36b7fea22))
+
 ## [0.1.1](https://github.com/kentrino/hacksh/compare/v0.1.0...v0.1.1) (2026-10-15)
 
 
