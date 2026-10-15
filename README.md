@@ -214,6 +214,49 @@ template `rawMessage`, merged `properties`, and a numeric `timestamp`. Logger ca
 be awaited: they use the invocation's serialized output queue, which is drained before execution
 finishes. A printer failure rejects the invocation without changing a successful `run` value.
 
+## Interactive input
+
+The logger also owns the invocation's interactive input. Use `select`, `confirm`, and `text` from
+the same logger (including loggers returned by `with` and `getChild`) so prompts use the selected
+printer and output mode.
+
+```ts
+const deploy = defineCommand({
+  name: "deploy",
+  async run({ logger }) {
+    const environment = await logger.select({
+      message: "Environment",
+      options: [
+        { value: "staging", hint: "safe default" },
+        { value: "production", label: "Production" },
+      ] as const,
+      initialValue: "staging",
+    }); // "staging" | "production"
+    const confirmed = await logger.confirm({ message: `Deploy to ${environment}?` });
+    if (!confirmed) return;
+    const release = await logger.text({
+      message: "Release name",
+      placeholder: "v1.2.3",
+      validate: (value) => (value.length === 0 ? "A release name is required" : undefined),
+    });
+    logger.success("Deploying {release}", { release });
+  },
+});
+```
+
+Select values retain their literal union type. Arrow keys change the selected choice, Enter accepts
+it, and `initialValue` controls the initial selection. Confirm accepts `y`, `n`, or Enter; Enter
+uses `initialValue` when supplied and otherwise means no. Text displays its placeholder without
+using it as input, supports editing, and repeats the prompt when `validate` returns a message.
+
+Prompts are allowed only when the resolved mode is interactive: pretty output outside CI with TTY
+stdin and stdout. JSON, CI, and non-TTY invocations throw `HackshPromptError` immediately even if a
+default is available. Its `reason` and `prompt` fields identify why input failed and the prompt's
+`kind`, `message`, and select `choices`. Reasons distinguish `non-interactive`, `cancelled`, `eof`,
+`overlapping`, `invalid-options`, `input-error`, and `printer-error`. Ctrl-C and Escape cancel;
+`runMain` reports cancellation and exits with status 130. Only one prompt may be active in an
+invocation. Input listeners and raw terminal mode are restored after every outcome.
+
 ## Output formats
 
 `runMain` and `runCommand` resolve one output mode before command routing, parsing, or execution.
@@ -292,12 +335,13 @@ await runCommand(main, ["--help"], { printer });
 // events[0] is { type: "usage", usage, text, stream: "stdout" }
 ```
 
-The current events are `usage`, `version`, `error`, and `log`. Usage events include the resolved
+The current events are `usage`, `version`, `error`, `log`, and `prompt`. Usage events include the resolved
 command's schema-free name, version, description, synopsis, arguments, options, and visible child
 commands, plus rendered text and the intended `stdout` or `stderr` stream. Version events include
 the version string. Error events contain a schema-free summary with an explicit `kind`, structured
 validation issues, standard `Error` fields, custom enumerable properties, and recursively
-canonical causes; log events contain the structured record described above. Printer calls are serialized, may be asynchronous, and are
+canonical causes; log events contain the structured record described above. Prompt events contain
+the prompt kind, status, current value or choices, placeholder, and validation message. Printer calls are serialized, may be asynchronous, and are
 drained before `runCommand` or `runMain` completes or exits. A printer rejection rejects
 `runCommand`.
 
@@ -371,16 +415,18 @@ await runMain(main, {
 
 Usage failures are `ZittyUsageError` instances. Argument failures are
 `ZittyValidationError` instances whose `issues` identify CLI names such as `--repo` or `<PR>`.
+Prompt failures are `HackshPromptError` instances with structured `reason` and `prompt` fields.
 
 ## Development
 
-| Command            | Description                               |
-| ------------------ | ----------------------------------------- |
-| `vp check`         | Format, lint, and type check              |
-| `vp test`          | Run tests                                 |
-| `vp pack`          | Build `src/index.ts` into `dist`          |
-| `vp run ready`     | Run check, test, and build                |
-| `pnpm test:packed` | Test the tarball with Node 22.18 and Deno |
+| Command                | Description                               |
+| ---------------------- | ----------------------------------------- |
+| `vp check`             | Format, lint, and type check              |
+| `vp test`              | Run tests                                 |
+| `pnpm test:prompt-pty` | Probe prompts in a real terminal          |
+| `vp pack`              | Build `src/index.ts` into `dist`          |
+| `vp run ready`         | Run check, test, and build                |
+| `pnpm test:packed`     | Test the tarball with Node 22.18 and Deno |
 
 The packed-consumer test must execute its Node consumer with exactly Node 22.18.0. Run pnpm itself
 under that version, or supply an absolute executable path explicitly:

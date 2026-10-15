@@ -3,7 +3,7 @@ import type { HackshErrorSummary } from "./errors.ts";
 import type { LogLevel, LogRecord } from "./logger.ts";
 import { eventStream, type OutputWriter, type Printer, type PrintEvent } from "./printer.ts";
 
-type PrettyMark = LogLevel | "step" | "success" | "usage" | "version" | "errorEvent";
+type PrettyMark = LogLevel | "step" | "success" | "usage" | "version" | "errorEvent" | "prompt";
 type TextStyle = Parameters<typeof styleText>[0];
 
 interface PrettySymbols {
@@ -25,6 +25,7 @@ const unicodeSymbols: PrettySymbols = {
     usage: "◆",
     version: "●",
     errorEvent: "■",
+    prompt: "?",
   },
 };
 
@@ -42,6 +43,7 @@ const asciiSymbols: PrettySymbols = {
     usage: "?",
     version: "i",
     errorEvent: "x",
+    prompt: "?",
   },
 };
 
@@ -57,6 +59,7 @@ const markStyles: Record<PrettyMark, TextStyle> = {
   usage: "cyan",
   version: "blue",
   errorEvent: "red",
+  prompt: "cyan",
 };
 
 export interface PrettyPrinterOptions {
@@ -114,6 +117,7 @@ function eventMark(event: PrintEvent): PrettyMark {
   if (event.type === "usage") return "usage";
   if (event.type === "version") return "version";
   if (event.type === "error") return "errorEvent";
+  if (event.type === "prompt") return "prompt";
   return event.record.kind === "message" ? event.record.level : event.record.kind;
 }
 
@@ -127,6 +131,25 @@ function eventLines(event: PrintEvent): string[] {
       return errorLines(event.error);
     case "log":
       return logLines(event.record);
+    case "prompt": {
+      const { prompt } = event;
+      const lines = [prompt.message];
+      if (prompt.kind === "select") {
+        for (const choice of prompt.choices ?? []) {
+          lines.push(
+            `${choice.selected ? ">" : " "} ${choice.label}${choice.hint ? ` — ${choice.hint}` : ""}`,
+          );
+        }
+      } else if (prompt.kind === "confirm") {
+        lines.push(
+          `${prompt.value === "yes" ? "Yes" : "No"}${prompt.defaultValue ? ` (default: ${prompt.defaultValue})` : ""}`,
+        );
+      } else {
+        lines.push(prompt.value || (prompt.placeholder ? `(${prompt.placeholder})` : ""));
+      }
+      if (prompt.error) lines.push(prompt.error);
+      return lines;
+    }
   }
 }
 

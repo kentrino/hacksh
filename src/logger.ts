@@ -1,5 +1,7 @@
 import type { Printer } from "./printer.ts";
 import { summarizeErrors } from "./errors.ts";
+import type { Prompter } from "./prompts.ts";
+import { PromptController } from "./prompts.ts";
 
 export type LogLevel = "trace" | "debug" | "info" | "warning" | "error" | "fatal";
 
@@ -18,7 +20,7 @@ export interface LogRecord {
   timestamp: number;
 }
 
-export interface Logger {
+export interface Logger extends Prompter {
   readonly category: readonly string[];
   trace(message: string, properties?: LogProperties): void;
   debug(message: string, properties?: LogProperties): void;
@@ -47,6 +49,7 @@ function createBoundLogger(
   printer: Printer,
   category: readonly string[],
   boundProperties: LogProperties,
+  prompts: PromptController,
 ): Logger {
   function emit(
     level: LogLevel,
@@ -83,13 +86,35 @@ function createBoundLogger(
     fatal: (message, properties) => emit("fatal", "message", message, properties),
     step: (message, properties) => emit("info", "step", message, properties),
     success: (message, properties) => emit("info", "success", message, properties),
+    select: (options) => prompts.select(options),
+    confirm: (options) => prompts.confirm(options),
+    text: (options) => prompts.text(options),
     with: (properties) =>
-      createBoundLogger(printer, category, { ...boundProperties, ...properties }),
-    getChild: (child) => createBoundLogger(printer, [...category, child], boundProperties),
+      createBoundLogger(printer, category, { ...boundProperties, ...properties }, prompts),
+    getChild: (child) => createBoundLogger(printer, [...category, child], boundProperties, prompts),
   };
 }
 
+export interface CreateLoggerOptions {
+  interactive?: boolean;
+  input?: unknown;
+  printPrompt?: (event: Parameters<Printer["print"]>[0]) => Promise<void>;
+}
+
 /** Create the logger for one command invocation. */
-export function createLogger(printer: Printer, category: readonly string[]): Logger {
-  return createBoundLogger(printer, [...category], {});
+export function createLogger(
+  printer: Printer,
+  category: readonly string[],
+  options: CreateLoggerOptions = {},
+): Logger {
+  const prompts = new PromptController({
+    interactive: options.interactive ?? false,
+    input: options.input,
+    print:
+      options.printPrompt ??
+      (async (event) => {
+        await printer.print(event);
+      }),
+  });
+  return createBoundLogger(printer, [...category], {}, prompts);
 }

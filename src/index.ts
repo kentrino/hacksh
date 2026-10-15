@@ -1,13 +1,23 @@
 export { defineCommand } from "./command.ts";
 export type { ArgOptions, ArgOptionsMap, CommandContext, CommandDef } from "./command.ts";
-export { ZittyUsageError, ZittyValidationError } from "./errors.ts";
+export { HackshPromptError, ZittyUsageError, ZittyValidationError } from "./errors.ts";
 export type {
   HackshErrorKind,
   HackshErrorSummary,
+  HackshPromptErrorReason,
+  PromptErrorDetails,
+  PromptKind,
   ValidationIssueSummary,
   ZittyIssue,
 } from "./errors.ts";
 export type { Logger, LogKind, LogLevel, LogProperties, LogRecord } from "./logger.ts";
+export type {
+  ConfirmOptions,
+  Prompter,
+  SelectOption,
+  SelectOptions,
+  TextOptions,
+} from "./prompts.ts";
 export { parseArgs } from "./parser.ts";
 export {
   consolePrinter,
@@ -26,6 +36,9 @@ export type {
   OutputPreference,
   OutputWriter,
   Printer,
+  PromptChoiceState,
+  PromptPrintEvent,
+  PromptState,
   PrintEvent,
   PrintStream,
   ResolveOutputModeOptions,

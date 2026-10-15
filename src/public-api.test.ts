@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as mini from "zod/mini";
 import {
   defineCommand,
+  HackshPromptError,
   createPrettyPrinter,
   parseArgs,
   renderUsage,
@@ -21,6 +22,7 @@ import {
   type OutputPreference,
   type PrettyPrinterOptions,
   type PrintEvent,
+  type PromptPrintEvent,
   type RunCommandOptions,
   type RunMainOptions,
   type ShowUsageOptions,
@@ -121,6 +123,14 @@ describe("public logger API", () => {
         expectTypeOf<Logger["error"]>().parameter(0).toEqualTypeOf<string | Error>();
         expectTypeOf(logger.with({ requestId: "1" })).toEqualTypeOf<Logger>();
         expectTypeOf(logger.getChild("child")).toEqualTypeOf<Logger>();
+        expectTypeOf(
+          logger.select({
+            message: "Environment",
+            options: [{ value: "staging" }, { value: "production" }] as const,
+          }),
+        ).toEqualTypeOf<Promise<"staging" | "production">>();
+        expectTypeOf(logger.confirm({ message: "Continue?" })).toEqualTypeOf<Promise<boolean>>();
+        expectTypeOf(logger.text({ message: "Name" })).toEqualTypeOf<Promise<string>>();
       },
     });
 
@@ -128,8 +138,14 @@ describe("public logger API", () => {
       "trace" | "debug" | "info" | "warning" | "error" | "fatal"
     >();
     expectTypeOf<LogKind>().toEqualTypeOf<"message" | "step" | "success">();
-    expectTypeOf<HackshErrorKind>().toEqualTypeOf<"error" | "usage" | "validation" | "thrown">();
+    expectTypeOf<HackshErrorKind>().toEqualTypeOf<
+      "error" | "prompt" | "usage" | "validation" | "thrown"
+    >();
     expectTypeOf<LogPrintEvent["record"]>().toEqualTypeOf<LogRecord>();
+    expectTypeOf<PromptPrintEvent>().toMatchTypeOf<PrintEvent>();
+    expectTypeOf(
+      new HackshPromptError("cancelled", { kind: "text", message: "Name" }, "no"),
+    ).toMatchTypeOf<Error>();
   });
 });
 

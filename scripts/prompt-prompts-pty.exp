@@ -1,0 +1,25 @@
+#!/usr/bin/expect -f
+
+set timeout 5
+set node [lindex $argv 0]
+set fixture [lindex $argv 1]
+set mode [lindex $argv 2]
+
+spawn -noecho env NODE_NO_WARNINGS=1 NO_COLOR=1 $node --experimental-strip-types $fixture $mode
+if {$mode eq "flow"} {
+  expect "Environment"
+  send "\033\[B\r"
+  expect "Continue?"
+  send "y"
+  expect "Name"
+  send "x\r"
+  expect "Too short"
+  send "hi\r"
+} else {
+  expect "Cancel me"
+  send "\003"
+}
+expect eof
+catch wait status
+puts "PTY_CHILD_STATUS $status"
+exit [lindex $status 3]

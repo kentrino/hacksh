@@ -30,7 +30,42 @@ export class ZittyValidationError extends ZittyUsageError {
   }
 }
 
-export type HackshErrorKind = "error" | "usage" | "validation" | "thrown";
+export type PromptKind = "select" | "confirm" | "text";
+
+export type HackshPromptErrorReason =
+  | "non-interactive"
+  | "cancelled"
+  | "eof"
+  | "overlapping"
+  | "invalid-options"
+  | "input-error"
+  | "printer-error";
+
+export interface PromptErrorDetails {
+  kind: PromptKind;
+  message: string;
+  choices?: readonly string[];
+}
+
+/** An input request that could not be completed safely. */
+export class HackshPromptError extends Error {
+  readonly reason: HackshPromptErrorReason;
+  readonly prompt: PromptErrorDetails;
+
+  constructor(
+    reason: HackshPromptErrorReason,
+    prompt: PromptErrorDetails,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "HackshPromptError";
+    this.reason = reason;
+    this.prompt = prompt;
+  }
+}
+
+export type HackshErrorKind = "error" | "prompt" | "usage" | "validation" | "thrown";
 
 export interface ValidationIssueSummary {
   arg: string;
@@ -114,6 +149,7 @@ function summarizeIssue(
 }
 
 function errorKind(error: Error): HackshErrorKind {
+  if (error instanceof HackshPromptError) return "prompt";
   if (error instanceof ZittyValidationError) return "validation";
   if (error instanceof ZittyUsageError) return "usage";
   return "error";

@@ -1,6 +1,6 @@
 import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
-import { summarizeError, ZittyUsageError } from "./errors.ts";
+import { HackshPromptError, summarizeError, ZittyUsageError } from "./errors.ts";
 import { createLogger } from "./logger.ts";
 import {
   parseCommandArgs,
@@ -11,6 +11,7 @@ import {
 import {
   createJsonPrinter,
   createPrintQueue,
+  resolveOutputMode,
   type Printer,
   type PrintQueue,
   type PrintStream,
@@ -68,6 +69,7 @@ async function executeCommand<S extends ArgsSchema>(
   argv: string[],
   displayUsage: ShowUsageCallback,
   printer: Printer,
+  loggerOptions: Parameters<typeof createLogger>[2],
 ): Promise<unknown> {
   const resolved = resolveCommand(root, argv);
   if (resolved.segments[0]?.tokenized.version) {
@@ -93,7 +95,7 @@ async function executeCommand<S extends ArgsSchema>(
     ...parsed,
     cmd: resolved.command,
     rawArgs: resolved.rawArgs,
-    logger: createLogger(printer, category),
+    logger: createLogger(printer, category, loggerOptions),
   });
 }
 
@@ -113,8 +115,24 @@ export interface RunCommandOptions extends OutputOptions {
   showUsage?: ShowUsageCallback;
 }
 
-function prepareOutput(options: RunCommandOptions): PrintQueue {
-  return createPrintQueue(selectOutputPrinter(options, options.printer));
+interface PreparedOutput extends PrintQueue {
+  interactive: boolean;
+  input: unknown;
+}
+
+function prepareOutput(options: RunCommandOptions): PreparedOutput {
+  const input = options.stdin ?? process.stdin;
+  const mode = resolveOutputMode({
+    output: options.output,
+    env: options.env,
+    inputIsTTY: input.isTTY,
+    outputIsTTY: (options.stdout ?? process.stdout).isTTY,
+  });
+  return {
+    ...createPrintQueue(selectOutputPrinter(options, options.printer)),
+    interactive: mode.interactive,
+    input,
+  };
 }
 
 export async function runCommand<S extends ArgsSchema>(
@@ -124,7 +142,11 @@ export async function runCommand<S extends ArgsSchema>(
 ): Promise<unknown> {
   const output = prepareOutput(options);
   try {
-    return await executeCommand(root, argv, options.showUsage ?? showUsage, output.printer);
+    return await executeCommand(root, argv, options.showUsage ?? showUsage, output.printer, {
+      interactive: output.interactive,
+      input: output.input,
+      printPrompt: (event) => output.printChecked(event),
+    });
   } finally {
     await output.drain();
   }
@@ -137,11 +159,11 @@ export interface RunMainOptions extends OutputOptions {
   showUsage?: ShowUsageCallback;
 }
 
-async function drainAndExit(output: PrintQueue): Promise<never> {
+async function drainAndExit(output: PrintQueue, code = 1): Promise<never> {
   try {
     await output.drain();
   } finally {
-    process.exit(1);
+    process.exit(code);
   }
 }
 
@@ -167,7 +189,7 @@ export async function runMain<S extends ArgsSchema>(
   options: RunMainOptions = {},
 ): Promise<void> {
   const displayUsage = options.showUsage ?? showUsage;
-  let output: PrintQueue;
+  let output: PreparedOutput;
   try {
     output = prepareOutput(options);
   } catch (error) {
@@ -179,11 +201,19 @@ export async function runMain<S extends ArgsSchema>(
       options.argv ?? process.argv.slice(2),
       displayUsage,
       output.printer,
+      {
+        interactive: output.interactive,
+        input: output.input,
+        printPrompt: (event) => output.printChecked(event),
+      },
     );
   } catch (error) {
     if (options.onError) {
       await options.onError(error);
-      return drainAndExit(output);
+      return drainAndExit(
+        output,
+        error instanceof HackshPromptError && error.reason === "cancelled" ? 130 : 1,
+      );
     }
     try {
       if (error instanceof ZittyUsageError) {
@@ -196,7 +226,10 @@ export async function runMain<S extends ArgsSchema>(
         });
       }
     } finally {
-      await drainAndExit(output);
+      await drainAndExit(
+        output,
+        error instanceof HackshPromptError && error.reason === "cancelled" ? 130 : 1,
+      );
     }
   }
   await output.drain();

@@ -86,8 +86,36 @@ export interface LogPrintEvent {
   record: LogRecord;
 }
 
+export interface PromptChoiceState {
+  value: string;
+  label: string;
+  hint?: string;
+  selected: boolean;
+}
+
+export interface PromptState {
+  kind: "select" | "confirm" | "text";
+  message: string;
+  status: "active" | "error" | "submitted";
+  choices?: readonly PromptChoiceState[];
+  value?: string;
+  defaultValue?: string;
+  placeholder?: string;
+  error?: string;
+}
+
+export interface PromptPrintEvent {
+  type: "prompt";
+  prompt: PromptState;
+}
+
 /** A semantic, command- and schema-free output value emitted by hacksh. */
-export type PrintEvent = UsagePrintEvent | VersionPrintEvent | ErrorPrintEvent | LogPrintEvent;
+export type PrintEvent =
+  | UsagePrintEvent
+  | VersionPrintEvent
+  | ErrorPrintEvent
+  | LogPrintEvent
+  | PromptPrintEvent;
 
 /** Receives every output event produced by one command invocation. */
 export interface Printer {
@@ -117,6 +145,8 @@ function formatTextEvent(event: PrintEvent): string {
         : `Error: ${event.error.message}`;
     case "log":
       return event.record.message;
+    case "prompt":
+      return event.prompt.message;
   }
 }
 
@@ -183,6 +213,7 @@ export function createJsonPrinter(options: JsonPrinterOptions = {}): Printer {
 
 export interface PrintQueue {
   printer: Printer;
+  printChecked(event: PrintEvent): Promise<void>;
   drain(): Promise<void>;
 }
 
@@ -197,22 +228,46 @@ export function createPrintQueue(target: Printer): PrintQueue {
     failed = true;
   }
 
-  function track(result: void | Promise<void>): void | Promise<void> {
-    if (!result) return undefined;
-
-    const current = Promise.resolve(result).catch(recordFailure);
-    pending = current;
-    void current.then(() => {
-      if (pending === current) pending = undefined;
+  function track(execution: Promise<void>): Promise<void> {
+    const tracked = execution.catch(recordFailure);
+    pending = tracked;
+    void tracked.then(() => {
+      if (pending === tracked) pending = undefined;
     });
-    return current;
+    return tracked;
+  }
+
+  function enqueueChecked(event: PrintEvent): Promise<void> {
+    if (pending) {
+      const execution = pending.then(() => target.print(event));
+      const barrier = execution.catch(() => undefined);
+      pending = barrier;
+      void barrier.then(() => {
+        if (pending === barrier) pending = undefined;
+      });
+      return execution;
+    }
+    try {
+      const result = target.print(event);
+      if (!result) return Promise.resolve();
+      const execution = Promise.resolve(result);
+      const barrier = execution.catch(() => undefined);
+      pending = barrier;
+      void barrier.then(() => {
+        if (pending === barrier) pending = undefined;
+      });
+      return execution;
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 
   const printer: Printer = {
     print(event) {
       if (pending) return track(pending.then(() => target.print(event)));
       try {
-        return track(target.print(event));
+        const result = target.print(event);
+        if (result) return track(Promise.resolve(result));
       } catch (error) {
         recordFailure(error);
       }
@@ -221,6 +276,7 @@ export function createPrintQueue(target: Printer): PrintQueue {
 
   return {
     printer,
+    printChecked: enqueueChecked,
     async drain() {
       await pending;
       if (failed) throw failure;
