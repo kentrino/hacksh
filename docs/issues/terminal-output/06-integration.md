@@ -9,7 +9,7 @@ depends_on: ["terminal-output-05-prompts"]
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `terminal-output` issue and designs.
 
-Current state: worker `s-terminal-output-06` completed implementation and final validation at `22ed34f`; next action: parent full-base correctness/quality review and final acceptance. Blockers: none.
+Current state: worker `s-terminal-output-06`, pane `w2P:pW`, session `01a13f7d-a618-7803-bb56-a6da221b2b11`, completed full-review R1–R2 corrections at `c963362`. Reviewer `c-review-terminal-output-final`, pane `w2P:pX`, session `95ecdd82-dd46-4989-88b3-48ce95d629f4` retained for correction review. Next action: parent correction review and final acceptance. Blockers: none.
 
 ## Scope and decisions
 
@@ -50,16 +50,15 @@ reported `v22.18.0`; Deno reported `2.7.14`.
 - `CI=1 pnpm test`: passed; 9 files and 168 tests under automatic JSON mode.
 - `pnpm build`: passed; emitted ESM JavaScript, source map, and bundled
   declarations for target Node 22.18.0.
-- `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node
-  pnpm test:packed`: passed. `scripts/test-packed-consumers.mjs` installs the
+- `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm test:packed`: passed. `scripts/test-packed-consumers.mjs` installs the
   tarball and runs the complete behavior matrix on Node 22.18.0, host Node
   24.15.0, and Deno 2.7.14; a separate Deno invocation also passes without
   environment permission.
 - `pnpm test:prompt-pty`: passed the durable real-terminal probe for closing,
   20-column redraw, multiline and long input, caught/uncaught cancellation,
   later output, and raw-mode/listener restoration. `git diff --quiet 46c2ec3
-  -- scripts/probe-prompts-pty.mjs scripts/prompt-prompts-pty.exp
-  src/fixtures/prompt-pty-cli.ts src/prompts.ts src/pretty.ts` exited 0, so
+-- scripts/probe-prompts-pty.mjs scripts/prompt-prompts-pty.exp
+src/fixtures/prompt-pty-cli.ts src/prompts.ts src/pretty.ts` exited 0, so
   this also reconfirms the exact issue-05 accepted prompt/PTY sources.
 - `git diff --check`: passed on the validation snapshot; pre-commit
   `git diff --cached --check` also passed.
@@ -112,6 +111,52 @@ This is source/test traceability for the theme, not a second progress ledger:
 issue/design matched all immutable values recorded below. No original
 plan/specification file changed.
 Parent review and final acceptance remain intentionally unchecked.
+
+## Full-plan review round 1
+
+Reviewer inspected `656cddf..0605203` and reported two worker corrections: R1 default console writers append a newline to erase-only prompt writes, leaving blank rows on close and log interleaving; PTY assertions currently filter empty rows and miss this. Add exact default-writer byte regressions and retain internal blank rows in PTY assertions. R2 split the logger and output-mode/invalid-setting suites out of the 1296-line `src/run.test.ts`, preserving coverage. No supervisor findings; prior integration evidence remains valid except for R1 rendering coverage, which requires correction and fresh validation.
+
+### Correction evidence
+
+Correction commit: `c963362cc3a0671ec2e8c0329629fe3709c41f9e` (`fix:
+preserve prompt erasure rows`), tree
+`f03ace420c3cdde3f0ceb39d576f73634f34db61`. Validation used base
+`HEAD^{tree}` `d61b3c129639e9f196a205e73a40b4fc6e256f5c` plus uncommitted
+diff object `c7092ab018e68b17541b62cf757b30b25a8054e7`. Committing
+produced the correction tree above; `git diff --quiet c963362 -- .
+':!docs/issues'` exited 0, so only evidence Markdown changed afterward.
+
+Environment: macOS arm64, host Node `v24.15.0`, pnpm `11.20.0`, minimum
+Node `v22.18.0` at
+`/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node`, and Deno
+`2.7.14`.
+
+- `pnpm check`: passed; all 90 files were formatted and 31 files had no
+  warnings, lint errors, or type errors.
+- `pnpm test`: passed; 11 files and 170 tests.
+- `CI=1 pnpm test`: passed; 11 files and 170 tests.
+- `pnpm build`: passed; ESM JavaScript, source map, and bundled declarations
+  were emitted for target Node 22.18.0.
+- `pnpm test:prompt-pty`: passed; terminal reconstruction now retains internal
+  empty rows and explicitly rejects them after caught cancellation before
+  verifying both later logs, prompt removal, exit 130, and terminal cleanup.
+- `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm test:packed`: passed on Node 22.18.0, host Node 24.15.0, and
+  Deno 2.7.14, including the denied-environment Deno smoke check.
+- `git diff --check` and pre-commit `git diff --cached --check`: passed.
+
+R1 is corrected in `src/output.ts`: newline-terminated complete output still
+uses `console.log`/`console.error`, while erase-only control bytes use the
+underlying terminal stream unchanged. `src/output.test.ts` asserts exact
+default-writer bytes for close and interleaved-log sequences, and both the
+deterministic renderer helper and durable PTY probe retain internal empty
+rows instead of filtering them away.
+
+R2 moves the unchanged logger suite to `src/logger.test.ts` and the
+output-mode/invalid-setting cases to `src/output.test.ts`. Final sizes are
+706 lines for `src/run.test.ts`, 317 for `src/logger.test.ts`, and 355 for
+`src/output.test.ts`; the original 168 tests remain and the two R1
+regressions bring the total to 170. Acceptance checkboxes remain for the
+parent after correction review.
 
 Initial branch: `main`. Initial base: `656cddfc4c6aabbf2e59cbc1e4e262f45a5bc8e5`. Initial worktree: clean.
 
