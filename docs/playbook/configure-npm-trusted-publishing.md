@@ -16,7 +16,7 @@
 ```json
 "repository": {
   "type": "git",
-  "url": "git+https://github.com/kentrino/zitty.git"
+  "url": "git+https://github.com/kentrino/hacksh.git"
 }
 ```
 
@@ -30,7 +30,7 @@
 2. **Trusted Publisher** で **GitHub Actions** を選ぶ。
 3. 次の値を入れる。
    - Organization or user: `kentrino`
-   - Repository: `zitty`
+   - Repository: `hacksh`
    - Workflow filename: `release.yml`
    - Environment name: 空欄
 4. 保存する。
@@ -70,8 +70,8 @@ Trusted Publisher を保存したあとで、次を行う。
    npm view hacksh version --prefix /tmp
    ```
 
-4. npm のパッケージページで、その版に `kentrino/zitty` と `release.yml` に結び付いた provenance が付いていることを確かめる。
+4. npm のパッケージページで、その版に `kentrino/hacksh` と `release.yml` に結び付いた provenance が付いていることを確かめる。
 
-`publish` が `ENEEDAUTH` や `E404` で失敗した場合は、まず Trusted Publisher の値を、GitHub の owner、リポジトリ名、ワークフローのファイル名と照らし合わせる。次に、公開される `package.json` の `repository.url` が `https://github.com/kentrino/zitty` を指していることを確かめる。
+`publish` が `ENEEDAUTH` や `E404` で失敗した場合は、まず Trusted Publisher の値を、GitHub の owner、リポジトリ名、ワークフローのファイル名と照らし合わせる。次に、公開される `package.json` の `repository.url` が `https://github.com/kentrino/hacksh` を指していることを確かめる。
 
 詳しくは npm の [Trusted publishing のドキュメント](https://docs.npmjs.com/trusted-publishers/)を参照する。

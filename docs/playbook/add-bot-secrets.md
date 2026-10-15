@@ -17,7 +17,7 @@ GitHub Actions がリリース bot の GitHub App トークンを作れるよう
 takibi と同じ GitHub App を使い、2 つ目の App は作らない。
 
 1. [GitHub App のインストール設定](https://github.com/settings/installations/152797047)を開く。
-2. **Repository access** に `kentrino/zitty` を加える。
+2. **Repository access** に `kentrino/hacksh` を加える。
 3. [GitHub Apps の設定](https://github.com/settings/apps)から App を開く。
 4. **General** ページで **App ID** を確かめる。takibi の手順書では `4553309` である。
 5. takibi で使っている秘密鍵（PEM ファイル）が手元にない場合だけ、**Private keys** で **Generate a private key** を選び、PEM ファイルをダウンロードする。

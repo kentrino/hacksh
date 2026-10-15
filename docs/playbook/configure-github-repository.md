@@ -1,13 +1,13 @@
 # GitHub リポジトリの設定
 
-`kentrino/zitty` の設定を、await-ready と takibi に揃える。
+`kentrino/hacksh` の設定を、await-ready と takibi に揃える。
 
-| 設定                               | await-ready・takibi | `kentrino/zitty`（作成時点） |
-| ---------------------------------- | ------------------- | ---------------------------- |
-| Allow auto-merge                   | 有効                | 無効                         |
-| Automatically delete head branches | 有効                | 無効                         |
-| `main` のルールセット              | await-ready にある  | ない                         |
-| タグのルールセット                 | takibi にある       | ない                         |
+| 設定                               | await-ready・takibi | `kentrino/hacksh`（作成時点） |
+| ---------------------------------- | ------------------- | ----------------------------- |
+| Allow auto-merge                   | 有効                | 無効                          |
+| Automatically delete head branches | 有効                | 無効                          |
+| `main` のルールセット              | await-ready にある  | ない                          |
+| タグのルールセット                 | takibi にある       | ない                          |
 
 # 1. （人）マージの設定を変える
 
@@ -19,7 +19,7 @@
 GitHub CLI で変える場合は、次を実行する。
 
 ```sh
-gh api -X PATCH repos/kentrino/zitty -F allow_auto_merge=true -F delete_branch_on_merge=true
+gh api -X PATCH repos/kentrino/hacksh -F allow_auto_merge=true -F delete_branch_on_merge=true
 ```
 
 # 2. （人）`main` を保護する
@@ -51,14 +51,14 @@ release-please が作るタグ（`v0.1.0` など）を、書き換えや削除�
 # 4. （人）Renovate を有効にする
 
 1. [Renovate の GitHub App](https://github.com/apps/renovate) の設定を開く。
-2. インストール先のリポジトリに `kentrino/zitty` を加える。
+2. インストール先のリポジトリに `kentrino/hacksh` を加える。
 3. `.github/renovate.json` が `main` にあることを確かめる。ない状態で有効にすると、Renovate は設定を追加するオンボーディング PR を作る。
 
 # 5. 確かめる
 
 ```sh
-gh api repos/kentrino/zitty --jq '{allow_auto_merge, delete_branch_on_merge}'
-gh api repos/kentrino/zitty/rulesets --jq '.[].name'
+gh api repos/kentrino/hacksh --jq '{allow_auto_merge, delete_branch_on_merge}'
+gh api repos/kentrino/hacksh/rulesets --jq '.[].name'
 ```
 
 `allow_auto_merge` と `delete_branch_on_merge` が `true` で、ルールセットに `main` と `Protect version tags` があればよい。

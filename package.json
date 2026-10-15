@@ -1,7 +1,23 @@
 {
   "name": "hacksh",
   "version": "0.0.0",
+  "description": "Type-safe command-line interfaces powered by Zod 4 schemas.",
+  "keywords": [
+    "cli",
+    "command-line",
+    "typescript",
+    "zod"
+  ],
+  "homepage": "https://github.com/kentrino/hacksh#readme",
+  "bugs": {
+    "url": "https://github.com/kentrino/hacksh/issues"
+  },
   "license": "MIT",
+  "author": "Kento Haneda",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kentrino/hacksh.git"
+  },
   "files": [
     "dist"
   ],
