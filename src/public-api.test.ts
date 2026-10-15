@@ -9,7 +9,7 @@ import {
   renderUsage,
   showUsage,
   summarizeUsage,
-  ZittyValidationError,
+  HackshValidationError,
   type Printer,
   type Logger,
   type HackshErrorKind,
@@ -54,7 +54,7 @@ describe("public parsing API", () => {
 
     const invalid = defineCommand({ args: z.object({ count: z.coerce.number() }) });
     await expect(parseArgs(invalid, ["--count", "bad"])).rejects.toBeInstanceOf(
-      ZittyValidationError,
+      HackshValidationError,
     );
   });
 
@@ -64,7 +64,7 @@ describe("public parsing API", () => {
     const exit = vi.spyOn(process, "exit");
     const command = defineCommand({ args: z.object({ value: z.string() }) });
 
-    await expect(parseArgs(command, [])).rejects.toBeInstanceOf(ZittyValidationError);
+    await expect(parseArgs(command, [])).rejects.toBeInstanceOf(HackshValidationError);
     expect(log).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
     expect(exit).not.toHaveBeenCalled();
@@ -99,8 +99,8 @@ describe("public parsing API", () => {
       args: z.object({ value: z.string() }),
     });
 
-    await expect(parseArgs(command, ["--help"])).rejects.toBeInstanceOf(ZittyValidationError);
-    await expect(parseArgs(command, ["--version"])).rejects.toBeInstanceOf(ZittyValidationError);
+    await expect(parseArgs(command, ["--help"])).rejects.toBeInstanceOf(HackshValidationError);
+    await expect(parseArgs(command, ["--version"])).rejects.toBeInstanceOf(HackshValidationError);
   });
 
   it("honors the separator while returning only schema output", async () => {
@@ -110,7 +110,7 @@ describe("public parsing API", () => {
       parseArgs(command, ["--value", "before", "--", "--value", "after"]),
     ).resolves.toEqual({ value: "before" });
     await expect(parseArgs(command, ["--", "--value", "after"])).rejects.toBeInstanceOf(
-      ZittyValidationError,
+      HackshValidationError,
     );
   });
 });

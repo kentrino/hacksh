@@ -1,6 +1,6 @@
 export { defineCommand } from "./command.ts";
 export type { ArgOptions, ArgOptionsMap, CommandContext, CommandDef } from "./command.ts";
-export { HackshPromptError, ZittyUsageError, ZittyValidationError } from "./errors.ts";
+export { HackshPromptError, HackshUsageError, HackshValidationError } from "./errors.ts";
 export type {
   HackshErrorKind,
   HackshErrorSummary,
@@ -8,7 +8,7 @@ export type {
   PromptErrorDetails,
   PromptKind,
   ValidationIssueSummary,
-  ZittyIssue,
+  HackshIssue,
 } from "./errors.ts";
 export type { Logger, LogKind, LogLevel, LogProperties, LogRecord } from "./logger.ts";
 export type {

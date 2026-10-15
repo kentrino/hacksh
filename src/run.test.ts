@@ -6,8 +6,8 @@ import {
   parseArgs,
   runCommand,
   runMain,
-  ZittyUsageError,
-  ZittyValidationError,
+  HackshUsageError,
+  HackshValidationError,
   type CommandDef,
   type PrintEvent,
   type Printer,
@@ -68,7 +68,7 @@ describe("command routing", () => {
       message: "Unknown command `unknown`",
       command: root,
     });
-    await expect(runCommand(root, ["child"])).rejects.toBeInstanceOf(ZittyUsageError);
+    await expect(runCommand(root, ["child"])).rejects.toBeInstanceOf(HackshUsageError);
   });
 
   it("provides the actual resolved command and inferred schema on cmd", async () => {
@@ -359,7 +359,7 @@ describe("runMain", () => {
       "exit:1",
     );
     expect(events).toMatchObject([
-      { type: "error", error: { name: "ZittyUsageError", message: "No command specified" } },
+      { type: "error", error: { name: "HackshUsageError", message: "No command specified" } },
       { type: "usage", stream: "stderr", usage: { name: "tool" } },
     ]);
     expect(sequence).toEqual(["start:error", "end:error", "start:usage", "end:usage", "exit:1"]);
@@ -439,9 +439,9 @@ describe("runMain", () => {
       () => undefined,
       (error: unknown) => error,
     );
-    expect(validation).toBeInstanceOf(ZittyValidationError);
+    expect(validation).toBeInstanceOf(HackshValidationError);
     const failure = new Error("wrapped", { cause: validation });
-    (validation as ZittyValidationError & { related: Error }).related = failure;
+    (validation as HackshValidationError & { related: Error }).related = failure;
     const events: PrintEvent[] = [];
     vi.spyOn(process, "exit").mockImplementation((() => {
       throw new Error("stopped");
@@ -671,7 +671,7 @@ describe("runMain", () => {
       throw new Error("stopped");
     }) as never);
 
-    class RenamedUsageError extends ZittyUsageError {
+    class RenamedUsageError extends HackshUsageError {
       override name = "RenamedUsageError";
     }
     const usageCommand = defineCommand({ name: "tool" });
@@ -690,7 +690,7 @@ describe("runMain", () => {
 
     error.mockClear();
     const pretender = new Error("ordinary failed");
-    pretender.name = "ZittyPretender";
+    pretender.name = "HackshPretender";
     await expect(
       runMain(
         defineCommand({

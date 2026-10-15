@@ -5,7 +5,7 @@ import {
   defineCommand,
   parseArgs,
   runCommand,
-  ZittyValidationError,
+  HackshValidationError,
   type Logger,
   type LogRecord,
   type PrintEvent,
@@ -184,9 +184,9 @@ describe("run logger", () => {
       () => undefined,
       (error: unknown) => error,
     );
-    expect(validation).toBeInstanceOf(ZittyValidationError);
+    expect(validation).toBeInstanceOf(HackshValidationError);
     const outer = new Error("outer", { cause: validation });
-    (validation as ZittyValidationError & { related: Error }).related = outer;
+    (validation as HackshValidationError & { related: Error }).related = outer;
 
     const events: PrintEvent[] = [];
     await runCommand(
@@ -206,7 +206,7 @@ describe("run logger", () => {
         properties: {
           validation: {
             kind: "validation",
-            name: "ZittyValidationError",
+            name: "HackshValidationError",
             issues: [{ arg: "--count", code: "invalid_type" }],
           },
         },

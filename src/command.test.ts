@@ -85,7 +85,7 @@ defineCommand({
   },
 });
 
-if (process.env.ZITTY_TYPE_TESTS) {
+if (process.env.HACKSH_TYPE_TESTS) {
   // @ts-expect-error hidden must be boolean
   defineCommand({ hidden: "yes" });
   // @ts-expect-error argument options keys must exist in the schema
