@@ -42,7 +42,7 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "package-name": "hacksh"
+      "package-name": ""
     }
   }
 }
