@@ -27,7 +27,11 @@ Ownership: related source modules, tests and public documentation for this respo
 
 ## Evidence
 
-Pending; record commits, commands, runtime, results and durable test/probe references here.
+Baseline `656cddf`: `pnpm check` passed on Node v24.15.0 (71 formatted files, no lint/type errors). No pre-existing check failures observed.
+
+Verified runtime executables: `/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node --version` returned `v22.18.0`; `deno --version` returned `2.7.14`. Packed verification command: `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm test:packed`.
+
+Final implementation evidence pending.
 
 Initial branch: `main`. Initial base: `656cddfc4c6aabbf2e59cbc1e4e262f45a5bc8e5`. Initial worktree: clean.
 
