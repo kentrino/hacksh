@@ -300,7 +300,6 @@ describe("public usage API", () => {
       args,
       argOptions: {
         format: { valueName: "FORMAT" },
-        overwrite: { negatedDescription: "Keep existing files" },
       },
     });
     const usage = await renderUsage(command);
@@ -308,7 +307,7 @@ describe("public usage API", () => {
     expect(usage).toContain("SIZE  Item size (Choices: small, large) (Required)");
     expect(usage).toContain("INPUT...  Input files (Choices: txt, md)");
     expect(usage).toContain("--format=<FORMAT>  Output format (Choices: json, yaml)");
-    expect(usage).toContain("--no-overwrite  Keep existing files");
+    expect(usage).toContain("--[no-]overwrite  Replace existing files (Default: false)");
     expect(summarizeUsage(command)).toMatchObject({
       name: "convert",
       synopsis: "convert [OPTIONS] <SIZE> [INPUT...]",
@@ -333,6 +332,7 @@ describe("public usage API", () => {
           name: "format",
           flags: ["--format"],
           takesValue: true,
+          negatable: false,
           valueName: "FORMAT",
           choices: ["json", "yaml"],
         },
@@ -340,8 +340,8 @@ describe("public usage API", () => {
           name: "overwrite",
           flags: ["--overwrite"],
           takesValue: false,
+          negatable: true,
           defaultValue: false,
-          negatedDescription: "Keep existing files",
         },
       ],
     });

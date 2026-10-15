@@ -76,7 +76,7 @@ const typedSchema = z.object({
 });
 defineCommand({
   args: typedSchema,
-  argOptions: { verbose: { alias: "v", negatedDescription: "Hide details" } },
+  argOptions: { verbose: { alias: "v" } },
 });
 defineCommand({
   args: z.object({ _: z.tuple([z.string()], z.string()) }),

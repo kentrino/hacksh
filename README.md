@@ -52,8 +52,9 @@ gh-pr-commits --version
 ```
 
 Boolean fields are flags and other fields take a value. Both a schema key and its kebab-case form
-are accepted (`--dryRun` and `--dry-run`). A default-on flag can be disabled with `--no-`, such as
-`--no-verbose`. Boolean flags also accept the explicit forms `--verbose=true` and
+are accepted (`--dryRun` and `--dry-run`). Every boolean flag also accepts a `--no-` prefixed form
+that sets it to `false`, such as `--no-verbose`, which is how a default-on flag is disabled.
+Boolean flags also accept the explicit forms `--verbose=true` and
 `--verbose=false`; other inline values and values on a negated flag (such as
 `--no-verbose=false`) are validation errors. Value options accept `--repo owner/repo` and
 `--repo=owner/repo`; values such as `false` remain strings for non-boolean fields.
@@ -109,7 +110,6 @@ const convert = defineCommand({
   }),
   argOptions: {
     format: { alias: "f", valueName: "FORMAT" },
-    overwrite: { negatedDescription: "Keep existing files" },
     verbose: { alias: ["v", "V"] },
   },
 });
@@ -131,14 +131,16 @@ ARGUMENTS
 OPTIONS
 
   -f, --format=<FORMAT>  Output format (Choices: json, yaml)
-  --overwrite  Replace existing files (Default: true)
-  --no-overwrite  Keep existing files
-  -v, -V, --verbose  Show details (Default: false)
+  --[no-]overwrite  Replace existing files (Default: true)
+  -v, -V, --[no-]verbose  Show details (Default: false)
 ```
 
 - `alias` gives a named option one or more single-character short forms.
 - `valueName` sets the value label of a named option.
-- `negatedDescription` describes the `--no-` form of a boolean flag.
+
+Boolean flags are shown as `--[no-]name` because they also accept the `--no-` form. The
+`negatable` field of `UsageOptionSummary` carries the same information for machine-readable
+help, where `flags` keeps the literal `--name` spelling.
 
 `argOptions` keys are checked against the argument schema. `defineCommand` throws a `TypeError`
 when an alias is longer than one character or is used by more than one option, and when

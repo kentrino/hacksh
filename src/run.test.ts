@@ -265,7 +265,7 @@ describe("help and version", () => {
     expect(help).toContain("◆  Create a worktree\n│  with a selected branch (new)");
     expect(help).toContain("USAGE new [OPTIONS] <PATH>");
     expect(help).toContain("PATH  Target path (Required)");
-    expect(help).toContain("--force  Overwrite target (Default: false)");
+    expect(help).toContain("--[no-]force  Overwrite target (Default: false)");
   });
 
   it("shows root metadata, options, and child listings", async () => {
