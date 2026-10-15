@@ -9,10 +9,8 @@ import {
   type TokenizedCommandArgs,
 } from "./parser.ts";
 import {
-  consolePrinter,
   createJsonPrinter,
   createPrintQueue,
-  createStreamPrinter,
   resolveOutputMode,
   type OutputPreference,
   type OutputWriter,
@@ -22,6 +20,7 @@ import {
   type TerminalInput,
   type TerminalOutput,
 } from "./printer.ts";
+import { createPrettyPrinter } from "./pretty.ts";
 import { showUsage, summarizeUsage, type ShowUsageCallback } from "./usage.ts";
 
 interface CommandSegment {
@@ -114,6 +113,8 @@ function printUsage(
 
 export interface OutputOptions {
   output?: OutputPreference;
+  /** Use Unicode presentation symbols in pretty output. Defaults to true. */
+  unicode?: boolean;
   env?: Readonly<Record<string, string | undefined>>;
   stdin?: TerminalInput;
   stdout?: TerminalOutput;
@@ -135,13 +136,23 @@ function prepareOutput(options: RunCommandOptions): PrintQueue {
     inputIsTTY: stdin.isTTY,
     outputIsTTY: stdout.isTTY,
   });
+  const useConsole = options.stdout === undefined && options.stderr === undefined;
+  const consoleStdout: OutputWriter = {
+    write: (text) => console.log(text.endsWith("\n") ? text.slice(0, -1) : text),
+  };
+  const consoleStderr: OutputWriter = {
+    write: (text) => console.error(text.endsWith("\n") ? text.slice(0, -1) : text),
+  };
   const printer =
     options.printer ??
     (mode.format === "json"
       ? createJsonPrinter({ stdout, stderr })
-      : options.stdout || options.stderr
-        ? createStreamPrinter({ stdout, stderr })
-        : consolePrinter);
+      : createPrettyPrinter({
+          color: mode.color,
+          unicode: options.unicode ?? true,
+          stdout: options.stdout ?? (useConsole ? consoleStdout : stdout),
+          stderr: options.stderr ?? (useConsole ? consoleStderr : stderr),
+        }));
   return createPrintQueue(printer);
 }
 

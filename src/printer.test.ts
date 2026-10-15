@@ -1,5 +1,23 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { createJsonPrinter, resolveOutputMode, type PrintEvent } from "./index.ts";
+import {
+  createJsonPrinter,
+  createPrettyPrinter,
+  resolveOutputMode,
+  type PrintEvent,
+} from "./index.ts";
+
+function memoryWriters() {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  return {
+    stdout,
+    stderr,
+    writers: {
+      stdout: { write: (value: string) => void stdout.push(value) },
+      stderr: { write: (value: string) => void stderr.push(value) },
+    },
+  };
+}
 
 describe("output mode", () => {
   it.each([
@@ -53,6 +71,135 @@ describe("output mode", () => {
     expect(
       resolveOutputMode({ env, output: "pretty", inputIsTTY: true, outputIsTTY: true }),
     ).toEqual({ format: "pretty", interactive: true, color: true });
+  });
+});
+
+describe("pretty printer", () => {
+  it("distinguishes every level, step, and success without color", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({
+      color: false,
+      unicode: true,
+      ...output.writers,
+    });
+    const records = [
+      ["trace", "message"],
+      ["debug", "message"],
+      ["info", "message"],
+      ["warning", "message"],
+      ["error", "message"],
+      ["fatal", "message"],
+      ["info", "step"],
+      ["info", "success"],
+    ] as const;
+
+    records.forEach(
+      ([level, kind]) =>
+        void printer.print({
+          type: "log",
+          record: {
+            level,
+            kind,
+            category: [],
+            message: `${level}:${kind}`,
+            rawMessage: `${level}:${kind}`,
+            properties: {},
+            timestamp: 1,
+          },
+        }),
+    );
+
+    expect(output.stdout).toEqual([
+      "·  trace:message\n",
+      "◆  debug:message\n",
+      "●  info:message\n",
+      "◇  info:step\n",
+      "✔  info:success\n",
+    ]);
+    expect(output.stderr).toEqual([
+      "▲  warning:message\n",
+      "■  error:message\n",
+      "✖  fatal:message\n",
+    ]);
+  });
+
+  it("uses ASCII marks, category labels, bars, and multiline property values", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({
+      color: false,
+      unicode: false,
+      ...output.writers,
+    });
+
+    void printer.print({
+      type: "log",
+      record: {
+        level: "info",
+        kind: "success",
+        category: ["deploy", "upload"],
+        message: "Uploaded files",
+        rawMessage: "Uploaded files",
+        properties: { note: "first line\nsecond line", stats: { files: 2 } },
+        timestamp: 1,
+      },
+    });
+
+    expect(output.stdout).toEqual([
+      "+  [deploy:upload] Uploaded files\n" +
+        "|    note: first line\n" +
+        "|      second line\n" +
+        "|    stats: {\n" +
+        "|        files: 2\n" +
+        "|      }\n",
+    ]);
+  });
+
+  it("renders multiline help and error details with consistent bars and stream routing", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({
+      color: false,
+      unicode: true,
+      ...output.writers,
+    });
+
+    void printer.print({
+      type: "usage",
+      usage: { name: "tool", synopsis: "tool", arguments: [], options: [], commands: [] },
+      text: "USAGE tool\n\nOPTIONS\n  --help",
+      stream: "stdout",
+    });
+    void printer.print({
+      type: "error",
+      error: {
+        kind: "error",
+        name: "Error",
+        message: "Could not deploy\nTry again",
+        cause: { message: "network down" },
+      },
+    });
+
+    expect(output.stdout).toEqual(["◆  USAGE tool\n│\n│  OPTIONS\n│    --help\n"]);
+    expect(output.stderr).toEqual([
+      "■  Could not deploy\n" +
+        "│  Try again\n" +
+        "│    cause: {\n" +
+        "│        message: 'network down'\n" +
+        "│      }\n",
+    ]);
+  });
+
+  it("adds ANSI styles only when color is enabled", () => {
+    const colored = memoryWriters();
+    const plain = memoryWriters();
+    const event: PrintEvent = { type: "version", version: "1.2.3" };
+
+    void createPrettyPrinter({ color: true, unicode: true, ...colored.writers }).print(event);
+    void createPrettyPrinter({ color: false, unicode: true, ...plain.writers }).print(event);
+
+    expect(colored.stdout[0]).toContain("\u001b[");
+    const ansiStyle = new RegExp(`${String.fromCodePoint(27)}\\[[0-9;]*m`, "g");
+    expect(colored.stdout[0]!.replaceAll(ansiStyle, "")).toBe("●  1.2.3\n");
+    expect(plain.stdout).toEqual(["●  1.2.3\n"]);
   });
 });
 

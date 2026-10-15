@@ -502,6 +502,44 @@ describe("help and version", () => {
     });
   });
 
+  it("applies resolved color and Unicode configuration only to pretty output", async () => {
+    const command = defineCommand({
+      run({ logger }) {
+        logger.success("done");
+      },
+    });
+    const colored: string[] = [];
+    const ascii: string[] = [];
+    const json: string[] = [];
+
+    await runCommand(command, [], {
+      output: "pretty",
+      env: {},
+      stdout: { isTTY: true, write: (text) => void colored.push(text) },
+    });
+    await runCommand(command, [], {
+      output: "pretty",
+      unicode: false,
+      env: { NO_COLOR: "1" },
+      stdout: { isTTY: true, write: (text) => void ascii.push(text) },
+    });
+    await runCommand(command, [], {
+      output: "json",
+      unicode: false,
+      env: {},
+      stdout: { isTTY: true, write: (text) => void json.push(text) },
+    });
+
+    expect(colored[0]).toContain("\u001b[");
+    expect(colored[0]).toContain("✔");
+    expect(ascii).toEqual(["+  done\n"]);
+    expect(JSON.parse(json[0]!)).toMatchObject({
+      type: "log",
+      record: { kind: "success", message: "done" },
+    });
+    expect(json[0]).not.toContain("\u001b[");
+  });
+
   it("serializes async printer events and waits for them before completing", async () => {
     const calls: string[] = [];
     let releaseFirst: (() => void) | undefined;
@@ -620,7 +658,7 @@ describe("help and version", () => {
     await expect(
       runCommand(root, ["--enabled=no", "--version"], { output: "pretty" }),
     ).resolves.toBeUndefined();
-    expect(log.mock.calls.at(-1)?.[0]).toBe("1.0.0");
+    expect(log.mock.calls.at(-1)?.[0]).toBe("●  1.0.0");
   });
 
   it("renders the deepest command help and bypasses required validation", async () => {
@@ -637,7 +675,7 @@ describe("help and version", () => {
 
     await runCommand(root, ["new", "--help"], { output: "pretty" });
     const help = String(log.mock.calls[0]?.[0]);
-    expect(help).toContain("Create a worktree\nwith a selected branch (new)");
+    expect(help).toContain("◆  Create a worktree\n│  with a selected branch (new)");
     expect(help).toContain("USAGE new [OPTIONS] <PATH>");
     expect(help).toContain("PATH  Target path (Required)");
     expect(help).toContain("--force  Overwrite target (Default: false)");
@@ -676,7 +714,7 @@ describe("help and version", () => {
       expect.objectContaining({ args: { verbose: true, host: true } }),
     );
     await runCommand(root, ["--version"], { output: "pretty" });
-    expect(log).toHaveBeenCalledWith("1.2.3");
+    expect(log).toHaveBeenCalledWith("●  1.2.3");
     await runCommand(root, ["--help"], { output: "pretty" });
     expect(log.mock.calls.at(-1)?.[0]).toContain("USAGE tool");
   });
@@ -1067,14 +1105,14 @@ describe("runMain", () => {
     const command = defineCommand({ name: "tool", args: z.object({ value: z.string() }) });
 
     await runMain(command, { argv: ["--help"], showUsage: display, output: "pretty" });
-    expect(log).toHaveBeenCalledWith("custom:tool");
+    expect(log).toHaveBeenCalledWith("◆  custom:tool");
     expect(error).not.toHaveBeenCalled();
 
     await expect(
       runMain(command, { argv: [], showUsage: display, output: "pretty" }),
     ).rejects.toThrow("stopped");
     expect(error).toHaveBeenCalledWith(expect.stringContaining("Invalid arguments:"));
-    expect(error).toHaveBeenCalledWith("custom:tool");
+    expect(error).toHaveBeenCalledWith("◆  custom:tool");
     expect(calls).toEqual(["tool", "tool"]);
   });
 
@@ -1160,7 +1198,7 @@ describe("runMain", () => {
     await expect(runMain(defineCommand({ name: "empty" }), { output: "pretty" })).rejects.toThrow(
       "stopped",
     );
-    expect(error).toHaveBeenCalledWith("No command specified");
+    expect(error).toHaveBeenCalledWith("■  No command specified");
     expect(error).toHaveBeenCalledWith(expect.stringContaining("USAGE empty"));
     error.mockClear();
 
@@ -1174,7 +1212,7 @@ describe("runMain", () => {
         { output: "pretty" },
       ),
     ).rejects.toThrow("stopped");
-    expect(error).toHaveBeenCalledWith("Error: boom");
+    expect(error).toHaveBeenCalledWith("■  boom");
   });
 
   it("uses error kind rather than class names for historical text prefixes", async () => {
@@ -1197,8 +1235,8 @@ describe("runMain", () => {
         { argv: [], output: "pretty", env: {} },
       ),
     ).rejects.toThrow("stopped");
-    expect(error).toHaveBeenCalledWith("usage failed");
-    expect(error).not.toHaveBeenCalledWith("Error: usage failed");
+    expect(error).toHaveBeenCalledWith("■  usage failed");
+    expect(error).not.toHaveBeenCalledWith("■  Error: usage failed");
 
     error.mockClear();
     const pretender = new Error("ordinary failed");
@@ -1213,6 +1251,6 @@ describe("runMain", () => {
         { argv: [], output: "pretty", env: {} },
       ),
     ).rejects.toThrow("stopped");
-    expect(error).toHaveBeenCalledWith("Error: ordinary failed");
+    expect(error).toHaveBeenCalledWith("■  ordinary failed");
   });
 });

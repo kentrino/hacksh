@@ -253,6 +253,25 @@ falls back to those properties. If an exotic value prevents normalization entire
 keeps the original event `type` and adds `serializationError`, so downstream JSON-lines parsing
 remains synchronized.
 
+Pretty output uses a fixed presentation with semantic marks and a continuation bar. Trace, debug,
+info, warning, error, and fatal records each have a distinct mark; step and success records have
+their own marks as well, so meaning does not depend on color. Categories appear before log messages,
+and every line of multiline messages, properties, help, and errors remains inside the same visual
+block. All six log levels are displayed by default.
+
+```text
+◇  [deploy] Building web
+│    files: 12
+✔  [deploy] Deployed web
+▲  [deploy] Cache was not cleared
+```
+
+Pretty output uses Unicode symbols by default. Set `unicode: false` on `runMain` or `runCommand` for
+ASCII marks and bars. Color is still resolved from the selected output mode: it requires pretty
+output and a stdout TTY, and any non-empty `NO_COLOR` disables it. Unicode selection does not affect
+JSON output. An invocation does not add automatic start or end messages; the renderer presents only
+the semantic events that the command emits.
+
 ## Programmatic execution and errors
 
 `runCommand(command, argv, options)` handles help and version output without exiting, throws errors
@@ -282,10 +301,13 @@ canonical causes; log events contain the structured record described above. Prin
 drained before `runCommand` or `runMain` completes or exits. A printer rejection rejects
 `runCommand`.
 
-Use `createJsonPrinter({ stdout, stderr })` to reuse the built-in JSON-lines behavior with custom
-writable targets. `summarizeUsage(command)` returns the same canonical help metadata carried by a
-usage event. `resolveOutputMode(...)` exposes the selection contract for wrappers and the
-later presentation or prompting layers.
+Use `createPrettyPrinter({ color, unicode, stdout, stderr })` to reuse the built-in human-readable
+renderer with custom writable targets, or `createJsonPrinter({ stdout, stderr })` to reuse the
+built-in JSON-lines behavior. The pretty renderer has no public theme API; replacing the fixed
+presentation requires a custom `Printer`. `consolePrinter` and `createStreamPrinter` remain the
+undecorated compatibility adapters. `summarizeUsage(command)` returns the same canonical help
+metadata carried by a usage event. `resolveOutputMode(...)` exposes the selection contract for
+wrappers and the later presentation or prompting layers.
 
 For parsing and usage rendering without execution, use the async composition APIs. `parseArgs`
 parses exactly the supplied command definition and argument segment, returns its schema output only,

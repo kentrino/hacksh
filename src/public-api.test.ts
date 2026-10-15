@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as mini from "zod/mini";
 import {
   defineCommand,
+  createPrettyPrinter,
   parseArgs,
   renderUsage,
   showUsage,
@@ -18,6 +19,7 @@ import {
   type LogRecord,
   type OutputMode,
   type OutputPreference,
+  type PrettyPrinterOptions,
   type PrintEvent,
   type RunCommandOptions,
   type RunMainOptions,
@@ -168,6 +170,14 @@ describe("public usage API", () => {
       interactive: boolean;
       color: boolean;
     }>();
+    expectTypeOf<RunCommandOptions["unicode"]>().toEqualTypeOf<boolean | undefined>();
+    expectTypeOf<PrettyPrinterOptions>().toEqualTypeOf<{
+      color: boolean;
+      unicode: boolean;
+      stdout?: { write(text: string): unknown };
+      stderr?: { write(text: string): unknown };
+    }>();
+    expectTypeOf(createPrettyPrinter).parameter(0).toEqualTypeOf<PrettyPrinterOptions>();
   });
 
   it("omits hidden subcommands from parent and nested listings", async () => {

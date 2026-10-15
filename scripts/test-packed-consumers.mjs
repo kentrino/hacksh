@@ -88,18 +88,18 @@ async function verifyConsumer(label, execute) {
   assert(missing.code === 1, `${label}: missing value exited ${missing.code}`);
   assert(missing.stderr.includes("--repo: requires a value"), `${label}: missing error absent`);
   assert(
-    missing.stderr.includes("CUSTOM\nPublic command (visible)") &&
+    missing.stderr.includes("◆  CUSTOM\n│  Public command (visible)") &&
       missing.stderr.includes("USAGE visible"),
     `${label}: visible usage absent: ${missing.stderr}`,
   );
 
   const version = await execute(["--version"]);
-  assert(version.code === 0 && version.stdout.trim() === "1.2.3", `${label}: version failed`);
+  assert(version.code === 0 && version.stdout.trim() === "●  1.2.3", `${label}: version failed`);
 
   const parentHelp = await execute(["--help"]);
   assert(parentHelp.code === 0, `${label}: parent help exited ${parentHelp.code}`);
   assert(
-    parentHelp.stdout.includes("CUSTOM\npacked-consumer v1.2.3") &&
+    parentHelp.stdout.includes("◆  CUSTOM\n│  packed-consumer v1.2.3") &&
       parentHelp.stdout.includes("USAGE packed-consumer [OPTIONS] <COMMAND>") &&
       parentHelp.stdout.includes("visible  Public command") &&
       !parentHelp.stdout.includes("zod-hidden") &&
@@ -127,7 +127,7 @@ async function verifyConsumer(label, execute) {
     const directHelp = await execute([commandName, "--help"]);
     assert(directHelp.code === 0, `${label}: ${commandName} help exited ${directHelp.code}`);
     assert(
-      directHelp.stdout.includes(`CUSTOM\nInternal ${flavor} command (${commandName})`) &&
+      directHelp.stdout.includes(`◆  CUSTOM\n│  Internal ${flavor} command (${commandName})`) &&
         directHelp.stdout.includes(`USAGE ${commandName} [OPTIONS]`) &&
         directHelp.stdout.includes("--mode=<MODE>  Execution mode (Choices: fast, safe)") &&
         directHelp.stdout.includes("--no-enabled  Disable feature"),
@@ -140,7 +140,7 @@ async function verifyConsumer(label, execute) {
   assert(unknown.code === 1, `${label}: unknown command exited ${unknown.code}`);
   assert(
     unknown.stderr.includes("Unknown command `missing`") &&
-      unknown.stderr.includes("CUSTOM\npacked-consumer v1.2.3") &&
+      unknown.stderr.includes("◆  CUSTOM\n│  packed-consumer v1.2.3") &&
       unknown.stderr.includes("visible  Public command") &&
       !unknown.stderr.includes("zod-hidden") &&
       !unknown.stderr.includes("mini-hidden") &&

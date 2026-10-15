@@ -98,7 +98,7 @@ function isErrorLevel(level: LogRecord["level"]): boolean {
   return level === "warning" || level === "error" || level === "fatal";
 }
 
-function eventStream(event: PrintEvent): PrintStream {
+export function eventStream(event: PrintEvent): PrintStream {
   if (event.type === "error") return "stderr";
   if (event.type === "usage") return event.stream;
   if (event.type === "log" && isErrorLevel(event.record.level)) return "stderr";
