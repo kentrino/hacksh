@@ -1,7 +1,7 @@
 ---
 id: terminal-output-02-logger
 phase: 2
-status: review
+status: working
 depends_on: ["terminal-output-01-printer"]
 ---
 
@@ -9,7 +9,7 @@ depends_on: ["terminal-output-01-printer"]
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `0018-run-logger` issue and designs.
 
-Current state: implementation committed at `8c1eb0b`; next action: parent review. Blockers: none.
+Current state: correction committed at `5e4bde0`; worker `s-terminal-output-02`, pane `w2P:pM`, session `01a13f0b-35e7-7430-b883-7de71a1216d8`; reviewer `c-review-terminal-output-02`, pane `w2P:pN`; next action: re-review. Blockers: none.
 
 ## Scope and decisions
 
@@ -44,3 +44,33 @@ Original specifications remain unchanged: theme SHA-256
 `68700dd10d370e69463c166855930a9b9cae51488302ae30ac10d7758d8a71c2`, 0018
 issue `70fd6dd899bd997f17bdcfa33dac7ccb3385a191e1cb50e743d6420c2ed618ad`, and
 0018 designs `22d8e86e1ff7efbef7816ba30368ef105c967b20b1c3695094c3b17b275d9ced`.
+
+## Review round 1
+
+Reviewer `c-review-terminal-output-02`, session `ad6d287b-4d3e-4926-bed5-f426732bcb64`, reviewed `bcc9829..4216a58`. R1: interpolation String conversion can throw for null-prototype objects or throwing coercion methods; leave the placeholder intact on conversion failure, preserving the record and run result, with regression tests. Other behavior/type/quality acceptance passed.
+
+Supervisor decision R2: all levels are emitted/displayed by default. No hidden threshold or new verbose flag is introduced; filtering is outside this plan. Document this policy. Pretty output (issue 04) owns property display; JSON (issue 03) preserves structured data.
+
+### Correction evidence
+
+Correction commit: `5e4bde0f82f05a28f40d917a0593b7fbba48b59d`.
+
+Correction validation snapshot: base `HEAD^{tree}`
+`f69e5be0c819d7b2b4892417773bb85d28816a7d`, uncommitted diff object
+`da103a98a09c578e9efefd57884d38b2640317c4`. Environment: macOS worktree, Node
+`v24.15.0`, pnpm `11.20.0`; minimum-runtime executable reported `v22.18.0`.
+Committing produced tree `7a4c2f09c48f897715ed18d513c956112cd3f8b8`; `git diff --quiet
+5e4bde0 -- . ':!docs/issues'` exited 0, so the validated source is unchanged after
+commit.
+
+- `pnpm exec vp test src/run.test.ts`: passed, 1 file and 34 tests. The focused regression verifies null-prototype properties and values with throwing `toString` leave their placeholders unchanged, retain the original property objects in both emitted records, and preserve the exact `run` return object.
+- `pnpm check`: passed; all 79 files formatted and no warnings, lint errors, or type errors in 20 files.
+- `pnpm test`: passed; 7 files and 103 tests.
+- `pnpm build`: passed; ESM JavaScript, source map, and declarations emitted for the Node 22.18.0 target.
+- `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm test:packed`: passed; packed consumers passed on Node 22.18.0 and Deno.
+- `git diff --check`: passed on the correction validation snapshot.
+
+R1 is corrected by containing property string conversion failures within interpolation; the
+record still emits with the original property and unchanged placeholder. R2 is documented in
+the public logger API: every level is emitted and displayed by default, with no built-in severity
+threshold or verbose flag. No unresolved worker items remain pending re-review.
