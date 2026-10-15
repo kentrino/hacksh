@@ -7,6 +7,8 @@ import {
   runMain,
   ZittyUsageError,
   type CommandDef,
+  type PrintEvent,
+  type Printer,
   type ShowUsageCallback,
 } from "./index.ts";
 
@@ -107,6 +109,67 @@ describe("command routing", () => {
 });
 
 describe("help and version", () => {
+  it("routes help and version through the invocation printer as structured events", async () => {
+    const events: PrintEvent[] = [];
+    const printer: Printer = { print: (event) => void events.push(event) };
+    const command = defineCommand({ name: "tool", version: "1.2.3" });
+
+    await runCommand(command, ["--help"], { printer });
+    await runCommand(command, ["--version"], { printer });
+
+    expect(events).toMatchObject([
+      { type: "usage", command, stream: "stdout" },
+      { type: "version", version: "1.2.3" },
+    ]);
+    expect(events[0]).toMatchObject({ text: expect.stringContaining("USAGE tool") });
+  });
+
+  it("serializes async printer events and waits for them before completing", async () => {
+    const calls: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    let blockNext = true;
+    const printer: Printer = {
+      async print(event) {
+        calls.push(`start:${event.type}`);
+        if (blockNext) {
+          blockNext = false;
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+        }
+        calls.push(`end:${event.type}`);
+      },
+    };
+    const showUsage: ShowUsageCallback = (command, { write }) => {
+      void write(`first:${command.name}`);
+      void write(`second:${command.name}`);
+    };
+
+    let completed = false;
+    const invocation = runCommand(defineCommand({ name: "tool" }), ["--help"], {
+      printer,
+      showUsage,
+    }).then(() => {
+      completed = true;
+    });
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf("function"));
+    expect(calls).toEqual(["start:usage"]);
+    expect(completed).toBe(false);
+
+    releaseFirst?.();
+    await invocation;
+    expect(calls).toEqual(["start:usage", "end:usage", "start:usage", "end:usage"]);
+  });
+
+  it("rejects the invocation when an async printer rejects", async () => {
+    const failure = new Error("printer failed");
+    const printer: Printer = { print: async () => Promise.reject(failure) };
+
+    await expect(runCommand(defineCommand({ name: "tool" }), ["--help"], { printer })).rejects.toBe(
+      failure,
+    );
+  });
+
   it("shows help for a hidden command without exposing it in parent help", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const root = defineCommand({
@@ -249,6 +312,66 @@ describe("help and version", () => {
 });
 
 describe("runMain", () => {
+  it("routes usage errors through one printer and drains it before exit", async () => {
+    const sequence: string[] = [];
+    const events: PrintEvent[] = [];
+    const printer: Printer = {
+      async print(event) {
+        sequence.push(`start:${event.type}`);
+        await Promise.resolve();
+        events.push(event);
+        sequence.push(`end:${event.type}`);
+      },
+    };
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      sequence.push(`exit:${code}`);
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    await expect(runMain(defineCommand({ name: "tool" }), { argv: [], printer })).rejects.toThrow(
+      "exit:1",
+    );
+    expect(events).toMatchObject([
+      { type: "error", message: "No command specified" },
+      { type: "usage", stream: "stderr", command: { name: "tool" } },
+    ]);
+    expect(sequence).toEqual(["start:error", "end:error", "start:usage", "end:usage", "exit:1"]);
+  });
+
+  it("routes unexpected errors through the selected printer", async () => {
+    const events: PrintEvent[] = [];
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("stopped");
+    }) as never);
+    const failure = new Error("boom");
+    const command = defineCommand({
+      run() {
+        throw failure;
+      },
+    });
+
+    await expect(
+      runMain(command, {
+        argv: [],
+        printer: { print: (event) => void events.push(event) },
+      }),
+    ).rejects.toThrow("stopped");
+    expect(events).toEqual([{ type: "error", error: failure, message: "Error: boom" }]);
+  });
+
+  it("propagates a printer rejection on a successful main invocation", async () => {
+    const exit = vi.spyOn(process, "exit");
+    const failure = new Error("printer failed");
+
+    await expect(
+      runMain(defineCommand({ name: "tool" }), {
+        argv: ["--help"],
+        printer: { print: async () => Promise.reject(failure) },
+      }),
+    ).rejects.toBe(failure);
+    expect(exit).not.toHaveBeenCalled();
+  });
+
   it("omits hidden commands from usage reported for an unknown command", async () => {
     const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);

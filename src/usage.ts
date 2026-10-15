@@ -1,5 +1,6 @@
 import type { AnyCommandDef } from "./command.ts";
 import { aliasList, kebabCase } from "./options.ts";
+import { consolePrinter, type Printer, type PrintStream } from "./printer.ts";
 import { POSITIONALS_KEY, readArgInfo, readPositionals, schemaShape } from "./schema.ts";
 
 function details(
@@ -106,6 +107,8 @@ export type UsageWriter = (text: string) => void | Promise<void>;
 
 export interface ShowUsageOptions {
   write?: UsageWriter;
+  printer?: Printer;
+  stream?: PrintStream;
 }
 
 export type UsageOutput = Required<Pick<ShowUsageOptions, "write">>;
@@ -126,5 +129,11 @@ export async function showUsage(
   options: ShowUsageOptions = {},
 ): Promise<void> {
   const text = await renderUsage(command);
-  return (options.write ?? console.log)(text);
+  if (options.write) return options.write(text);
+  return (options.printer ?? consolePrinter).print({
+    type: "usage",
+    command,
+    text,
+    stream: options.stream ?? "stdout",
+  });
 }

@@ -1,7 +1,16 @@
 import { describe, expect, expectTypeOf, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import * as mini from "zod/mini";
-import { defineCommand, parseArgs, renderUsage, showUsage, ZittyValidationError } from "./index.ts";
+import {
+  defineCommand,
+  parseArgs,
+  renderUsage,
+  showUsage,
+  ZittyValidationError,
+  type Printer,
+  type RunCommandOptions,
+  type RunMainOptions,
+} from "./index.ts";
 
 describe("public parsing API", () => {
   it("returns only validated zod output and awaits async validation", async () => {
@@ -88,6 +97,23 @@ describe("public parsing API", () => {
 });
 
 describe("public usage API", () => {
+  it("emits direct usage through a typed printer", async () => {
+    const print = vi.fn<Printer["print"]>();
+    const printer: Printer = { print };
+    const command = defineCommand({ name: "tool" });
+
+    expectTypeOf<RunCommandOptions["printer"]>().toEqualTypeOf<Printer | undefined>();
+    expectTypeOf<RunMainOptions["printer"]>().toEqualTypeOf<Printer | undefined>();
+    await showUsage(command, { printer, stream: "stderr" });
+
+    expect(print).toHaveBeenCalledWith({
+      type: "usage",
+      command,
+      text: expect.stringContaining("USAGE tool"),
+      stream: "stderr",
+    });
+  });
+
   it("omits hidden subcommands from parent and nested listings", async () => {
     const group = defineCommand({
       subCommands: {

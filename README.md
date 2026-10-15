@@ -181,17 +181,39 @@ their own `--help` output remains available. If every subcommand is hidden, help
 
 ## Programmatic execution and errors
 
-`runCommand(command, argv)` handles help and version output without exiting, throws errors to its
-caller, and returns the selected `run` handler's result.
+`runCommand(command, argv, options)` handles help and version output without exiting, throws errors
+to its caller, and returns the selected `run` handler's result. Pass a `printer` in `options` to
+receive all output produced by that invocation as structured events:
+
+```ts
+import { runCommand, type PrintEvent, type Printer } from "hacksh";
+
+const events: PrintEvent[] = [];
+const printer: Printer = {
+  async print(event) {
+    events.push(event);
+  },
+};
+
+await runCommand(main, ["--help"], { printer });
+// events[0] is { type: "usage", command, text, stream: "stdout" }
+```
+
+The current events are `usage`, `version`, and `error`. Usage events include the resolved command,
+rendered text, and their intended `stdout` or `stderr` stream. Version events include the version
+string. Error events include both the original thrown value and its default display message.
+Printer calls are serialized, may be asynchronous, and are drained before `runCommand` or
+`runMain` completes or exits. A printer rejection rejects `runCommand`.
 
 For parsing and usage rendering without execution, use the async composition APIs. `parseArgs`
 parses exactly the supplied command definition and argument segment, returns its schema output only,
 and throws `ZittyValidationError` on failure. It does not route subcommands, act on help or version
 tokens, or bypass validation; callers that resolve commands themselves must pass the selected
 command and its segment. `renderUsage` has no output side effects; `showUsage` sends that same text
-to an optional synchronous or asynchronous writer (and otherwise uses `console.log`). These
-functions are async so future command-resolution features can be added without changing their
-return types.
+through an optional printer (and otherwise through the built-in `consolePrinter`). The existing
+synchronous or asynchronous `write` option remains supported and takes precedence when both
+adapters are passed. These functions are async so future command-resolution features can be added
+without changing their return types.
 
 ```ts
 import { parseArgs, renderUsage, showUsage } from "hacksh";
@@ -202,10 +224,8 @@ const args = await parseArgs(main, ["42", "--repo", "owner/repo"]);
 
 const text: string = await renderUsage(main); // does not write output
 await showUsage(main, {
-  async write(usage) {
-    await Promise.resolve();
-    console.info(usage);
-  },
+  printer,
+  stream: "stderr",
 });
 ```
 
@@ -225,9 +245,11 @@ await mainEntry(); // uses the configured argv
 await mainEntry([]); // an explicit empty invocation overrides it
 ```
 
-`showUsage` customizes both ordinary help and the usage appended to validation or routing errors.
-The supplied `write` function targets stdout for help and stderr for errors. The callback may be
-async. Pass `onError` to replace the entire default error display, including usage:
+The legacy `RunMainOptions.showUsage` callback still customizes both ordinary help and the usage
+appended to validation or routing errors. Its supplied `write` function targets stdout for help and
+stderr for errors by emitting usage events through the invocation's selected printer, and the
+callback may be async. Pass `onError` to replace the entire default error display, including usage;
+output written by this application callback remains its own responsibility:
 
 ```ts
 await runMain(main, {
