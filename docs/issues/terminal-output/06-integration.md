@@ -31,7 +31,7 @@ Baseline `656cddf`: `pnpm check` passed on Node v24.15.0 (71 formatted files, no
 
 Verified runtime executables: `/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node --version` returned `v22.18.0`; `deno --version` returned `2.7.14`. Packed verification command: `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm test:packed`.
 
-Integration commit: `22ed34f824499738a597893da368145611cfd1cd` (`test: verify
+Integration commit: `22ed34fb9d9aee50cc74271be7514b61b16a348a` (`test: verify
 terminal output integration`), tree
 `a6ad00cefed675178c29dfd0cecfa186d6ad66f1`. Final source validation used
 assignment `HEAD^{tree}` `8b2840cbcf7bbd04e5353675b6b446fe0a14ce6c` plus
