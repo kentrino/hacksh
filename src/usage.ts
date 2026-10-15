@@ -44,12 +44,13 @@ export interface UsageOptionSummary {
   name: string;
   flags: readonly string[];
   takesValue: boolean;
+  /** Whether the long flag also accepts a `--no-` prefixed form. */
+  negatable: boolean;
   valueName?: string;
   required: boolean;
   description?: string;
   choices?: readonly string[];
   defaultValue?: unknown;
-  negatedDescription?: string;
 }
 
 export interface UsageCommandSummary {
@@ -128,6 +129,7 @@ export function summarizeUsage(command: AnyCommandDef): UsageSummary {
         name,
         flags: [...aliases, `--${name}`],
         takesValue: info.takesValue,
+        negatable: !info.takesValue,
         required: info.required,
         ...(info.takesValue ? { valueName } : {}),
         ...(info.description === undefined ? {} : { description: info.description }),
@@ -135,9 +137,6 @@ export function summarizeUsage(command: AnyCommandDef): UsageSummary {
         ...(info.defaultValue === undefined
           ? {}
           : { defaultValue: summarizeErrors(info.defaultValue) }),
-        ...(argOptions?.negatedDescription === undefined
-          ? {}
-          : { negatedDescription: argOptions.negatedDescription }),
       };
     });
 
@@ -178,15 +177,15 @@ function formatUsage(summary: UsageSummary): string {
   if (summary.options.length > 0) {
     lines.push("", "OPTIONS", "");
     for (const option of summary.options) {
-      const flags = option.flags.map((flag) =>
-        flag.startsWith("--") && option.takesValue ? `${flag}=<${option.valueName}>` : flag,
-      );
+      const flags = option.flags.map((flag) => {
+        if (!flag.startsWith("--")) return flag;
+        if (option.takesValue) return `${flag}=<${option.valueName}>`;
+        if (option.negatable) return `--[no-]${flag.slice(2)}`;
+        return flag;
+      });
       lines.push(
         `  ${flags.join(", ")}  ${details(option.description, option.required, option.defaultValue, option.choices)}`.trimEnd(),
       );
-      if (!option.takesValue && option.negatedDescription) {
-        lines.push(`  --no-${option.name}  ${option.negatedDescription}`);
-      }
     }
   }
 

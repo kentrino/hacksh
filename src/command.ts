@@ -15,7 +15,6 @@ import {
 export interface ArgOptions {
   alias?: string | readonly string[];
   valueName?: string;
-  negatedDescription?: string;
 }
 
 export type ArgOptionsMap<S extends ArgsSchema> = Partial<Record<OptionKey<S>, ArgOptions>>;

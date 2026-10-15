@@ -151,7 +151,7 @@ async function verifyConsumer(label, execute) {
       directHelp.stdout.includes(`◆  CUSTOM\n│  Internal ${flavor} command (${commandName})`) &&
         directHelp.stdout.includes(`USAGE ${commandName} [OPTIONS]`) &&
         directHelp.stdout.includes("--mode=<MODE>  Execution mode (Choices: fast, safe)") &&
-        directHelp.stdout.includes("--no-enabled  Disable feature"),
+        directHelp.stdout.includes("--[no-]enabled  Enable feature (Default: true)"),
       `${label}: ${commandName} direct help was unavailable: ${directHelp.stdout}`,
     );
     assert(directHelp.stderr === "", `${label}: ${commandName} help wrote to stderr`);
@@ -357,7 +357,7 @@ async function verifyPhaseTwo(label, phaseCommand) {
     "--format=<FORMAT>",
     "Output format (Choices: json, yaml)",
     "Input files (Choices: txt, md)",
-    "--no-enabled  Disable feature",
+    "--[no-]enabled  Enable feature (Default: true)",
   ]) {
     if (!usage.includes(expected)) throw new Error(label + " help omitted " + expected + "\\n" + usage);
   }
@@ -397,7 +397,6 @@ const phaseCommand = defineCommand({
   }),
   argOptions: {
     format: { valueName: "FORMAT" },
-    enabled: { negatedDescription: "Disable feature" },
   },
 });
 const miniPhaseCommand = defineCommand({
@@ -411,7 +410,6 @@ const miniPhaseCommand = defineCommand({
   }),
   argOptions: {
     format: { valueName: "FORMAT" },
-    enabled: { negatedDescription: "Disable feature" },
   },
 });
 await verifyPhaseTwo("zod", phaseCommand);
@@ -423,7 +421,6 @@ function hiddenCommand(flavor, args) {
     args,
     argOptions: {
       mode: { valueName: "MODE" },
-      enabled: { negatedDescription: "Disable feature" },
     },
     run({ cmd, args: parsed }) {
       console.log(JSON.stringify({ flavor, cmd: cmd.name, args: parsed }));
@@ -566,7 +563,6 @@ const schema = z.object({
 const formatOptions: ArgOptions = { alias: "f", valueName: "FORMAT" };
 const argOptions: ArgOptionsMap<typeof schema> = {
   format: formatOptions,
-  enabled: { negatedDescription: "Disable feature" },
 };
 const command = defineCommand({
   args: schema,
@@ -601,7 +597,7 @@ const miniSchema = mini.object({
   enabled: mini._default(mini.boolean(), true),
 });
 const miniArgOptions: ArgOptionsMap<typeof miniSchema> = {
-  enabled: { negatedDescription: "Disable feature" },
+  enabled: { alias: "e" },
 };
 const miniCommand = defineCommand({
   args: miniSchema,
