@@ -13,7 +13,7 @@ Current state: worker unassigned; next action: delegate after prerequisites. Blo
 
 ## Scope and decisions
 
-Choose design B: HACKSH_OUTPUT overrides options.output (auto/pretty/json), auto uses CI only; non-TTY alone keeps pretty. Reject invalid settings explicitly. No new reserved flags. Resolve once before execution. Interactive requires pretty, non-CI and input/output TTY; color requires pretty, output TTY and no NO_COLOR. JSON is one event per line, logs/help/version on stdout and errors/warning+ logs on stderr. Define documented structured usage/error summaries without implementing unrelated 0008/0009 scope.
+Choose design B: HACKSH_OUTPUT overrides options.output (auto/pretty/json), auto uses CI only; non-TTY alone keeps pretty. Reject invalid settings explicitly. No new reserved flags. Resolve once before execution. Interactive requires pretty, non-CI and input/output TTY; color requires pretty, output TTY and no NO_COLOR. JSON is one event per line, logs/help/version on stdout and errors/warning+ logs on stderr. Define documented structured usage/error summaries without implementing unrelated 0008/0009 scope. Review decision R4 from issue 01: its raw command/error event payloads are intermediate unreleased contracts. This issue owns canonical summaries, final public event types/documentation, and must not serialize executable commands or schemas directly.
 
 Ownership: related source modules, tests and public documentation for this responsibility; preserve unrelated work. Exclusions: unrelated themes, publication, external consumer edits. Prerequisite contract: completed dependency APIs and tests; coordinate shared files sequentially. Review baseline: record at assignment. Initial baseline and immutable hashes: see `06-integration.md`.
 
