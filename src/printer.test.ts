@@ -41,7 +41,8 @@ function effectiveTerminalLines(chunks: readonly string[]): string[] {
       index += 1;
     }
   }
-  return lines.filter((line) => line.length > 0);
+  while (lines.length > 1 && lines.at(-1) === "") lines.pop();
+  return lines;
 }
 
 describe("output mode", () => {

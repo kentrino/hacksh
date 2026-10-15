@@ -75,7 +75,8 @@ function effectiveTerminalLines(output, columns = 20) {
       index += character.length;
     }
   }
-  return lines.filter(Boolean);
+  while (lines.length > 1 && lines.at(-1) === "") lines.pop();
+  return lines;
 }
 
 const flow = await runProbe("flow", 0);
@@ -112,6 +113,9 @@ const caught = await runProbe("caught-cancel", 0);
 const caughtRendered = effectiveTerminalLines(caught);
 if (!caught.includes('CAUGHT_RESULT {"restored":true}')) {
   throw new Error(`PTY caught cancellation did not restore the terminal\n${caught}`);
+}
+if (caughtRendered.some((line) => line === "")) {
+  throw new Error(`PTY caught cancellation left an internal empty row\n${caught}`);
 }
 for (const expected of ["first log after cancellation", "second log after cancellation"]) {
   if (caughtRendered.join("").split(expected).length !== 2) {

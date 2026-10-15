@@ -29,7 +29,8 @@ function consoleWriter(method: "log" | "error", stream: TerminalOutput): Termina
       return stream.columns;
     },
     write(text) {
-      console[method](text.endsWith("\n") ? text.slice(0, -1) : text);
+      if (!text.endsWith("\n")) return stream.write(text);
+      console[method](text.slice(0, -1));
     },
   };
 }
