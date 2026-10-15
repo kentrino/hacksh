@@ -46,7 +46,10 @@ Supervisor decision R4: raw command/error event payloads are intermediate contra
 
 Correction validation tree: base `HEAD^{tree}` `0e67a5643b0873e18ac877c4dd9921f952743603`, uncommitted diff object `f79c2c9ad87792e4180611de5fc3f41c3d3b0b05`. Environment: macOS worktree, Node `v24.15.0`, pnpm `11.20.0`.
 
+Correction commit: `8444ab21e9c432af10d7efc203d5ce8696130ac2`.
+
 - `pnpm test`: passed, 7 files and 96 tests. Added regression coverage for immediate synchronous legacy callback order and exit-after-successful-`onError` when pending printer output rejects; the existing `onError` rejection test still passes.
 - `pnpm check`: passed; all 78 files formatted and no lint or type errors in 19 files.
 - `pnpm build`: passed; `vp pack` emitted ESM JavaScript, source map, and bundled declarations for target Node 22.18.0.
+- `git diff --check`: passed on committed correction tree `5d8c14c3b22016d802d96c5de03c46db24305fd4` with empty diff object `e69de29bb2d1d6434b8b29ae775ad8c2e48c5391`.
 - R3 documentation correction makes the standalone `showUsage` snippet import and use `consolePrinter` directly. R4 required no source or public-contract expansion in this issue.
