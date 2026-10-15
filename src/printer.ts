@@ -93,7 +93,7 @@ export interface PromptChoiceState {
   selected: boolean;
 }
 
-export type PromptStatus = "active" | "error" | "submitted";
+export type PromptStatus = "active" | "error" | "submitted" | "closed";
 
 interface PromptStateBase {
   message: string;
@@ -192,6 +192,7 @@ export interface TerminalInput {
 
 export interface TerminalOutput extends OutputWriter {
   readonly isTTY?: boolean;
+  readonly columns?: number;
 }
 
 export interface JsonPrinterOptions {

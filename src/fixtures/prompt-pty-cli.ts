@@ -11,13 +11,25 @@ await runMain(
   defineCommand({
     name: "prompt-pty-probe",
     async run({ logger }) {
+      if (mode === "caught-cancel") {
+        await logger.text({ message: "Caught cancellation" }).catch(() => undefined);
+        logger.info("first log after cancellation");
+        logger.info("second log after cancellation");
+        const restored =
+          process.stdin.isRaw !== true &&
+          process.stdin.listenerCount("data") === baseline.data &&
+          process.stdin.listenerCount("error") === baseline.error &&
+          process.stdin.listenerCount("keypress") === baseline.keypress;
+        process.stdout.write(`CAUGHT_RESULT ${JSON.stringify({ restored })}\n`);
+        return;
+      }
       if (mode === "cancel") {
         await logger.text({ message: "Cancel me" });
         throw new Error("cancellation unexpectedly returned");
       }
 
       const environment = await logger.select({
-        message: "Environment",
+        message: "Environment\nTarget",
         options: [{ value: "staging" }, { value: "production" }] as const,
       });
       const confirmed = await logger.confirm({ message: "Continue?" });

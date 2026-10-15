@@ -258,10 +258,15 @@ default is available. Its `reason` and `prompt` fields identify why input failed
 `overlapping`, `invalid-options`, `input-error`, and `printer-error`. Ctrl-C and Escape cancel;
 `runMain` reports cancellation and exits with status 130. Only one prompt may be active in an
 invocation. Input listeners and raw terminal mode are restored after every outcome.
+Failed prompts emit a non-visible `closed` prompt state through the same printer before rejecting,
+so callers that catch cancellation, EOF, input, or printer errors do not leave stale terminal UI.
 
 Active pretty prompts redraw in place rather than appending a block for every key. A completed
 prompt collapses to one result line. If a logger event arrives while a prompt is active, the
 printer removes the prompt, renders the event, and then redraws the current prompt state.
+Physical rows are calculated from explicit newlines, ANSI-free Unicode display width, and
+`stdout.columns`, including terminal wrapping. When a custom output writer does not expose a
+positive `columns` value, the renderer conservatively counts explicit lines only.
 
 ## Output formats
 

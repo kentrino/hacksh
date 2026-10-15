@@ -20,8 +20,14 @@ export interface OutputOptions {
   stderr?: OutputWriter;
 }
 
-function consoleWriter(method: "log" | "error"): OutputWriter {
+function consoleWriter(method: "log" | "error", stream: TerminalOutput): TerminalOutput {
   return {
+    get isTTY() {
+      return stream.isTTY;
+    },
+    get columns() {
+      return stream.columns;
+    },
     write(text) {
       console[method](text.endsWith("\n") ? text.slice(0, -1) : text);
     },
@@ -52,7 +58,7 @@ export function selectOutputPrinter(
   return createPrettyPrinter({
     color: mode.color,
     unicode: options.unicode ?? true,
-    stdout: options.stdout ?? (useConsole ? consoleWriter("log") : stdout),
-    stderr: options.stderr ?? (useConsole ? consoleWriter("error") : stderr),
+    stdout: options.stdout ?? (useConsole ? consoleWriter("log", stdout) : stdout),
+    stderr: options.stderr ?? (useConsole ? consoleWriter("error", process.stderr) : stderr),
   });
 }

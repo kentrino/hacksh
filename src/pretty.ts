@@ -1,7 +1,13 @@
-import { inspect, styleText } from "node:util";
+import { inspect, stripVTControlCharacters, styleText } from "node:util";
 import type { HackshErrorSummary } from "./errors.ts";
 import type { LogLevel, LogRecord } from "./logger.ts";
-import { eventStream, type OutputWriter, type Printer, type PrintEvent } from "./printer.ts";
+import {
+  eventStream,
+  type OutputWriter,
+  type Printer,
+  type PrintEvent,
+  type TerminalOutput,
+} from "./printer.ts";
 
 type PrettyMark = LogLevel | "step" | "success" | "usage" | "version" | "errorEvent" | "prompt";
 type TextStyle = Parameters<typeof styleText>[0];
@@ -65,7 +71,7 @@ const markStyles: Record<PrettyMark, TextStyle> = {
 export interface PrettyPrinterOptions {
   color: boolean;
   unicode: boolean;
-  stdout?: OutputWriter;
+  stdout?: TerminalOutput;
   stderr?: OutputWriter;
 }
 
@@ -168,6 +174,60 @@ function colorize(enabled: boolean, style: TextStyle, text: string): string {
   return enabled ? styleText(style, text, { validateStream: false }) : text;
 }
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const combiningMark = /\p{Mark}/u;
+const pictograph = /\p{Extended_Pictographic}/u;
+
+function isWideCodePoint(codePoint: number): boolean {
+  return (
+    codePoint >= 0x1100 &&
+    (codePoint <= 0x115f ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x20000 && codePoint <= 0x3fffd))
+  );
+}
+
+function displayWidth(text: string): number {
+  let width = 0;
+  for (const { segment } of graphemeSegmenter.segment(stripVTControlCharacters(text))) {
+    if (segment === "\t") {
+      width += 8 - (width % 8);
+      continue;
+    }
+    if (
+      pictograph.test(segment) ||
+      Array.from(segment).some((value) => isWideCodePoint(value.codePointAt(0)!))
+    ) {
+      width += 2;
+      continue;
+    }
+    for (const value of segment) {
+      const codePoint = value.codePointAt(0)!;
+      if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint < 0xa0)) continue;
+      if (codePoint === 0x200d || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)) continue;
+      if (!combiningMark.test(value)) width += 1;
+    }
+  }
+  return width;
+}
+
+function renderedRows(rendered: string, columns: number | undefined): number {
+  const width =
+    Number.isInteger(columns) && columns !== undefined && columns > 0 ? columns : undefined;
+  return rendered.split("\n").reduce((rows, line) => {
+    if (!width) return rows + 1;
+    return rows + Math.max(1, Math.ceil(displayWidth(line) / width));
+  }, 0);
+}
+
 /** Create the fixed human-readable renderer used for pretty output. */
 export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
   const stdout = options.stdout ?? process.stdout;
@@ -194,8 +254,13 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
       const rendered = render(event);
       if (event.type === "prompt") {
         const erase = eraseActivePrompt();
+        if (event.prompt.status === "closed") {
+          activePrompt = undefined;
+          if (erase) stdout.write(erase);
+          return;
+        }
         if (event.prompt.status === "submitted") activePrompt = undefined;
-        else activePrompt = { rendered, lines: eventLines(event).length };
+        else activePrompt = { rendered, lines: renderedRows(rendered, stdout.columns) };
         stdout.write(`${erase}${rendered}\n`);
         return;
       }

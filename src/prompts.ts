@@ -142,6 +142,7 @@ export class PromptController implements Prompter {
     accept: (character: string, key: Key) => T | undefined,
     update: (character: string, key: Key) => PromptState | undefined,
     submitted: (value: T) => PromptState,
+    closed: () => PromptState,
   ): Promise<T> {
     if (!this.#interactive) {
       throw promptError(
@@ -286,13 +287,28 @@ export class PromptController implements Prompter {
         cause,
       );
     }
-    this.#active = false;
-    if (restoreError) throw restoreError;
-    if (!outcome.ok) throw outcome.error;
-    this.#active = true;
+    const closeWithFailure = async (failure: unknown): Promise<never> => {
+      try {
+        await this.#print(closed(), prompt);
+      } catch {
+        // Preserve the error that terminated the prompt, including an earlier printer failure.
+      } finally {
+        this.#active = false;
+      }
+      throw failure;
+    };
+    if (restoreError) return closeWithFailure(restoreError);
+    if (!outcome.ok) return closeWithFailure(outcome.error);
     try {
       await this.#print(submitted(outcome.value), prompt);
       return outcome.value;
+    } catch (error) {
+      try {
+        await this.#print(closed(), prompt);
+      } catch {
+        // The submitted-state failure remains the primary error.
+      }
+      throw error;
     } finally {
       this.#active = false;
     }
@@ -367,6 +383,7 @@ export class PromptController implements Prompter {
         return state();
       },
       () => state("submitted"),
+      () => state("closed"),
     );
     return value;
   }
@@ -396,6 +413,7 @@ export class PromptController implements Prompter {
       },
       () => undefined,
       (submitted) => state(submitted, "submitted"),
+      () => state(value, "closed"),
     );
     return result;
   }
@@ -451,6 +469,7 @@ export class PromptController implements Prompter {
         return state();
       },
       () => state("submitted"),
+      () => state("closed"),
     );
     return result;
   }

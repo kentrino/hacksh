@@ -198,11 +198,12 @@ describe("interactive prompts", () => {
       ["\u0004", "eof"],
     ] as const) {
       const input = new TestInput();
+      const events: PrintEvent[] = [];
       const command = defineCommand({ run: ({ logger }) => logger.text({ message: "Value" }) });
       const result = runCommand(command, [], {
         stdin: input,
         stdout: terminalOutput,
-        printer: { print: () => undefined },
+        printer: { print: (event) => void events.push(event) },
         env: {},
       });
       await turn();
@@ -210,7 +211,34 @@ describe("interactive prompts", () => {
       await expect(result).rejects.toMatchObject({ reason });
       expect(input.isRaw).toBe(false);
       expect(input.listenerCount("keypress")).toBe(0);
+      expect(events.at(-1)).toMatchObject({ type: "prompt", prompt: { status: "closed" } });
     }
+  });
+
+  it("closes a cancelled prompt before caught-error logs", async () => {
+    const input = new TestInput();
+    const events: PrintEvent[] = [];
+    const command = defineCommand({
+      async run({ logger }) {
+        await logger.text({ message: "Cancel me" }).catch((error: unknown) => {
+          expect(error).toMatchObject({ reason: "cancelled" });
+        });
+        logger.info("first log");
+        logger.info("second log");
+      },
+    });
+    const result = runCommand(command, [], {
+      stdin: input,
+      stdout: terminalOutput,
+      printer: { print: (event) => void events.push(event) },
+      env: {},
+    });
+    await turn();
+    input.write("\u0003");
+    await result;
+
+    expect(events.map((event) => event.type)).toEqual(["prompt", "prompt", "log", "log"]);
+    expect(events[1]).toMatchObject({ type: "prompt", prompt: { status: "closed" } });
   });
 
   it("rejects overlapping prompts across child and bound loggers", async () => {
@@ -234,10 +262,13 @@ describe("interactive prompts", () => {
   it("defines invalid options, input errors, and printer errors", async () => {
     const input = new TestInput();
     const printer: Printer = { print: () => undefined };
+    const states: string[] = [];
     const logger = createLogger(printer, [], {
       interactive: true,
       input,
-      printPrompt: async () => undefined,
+      printPrompt: async (event) => {
+        if (event.type === "prompt") states.push(event.prompt.status);
+      },
     });
     await expect(logger.select({ message: "Empty", options: [] })).rejects.toMatchObject({
       reason: "invalid-options",
@@ -268,6 +299,7 @@ describe("interactive prompts", () => {
       cause: expect.objectContaining({ message: "read failed" }),
     });
     expect(input.isRaw).toBe(false);
+    expect(states).toEqual(["active", "closed"]);
   });
 
   it("rejects a stdin value without readable-stream operations", async () => {
@@ -315,6 +347,28 @@ describe("interactive prompts", () => {
       },
     );
     await expect(result).rejects.toMatchObject({ reason: "printer-error", cause: failure });
+    expect(input.isRaw).toBe(false);
+  });
+
+  it("attempts a closing render after a printer failure and preserves the first error", async () => {
+    const input = new TestInput();
+    const states: string[] = [];
+    const failure = new Error("redraw failed");
+    const logger = createLogger({ print: () => undefined }, [], {
+      interactive: true,
+      input,
+      printPrompt: async (event) => {
+        if (event.type !== "prompt") return;
+        states.push(event.prompt.status);
+        if (states.length === 2) throw failure;
+      },
+    });
+    const result = logger.text({ message: "Value" });
+    await turn();
+    input.write("a");
+
+    await expect(result).rejects.toMatchObject({ reason: "printer-error", cause: failure });
+    expect(states).toEqual(["active", "active", "closed"]);
     expect(input.isRaw).toBe(false);
   });
 });

@@ -27,6 +27,7 @@ import {
   type RunCommandOptions,
   type RunMainOptions,
   type TerminalInput,
+  type TerminalOutput,
   type ShowUsageOptions,
 } from "./index.ts";
 
@@ -200,7 +201,7 @@ describe("public usage API", () => {
     expectTypeOf<PrettyPrinterOptions>().toEqualTypeOf<{
       color: boolean;
       unicode: boolean;
-      stdout?: { write(text: string): unknown };
+      stdout?: TerminalOutput;
       stderr?: { write(text: string): unknown };
     }>();
     expectTypeOf(createPrettyPrinter).parameter(0).toEqualTypeOf<PrettyPrinterOptions>();

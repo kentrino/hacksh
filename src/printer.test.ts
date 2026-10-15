@@ -209,6 +209,82 @@ describe("pretty printer", () => {
       "✔  Continue?: Yes",
     ]);
   });
+
+  it("closes an unsuccessful prompt before later logs", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "text", message: "Cancelled", status: "active", value: "partial" },
+    });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "text", message: "Cancelled", status: "closed", value: "partial" },
+    });
+    for (const message of ["first log", "second log"]) {
+      void printer.print({
+        type: "log",
+        record: {
+          level: "info",
+          kind: "message",
+          category: [],
+          message,
+          rawMessage: message,
+          properties: {},
+          timestamp: 1,
+        },
+      });
+    }
+
+    expect(effectiveTerminalLines(output.stdout)).toEqual(["●  first log", "●  second log"]);
+  });
+
+  it("counts wrapped, multiline, ANSI, and wide-character terminal rows", () => {
+    const stdout: string[] = [];
+    const printer = createPrettyPrinter({
+      color: true,
+      unicode: true,
+      stdout: { columns: 20, write: (value) => void stdout.push(value) },
+      stderr: { write: () => undefined },
+    });
+    void printer.print({
+      type: "prompt",
+      prompt: {
+        kind: "select",
+        message: "Choose a target\nSecond line",
+        status: "active",
+        value: "wide",
+        choices: [{ value: "wide", label: "界".repeat(10), selected: true }],
+      },
+    });
+    void printer.print({
+      type: "prompt",
+      prompt: {
+        kind: "select",
+        message: "Choose a target\nSecond line",
+        status: "submitted",
+        value: "wide",
+        choices: [{ value: "wide", label: "界".repeat(10), selected: true }],
+      },
+    });
+
+    expect(stdout[1]!.startsWith("\u001b[1A\u001b[2K".repeat(4))).toBe(true);
+  });
+
+  it("uses explicit newlines only when output columns are unknown", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "text", message: "Long", status: "active", value: "x".repeat(36) },
+    });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "text", message: "Long", status: "submitted", value: "x".repeat(36) },
+    });
+
+    expect(output.stdout[1]!.startsWith("\u001b[1A\u001b[2K".repeat(2))).toBe(true);
+  });
   it("distinguishes every level, step, and success without color", () => {
     const output = memoryWriters();
     const printer = createPrettyPrinter({
