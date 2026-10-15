@@ -11,7 +11,7 @@ npm のトークン（`NPM_TOKEN`）は使わない。リリース PR は GitHub
 
 # リポジトリに置くファイル
 
-次のファイルは、手順を始める時点ではまだない（`docs/issues/0013-release-workflow`、`docs/issues/0017-dependency-updates`）。await-ready と、同じ Vite+ 構成の takibi を参考に追加する。
+次のファイルでリリースと依存更新を自動化する。
 
 | ファイル                            | 役割                                                                                   |
 | ----------------------------------- | -------------------------------------------------------------------------------------- |
@@ -39,4 +39,4 @@ Trusted Publisher は npm にパッケージが存在しないと登録できな
 
 # リポジトリ名
 
-GitHub リポジトリは現在 `kentrino/zitty` で、npm パッケージ名は `hacksh` である。リポジトリ名を `hacksh` に変える場合は、手順 2 より前に行う。Trusted Publisher の設定と `package.json` の `repository` は、リポジトリ名と一致している必要がある。改名した場合は、各文書の `zitty` を新しい名前に読み替える。
+GitHub リポジトリと npm パッケージの名前は、どちらも `hacksh`。Trusted Publisher は `kentrino/hacksh` の `release.yml` に設定する。
