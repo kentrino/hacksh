@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/kentrino/hacksh/compare/v0.2.1...v0.3.0) (2026-10-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* Remove negatedDescription from ArgOptions and UsageOptionSummary. Boolean help now uses --[no-]name, and UsageOptionSummary requires negatable.
+
+### Features
+
+* document boolean negation in help automatically ([#11](https://github.com/kentrino/hacksh/issues/11)) ([4c480d1](https://github.com/kentrino/hacksh/commit/4c480d1f632b27adc456e7982aeed947d83beb41))
+
 ## [0.2.1](https://github.com/kentrino/hacksh/compare/v0.2.0...v0.2.1) (2026-10-15)
 
 
