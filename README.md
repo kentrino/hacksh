@@ -216,7 +216,7 @@ adapters are passed. These functions are async so future command-resolution feat
 without changing their return types.
 
 ```ts
-import { parseArgs, renderUsage, showUsage } from "hacksh";
+import { consolePrinter, parseArgs, renderUsage, showUsage } from "hacksh";
 
 const args = await parseArgs(main, ["42", "--repo", "owner/repo"]);
 // args is inferred from the schema as:
@@ -224,7 +224,7 @@ const args = await parseArgs(main, ["42", "--repo", "owner/repo"]);
 
 const text: string = await renderUsage(main); // does not write output
 await showUsage(main, {
-  printer,
+  printer: consolePrinter,
   stream: "stderr",
 });
 ```

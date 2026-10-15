@@ -161,6 +161,22 @@ describe("help and version", () => {
     expect(calls).toEqual(["start:usage", "end:usage", "start:usage", "end:usage"]);
   });
 
+  it("preserves legacy callback order when the printer writes synchronously", async () => {
+    const output: string[] = [];
+    const showUsage: ShowUsageCallback = (_command, { write }) => {
+      output.push("HEADER");
+      void write("USAGE");
+      output.push("FOOTER");
+    };
+
+    await runCommand(defineCommand({ name: "tool" }), ["--help"], {
+      printer: { print: (event) => void output.push(event.type.toUpperCase()) },
+      showUsage,
+    });
+
+    expect(output).toEqual(["HEADER", "USAGE", "FOOTER"]);
+  });
+
   it("rejects the invocation when an async printer rejects", async () => {
     const failure = new Error("printer failed");
     const printer: Printer = { print: async () => Promise.reject(failure) };
@@ -475,6 +491,29 @@ describe("runMain", () => {
 
     await expect(runMain(command, { argv: [], onError })).rejects.toThrow("reporting failed");
     expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("exits one after onError succeeds even when pending printer output rejects", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const failure = new Error("usage failed");
+    const onError = vi.fn();
+    const showUsage: ShowUsageCallback = (_command, { write }) => {
+      void write("usage");
+      throw failure;
+    };
+
+    await expect(
+      runMain(defineCommand({ name: "tool" }), {
+        argv: ["--help"],
+        printer: { print: async () => Promise.reject(new Error("printer failed")) },
+        showUsage,
+        onError,
+      }),
+    ).rejects.toThrow("exit:1");
+    expect(onError).toHaveBeenCalledWith(failure);
+    expect(exit).toHaveBeenCalledWith(1);
   });
 
   it("uses process argv, replaces reporting with async onError, and exits one", async () => {

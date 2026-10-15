@@ -49,19 +49,34 @@ export interface PrintQueue {
 
 /** Serialize printer calls and retain failures until the invocation drains its output. */
 export function createPrintQueue(target: Printer): PrintQueue {
-  let pending = Promise.resolve();
+  let pending: Promise<void> | undefined;
   let failure: unknown;
   let failed = false;
 
+  function recordFailure(error: unknown): void {
+    if (!failed) failure = error;
+    failed = true;
+  }
+
+  function track(result: void | Promise<void>): void | Promise<void> {
+    if (!result) return undefined;
+
+    const current = Promise.resolve(result).catch(recordFailure);
+    pending = current;
+    void current.then(() => {
+      if (pending === current) pending = undefined;
+    });
+    return current;
+  }
+
   const printer: Printer = {
     print(event) {
-      pending = pending
-        .then(() => target.print(event))
-        .catch((error: unknown) => {
-          if (!failed) failure = error;
-          failed = true;
-        });
-      return pending;
+      if (pending) return track(pending.then(() => target.print(event)));
+      try {
+        return track(target.print(event));
+      } catch (error) {
+        recordFailure(error);
+      }
     },
   };
 

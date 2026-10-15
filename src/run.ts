@@ -7,7 +7,13 @@ import {
   tokenizeCommandArgs,
   type TokenizedCommandArgs,
 } from "./parser.ts";
-import { consolePrinter, createPrintQueue, type Printer, type PrintStream } from "./printer.ts";
+import {
+  consolePrinter,
+  createPrintQueue,
+  type Printer,
+  type PrintQueue,
+  type PrintStream,
+} from "./printer.ts";
 import { showUsage, type ShowUsageCallback } from "./usage.ts";
 
 interface CommandSegment {
@@ -115,6 +121,14 @@ export interface RunMainOptions {
   showUsage?: ShowUsageCallback;
 }
 
+async function drainAndExit(output: PrintQueue): Promise<never> {
+  try {
+    await output.drain();
+  } finally {
+    process.exit(1);
+  }
+}
+
 export async function runMain<S extends ArgsSchema>(
   command: CommandDef<S>,
   options: RunMainOptions = {},
@@ -131,8 +145,7 @@ export async function runMain<S extends ArgsSchema>(
   } catch (error) {
     if (options.onError) {
       await options.onError(error);
-      await output.drain();
-      process.exit(1);
+      return drainAndExit(output);
     }
     try {
       if (error instanceof ZittyUsageError) {
@@ -146,11 +159,7 @@ export async function runMain<S extends ArgsSchema>(
         });
       }
     } finally {
-      try {
-        await output.drain();
-      } finally {
-        process.exit(1);
-      }
+      await drainAndExit(output);
     }
   }
   await output.drain();
