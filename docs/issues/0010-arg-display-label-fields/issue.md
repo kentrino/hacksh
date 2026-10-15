@@ -34,6 +34,7 @@ USAGE demo [OPTIONS] <PR>
 - フィールドを一つにまとめるか、二つのまま誤用を検出するか。
 - まとめる場合の名前（`name`、`valueName`、その他）。
 - 公開済みのフィールドを変更・削除するときの移行方法。
+- 位置引数のラベル指定は、0011 で位置引数をどう宣言するかに依存する。
 
 # Related Files
 
@@ -43,3 +44,4 @@ USAGE demo [OPTIONS] <PR>
 - `src/parser.test.ts` — `name` と `valueName` を併用するテスト
 - `src/public-api.test.ts` — `valueName` を使うテスト
 - `scripts/test-packed-consumers.mjs` — `valueName` を使う利用者コード例
+- `docs/issues/0011-positional-outside-schema/issue.md` — 位置引数の宣言方法
