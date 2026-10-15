@@ -1,7 +1,7 @@
 ---
 id: terminal-output-06-integration
 phase: 6
-status: review
+status: done
 depends_on: ["terminal-output-05-prompts"]
 ---
 
@@ -9,7 +9,7 @@ depends_on: ["terminal-output-05-prompts"]
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `terminal-output` issue and designs.
 
-Current state: worker `s-terminal-output-06`, pane `w2P:pW`, session `01a13f7d-a618-7803-bb56-a6da221b2b11`, completed full-review R1–R2 corrections at `c963362`. Reviewer `c-review-terminal-output-final`, pane `w2P:pX`, session `95ecdd82-dd46-4989-88b3-48ce95d629f4` retained for correction review. Next action: parent correction review and final acceptance. Blockers: none.
+Current state: implementation and full-plan review accepted through `26b3cae` (source correction `c963362`). All six issues complete; no next implementation action or blockers. Worker `s-terminal-output-06` (session `01a13f7d-a618-7803-bb56-a6da221b2b11`) and reviewer `c-review-terminal-output-final` (session `95ecdd82-dd46-4989-88b3-48ce95d629f4`) completed their work.
 
 ## Scope and decisions
 
@@ -19,11 +19,11 @@ Ownership: related source modules, tests and public documentation for this respo
 
 ## Acceptance criteria
 
-- [ ] AC1: All theme Goal/Rules/Criteria and referenced issue outcomes are covered by the five implementation issues with inspected evidence. (plan: layers / `terminal-output`).
-- [ ] AC2: Repository check, tests, build and packed-consumer checks pass on final implementation, including supported Node 22.18 runtime and current runtime. (plan: layers / `terminal-output`).
-- [ ] AC3: Real consumers demonstrate unchanged run code in pretty/JSON and noninteractive prompt failure; integration tests cover help/version/errors/logs/prompts through one printer. (plan: layers / `terminal-output`).
-- [ ] AC4: Full baseline-to-final correctness and quality review passes; no unresolved required corrections. (plan: layers / `terminal-output`).
-- [ ] AC5: Original plan and referenced specification hashes are unchanged; no new runtime dependencies besides existing zod peer. (plan: layers / `terminal-output`).
+- [x] AC1: All theme Goal/Rules/Criteria and referenced issue outcomes are covered by the five implementation issues with inspected evidence. (plan: layers / `terminal-output`).
+- [x] AC2: Repository check, tests, build and packed-consumer checks pass on final implementation, including supported Node 22.18 runtime and current runtime. (plan: layers / `terminal-output`).
+- [x] AC3: Real consumers demonstrate unchanged run code in pretty/JSON and noninteractive prompt failure; integration tests cover help/version/errors/logs/prompts through one printer. (plan: layers / `terminal-output`).
+- [x] AC4: Full baseline-to-final correctness and quality review passes; no unresolved required corrections. (plan: layers / `terminal-output`).
+- [x] AC5: Original plan and referenced specification hashes are unchanged; no new runtime dependencies besides existing zod peer. (plan: layers / `terminal-output`).
 
 ## Evidence
 
@@ -110,7 +110,7 @@ This is source/test traceability for the theme, not a second progress ledger:
 `sha256sum` over the theme, 0010-0012 issues, and every 0018-0022
 issue/design matched all immutable values recorded below. No original
 plan/specification file changed.
-Parent review and final acceptance remain intentionally unchecked.
+Final acceptance is recorded below.
 
 ## Full-plan review round 1
 
@@ -155,8 +155,28 @@ R2 moves the unchanged logger suite to `src/logger.test.ts` and the
 output-mode/invalid-setting cases to `src/output.test.ts`. Final sizes are
 706 lines for `src/run.test.ts`, 317 for `src/logger.test.ts`, and 355 for
 `src/output.test.ts`; the original 168 tests remain and the two R1
-regressions bring the total to 170. Acceptance checkboxes remain for the
-parent after correction review.
+regressions bring the total to 170. Parent inspected this correction evidence before final acceptance.
+
+## Final acceptance
+
+Reviewer accepted the complete `656cddf..26b3cae` scope after reviewing
+`c963362` against the earlier full-branch audit. No required worker or
+supervisor findings remain. The independent default-writer terminal probe now
+shows the initial log, two interleaved logs, and the final log on consecutive
+rows with no empty rows. Reviewer verified all 17 relocated tests and their
+bodies are preserved, plus the two new exact-byte regressions.
+
+Parent reconciled the theme Goal, five Layers, Rules and Criteria with the
+requirement coverage above and inspected evidence in issues 01–05 and this
+issue. AC1–AC3 are supported by the committed integration, focused, installed
+consumer and PTY tests; normal/CI tests, checks, build and three-runtime
+consumer validation all cover final source `c963362`. The full review and
+correction acceptance satisfy AC4. Parent rechecked all 14 original SHA-256
+values, unchanged lockfile, dependency/peer/optional declarations and engines
+against `656cddf`, satisfying AC5. `git diff --quiet c963362 -- .
+':!docs/issues'` exited 0; only acceptance documentation changed after final
+source verification. No unmet plan requirements remain. No publication or
+external consumer changes were performed.
 
 Initial branch: `main`. Initial base: `656cddfc4c6aabbf2e59cbc1e4e262f45a5bc8e5`. Initial worktree: clean.
 
