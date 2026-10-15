@@ -1,7 +1,7 @@
 ---
 id: terminal-output-05-prompts
 phase: 5
-status: working
+status: done
 depends_on: ["terminal-output-04-pretty"]
 ---
 
@@ -9,7 +9,7 @@ depends_on: ["terminal-output-04-pretty"]
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `0021-run-prompts` issue and designs.
 
-Current state: worker `s-terminal-output-05`, pane `w2P:pT`, session `01a13f58-b9c5-7f11-aafe-8ebc8bf95029`; reviewer `c-review-terminal-output-05`, pane `w2P:pV`, session `1eb5f30a-3738-49b3-a2b4-a8c823bd02a5`; next action: re-review correction round 2. Blockers: none.
+Current state: accepted at `46c2ec3`; next action: issue 06 final integration. Blockers: none. Worker `s-terminal-output-05` (session `01a13f58-b9c5-7f11-aafe-8ebc8bf95029`) and reviewer `c-review-terminal-output-05` (session `1eb5f30a-3738-49b3-a2b4-a8c823bd02a5`) completed.
 
 ## Scope and decisions
 
@@ -19,10 +19,10 @@ Ownership: related source modules, tests and public documentation for this respo
 
 ## Acceptance criteria
 
-- [ ] AC1: select/confirm/text work interactively with validation, choices/defaults and typed select values; verify input simulation, real terminal probe and type tests. (plan: layers / `0021-run-prompts`).
-- [ ] AC2: Noninteractive/CI/JSON prompts fail immediately with structured identifying errors even with defaults; verify subprocess timeout tests. (plan: layers / `0021-run-prompts`).
-- [ ] AC3: Cancellation, EOF, rendering/input failures and overlapping prompts have explicit behavior and clean up terminal/listeners; verify lifecycle tests. (plan: layers / `0021-run-prompts`).
-- [ ] Review: correctness and quality review accepted; corrections verified.
+- [x] AC1: select/confirm/text work interactively with validation, choices/defaults and typed select values; verify input simulation, real terminal probe and type tests. (plan: layers / `0021-run-prompts`).
+- [x] AC2: Noninteractive/CI/JSON prompts fail immediately with structured identifying errors even with defaults; verify subprocess timeout tests. (plan: layers / `0021-run-prompts`).
+- [x] AC3: Cancellation, EOF, rendering/input failures and overlapping prompts have explicit behavior and clean up terminal/listeners; verify lifecycle tests. (plan: layers / `0021-run-prompts`).
+- [x] Review: correctness and quality review accepted; corrections verified.
 
 ## Evidence
 
@@ -66,3 +66,9 @@ Correction-round validation used HEAD tree `3d23b619b03ece4032919e22cf7cfebec3d3
 - `pnpm test:prompt-pty` — macOS arm64, Node `v24.15.0`, `/usr/bin/expect`: passed; real 20-column PTY final-screen checks cover closing, narrow redraw, multiline output, long input, caught and uncaught cancellation, later logs, and restoration.
 - `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm test:packed` — macOS arm64, pnpm host Node `v24.15.0`; packed consumers used Node `v22.18.0` and Deno `2.7.14`: passed.
 - `git diff --check` — same tree/diff and environment: passed.
+
+## Acceptance
+
+Parent inspected lifecycle/type/subprocess tests and durable PTY probe procedures/results for AC1–AC3. Reviewer accepted full `6087242..46c2ec3` scope with no remaining findings. Independent 20-column PTY final-screen probes verified caught cancellation and EOF, subsequent prompts/logs, 36-character wrapping, exact-width lines, CJK, multiline select and cross-prompt type-ahead without stale rows. Stream probes confirmed f/F, empty validation, emoji backspace and raw/listener cleanup. Pre-display rejections do not close an unrelated active prompt; closing-render failure preserves the original error.
+
+Final source evidence: 166 tests, check, build, real PTY probe and Node 22.18.0/Deno packed consumers passed. Unknown terminal width uses documented explicit-newline counting; known width supports wrapping without extra dependencies. Full initial-base review and final cross-layer/package coverage remain issue 06 responsibilities.
