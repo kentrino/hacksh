@@ -5,7 +5,7 @@ theme: oss-readiness
 
 # Problem
 
-`package.json` の `version` は `0.0.0` で、`zitty` はまだ npm に公開されていない（`npm view zitty` は 404）。公開用のワークフローはなく、`.github/actions/setup/action.yml` には「publish jobs」向けの `registry-url` 入力があるのに、それを使うジョブがない。
+初回公開に向けて、バージョン管理と npm 公開の手順を整備する必要がある。公開用のワークフローはなく、`.github/actions/setup/action.yml` には「publish jobs」向けの `registry-url` 入力があるのに、それを使うジョブがない。
 
 `CHANGELOG` もない。コミット履歴には `feat!:` の破壊的変更が続いているが、利用者がバージョン間で何が変わったかを知る手段がない。
 

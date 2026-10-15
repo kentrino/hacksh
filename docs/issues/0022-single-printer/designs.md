@@ -59,7 +59,7 @@ interface Printer {
 }
 
 // ヘルプ: { level: "info", kind: "usage", message: "<整形済みのヘルプ>", properties: { command: CommandSummary } }
-// エラー: { level: "error", kind: "error", message: "...", properties: { issues: ZittyIssue[] } }
+// エラー: { level: "error", kind: "error", message: "...", properties: { issues: HackshIssue[] } }
 ```
 
 - 利点: 型が一つで、ロガーの書き先と printer が同じものになる。

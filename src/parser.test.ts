@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { z } from "zod";
 import * as mini from "zod/mini";
-import { defineCommand, ZittyValidationError } from "./index.ts";
+import { defineCommand, HackshValidationError } from "./index.ts";
 import { parseCommandArgs } from "./parser.ts";
 
 describe("argument parsing and validation", () => {
@@ -100,9 +100,9 @@ describe("argument parsing and validation", () => {
     const error = await parseCommandArgs(variadic, ["x", "1", "bad", "0"]).catch(
       (caught: unknown) => caught,
     );
-    expect(error).toBeInstanceOf(ZittyValidationError);
-    expect((error as ZittyValidationError).issues).toHaveLength(3);
-    expect((error as ZittyValidationError).issues).toEqual(
+    expect(error).toBeInstanceOf(HackshValidationError);
+    expect((error as HackshValidationError).issues).toHaveLength(3);
+    expect((error as HackshValidationError).issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           arg: "<COUNT>",
@@ -127,7 +127,7 @@ describe("argument parsing and validation", () => {
     const error = await parseCommandArgs(untitled, ["a", "x", "y"]).catch(
       (caught: unknown) => caught,
     );
-    expect((error as ZittyValidationError).issues.map(({ arg }) => arg).sort()).toEqual([
+    expect((error as HackshValidationError).issues.map(({ arg }) => arg).sort()).toEqual([
       "<ARG2>",
       "<ARGS...>",
     ]);
@@ -234,7 +234,7 @@ describe("argument parsing and validation", () => {
       (caught: unknown) => caught,
     );
     expect(error).toMatchObject({ issues: [{ arg: "--repo", message: "requires a value" }] });
-    expect((error as ZittyValidationError).issues[0]).not.toHaveProperty("issue");
+    expect((error as HackshValidationError).issues[0]).not.toHaveProperty("issue");
     await expect(parseCommandArgs(command, ["--repo"])).rejects.toMatchObject({
       issues: [{ arg: "--repo", message: "requires a value" }],
     });
@@ -257,8 +257,8 @@ describe("argument parsing and validation", () => {
     const error = await parseCommandArgs(validated, ["--repo", "bad", "0"]).catch(
       (caught: unknown) => caught,
     );
-    expect(error).toBeInstanceOf(ZittyValidationError);
-    expect((error as ZittyValidationError).issues).toEqual([
+    expect(error).toBeInstanceOf(HackshValidationError);
+    expect((error as HackshValidationError).issues).toEqual([
       expect.objectContaining({ arg: "--repo" }),
       expect.objectContaining({ arg: "<PR>", message: "must be positive" }),
     ]);

@@ -250,7 +250,7 @@ describe("invocation output selection", () => {
     expect(stderr.map((line) => JSON.parse(line).type)).toEqual(["error", "usage"]);
     expect(JSON.parse(stderr[0]!)).toMatchObject({
       error: {
-        name: "ZittyValidationError",
+        name: "HackshValidationError",
         issues: [{ arg: "--count", code: "invalid_type" }],
       },
     });

@@ -55,7 +55,7 @@ const main = defineCommand({
 });
 ```
 
-- 利点: 対話と引数指定が同じ値に揃い、AI エージェントは `--env prod` と書けば対話を避けられる。失敗の形は既存の `ZittyValidationError` と同じ。
+- 利点: 対話と引数指定が同じ値に揃い、AI エージェントは `--env prod` と書けば対話を避けられる。失敗の形は既存の `HackshValidationError` と同じ。
 - 欠点: 解析と検証の流れに対話が入り、`parseCommandArgs` の責務が広がる。
 
 ## C. 既定値で続行する

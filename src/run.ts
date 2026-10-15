@@ -1,6 +1,6 @@
 import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
-import { HackshPromptError, summarizeError, ZittyUsageError } from "./errors.ts";
+import { HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
 import { createLogger } from "./logger.ts";
 import {
   parseCommandArgs,
@@ -55,7 +55,7 @@ function resolveCommand(root: AnyCommandDef, rawArgs: string[]): ResolvedCommand
     }
     const name = remaining[index]!;
     const child = command.subCommands?.[name];
-    if (!child) throw new ZittyUsageError(`Unknown command \`${name}\``, command);
+    if (!child) throw new HackshUsageError(`Unknown command \`${name}\``, command);
     const prefix = remaining.slice(0, index);
     const segment = { command, rawArgs: prefix, tokenized: tokenizedBefore(tokenized, index) };
     parents.push(segment);
@@ -87,7 +87,7 @@ async function executeCommand<S extends ArgsSchema>(
   }
   const parsed = await parseCommandArgs(resolved.command, resolved.rawArgs, resolved.tokenized);
   if (!resolved.command.run) {
-    throw new ZittyUsageError("No command specified", resolved.command);
+    throw new HackshUsageError("No command specified", resolved.command);
   }
   const category = resolved.segments.flatMap(({ command }) =>
     command.name === undefined ? [] : [command.name],
@@ -218,7 +218,7 @@ export async function runMain<S extends ArgsSchema>(
       return drainAndExit(output, commandErrorExitCode(error));
     }
     try {
-      if (error instanceof ZittyUsageError) {
+      if (error instanceof HackshUsageError) {
         await output.printer.print({ type: "error", error: summarizeError(error) });
         await printUsage(displayUsage, error.command, output.printer, "stderr");
       } else {

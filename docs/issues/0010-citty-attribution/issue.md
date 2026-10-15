@@ -5,11 +5,11 @@ theme: oss-readiness
 
 # Problem
 
-zitty は API 設計（`defineCommand`、`runMain`、`createMain`、`runCommand`、`parseArgs`、`renderUsage`、`showUsage`、`subCommands`、`rawArgs` など）を [citty](https://github.com/unjs/citty) に大きく倣っている。しかし README、`package.json`、ソースコードのいずれにも citty への言及がない。`docs/themes/citty-parity.md` は内部文書で、利用者の目には触れない。
+hacksh は API 設計（`defineCommand`、`runMain`、`createMain`、`runCommand`、`parseArgs`、`renderUsage`、`showUsage`、`subCommands`、`rawArgs` など）を [citty](https://github.com/unjs/citty) に大きく倣っている。しかし README、`package.json`、ソースコードのいずれにも citty への言及がない。`docs/themes/citty-parity.md` は内部文書で、利用者の目には触れない。
 
 このため、利用者は citty との関係（派生、互換、代替のどれか）や、移行時に何が同じで何が違うかを判断できない。citty の作者への謝辞も示されていない。
 
-解決後は、README を読んだ利用者が、zitty が citty を参考にしていることと、citty との主な違いを把握できる。
+解決後は、README を読んだ利用者が、hacksh が citty を参考にしていることと、citty との主な違いを把握できる。
 
 # Rules
 

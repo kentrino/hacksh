@@ -1,7 +1,7 @@
 import { parseArgs as parseNodeArgs } from "node:util";
 import { safeParseAsync, type $ZodIssue, type output } from "zod/v4/core";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
-import { ZittyValidationError, type ZittyIssue } from "./errors.ts";
+import { HackshValidationError, type HackshIssue } from "./errors.ts";
 import { aliasList, kebabCase } from "./options.ts";
 import {
   POSITIONALS_KEY,
@@ -63,7 +63,7 @@ export interface TokenizedCommandArgs {
 
 interface IndexedIssue {
   readonly index: number;
-  readonly issue: ZittyIssue;
+  readonly issue: HackshIssue;
 }
 
 function optionModel(command: AnyCommandDef): OptionModel {
@@ -249,7 +249,7 @@ export function tokenizedBefore(
   };
 }
 
-function zodIssues(command: AnyCommandDef, issues: readonly $ZodIssue[]): ZittyIssue[] {
+function zodIssues(command: AnyCommandDef, issues: readonly $ZodIssue[]): HackshIssue[] {
   return issues.map((issue) => ({
     arg: displayName(command, issue.path),
     message: issue.message,
@@ -263,7 +263,7 @@ export async function parseCommandArgs<S extends ArgsSchema>(
   tokenized: TokenizedCommandArgs = tokenizeCommandArgs(command, rawArgs),
 ): Promise<ParsedCommand<S>> {
   if (tokenized.issues.length > 0) {
-    throw new ZittyValidationError(
+    throw new HackshValidationError(
       command,
       tokenized.issues.map(({ issue }) => issue),
     );
@@ -289,7 +289,7 @@ export async function parseCommandArgs<S extends ArgsSchema>(
     return { args: input as output<S>, passthrough: tokenized.passthrough, extraArgs };
   const result = await safeParseAsync(command.args, input);
   if (!result.success)
-    throw new ZittyValidationError(command, zodIssues(command, result.error.issues));
+    throw new HackshValidationError(command, zodIssues(command, result.error.issues));
   return { args: result.data, passthrough: tokenized.passthrough, extraArgs };
 }
 

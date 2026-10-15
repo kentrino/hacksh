@@ -28,6 +28,6 @@ CI 上や AI エージェントからの実行など、対話できない環境�
 # Related Files
 
 - `src/command.ts` — `CommandContext`
-- `src/errors.ts` — `ZittyUsageError`・`ZittyValidationError`
+- `src/errors.ts` — `HackshUsageError`・`HackshValidationError`
 - `docs/issues/0009-structured-cli-errors/issue.md` — CLI 実行時のエラーの構造化
 - `docs/issues/0022-single-printer/issue.md` — すべての出力が通る printer

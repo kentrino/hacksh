@@ -346,7 +346,7 @@ import {
   parseArgs,
   renderUsage,
   showUsage,
-  ZittyValidationError,
+  HackshValidationError,
 } from ${JSON.stringify(packageSpecifier)};
 async function verifyPhaseTwo(label, phaseCommand) {
   const usage = await renderUsage(phaseCommand);
@@ -381,7 +381,7 @@ async function verifyPhaseTwo(label, phaseCommand) {
   }
   for (const token of ["--enabled=maybe", "--no-enabled=false"]) {
     const error = await parseArgs(phaseCommand, ["safe", token]).catch((caught) => caught);
-    if (!(error instanceof ZittyValidationError) || !error.message.includes(token.split("=")[0])) {
+    if (!(error instanceof HackshValidationError) || !error.message.includes(token.split("=")[0])) {
       throw new Error(label + " boolean error missing for " + token + ": " + String(error));
     }
   }
@@ -673,16 +673,16 @@ void [
 
 let registry;
 try {
-  const configuredNode = process.env.ZITTY_MINIMUM_NODE;
+  const configuredNode = process.env.HACKSH_MINIMUM_NODE;
   assert(
     !configuredNode || isAbsolute(configuredNode),
-    "ZITTY_MINIMUM_NODE must be an absolute path to a Node 22.18.0 executable",
+    "HACKSH_MINIMUM_NODE must be an absolute path to a Node 22.18.0 executable",
   );
   const minimumNodeExecutable = configuredNode ?? process.execPath;
   const minimumNode = await run(minimumNodeExecutable, ["--version"]);
   assert(
     minimumNode.code === 0 && minimumNode.stdout.trim() === "v22.18.0",
-    `Packed consumer tests require Node 22.18.0, got ${minimumNode.stdout.trim() || minimumNode.stderr.trim() || `exit ${minimumNode.code}`}. Run pnpm under Node 22.18.0 or set ZITTY_MINIMUM_NODE=/absolute/path/to/node.`,
+    `Packed consumer tests require Node 22.18.0, got ${minimumNode.stdout.trim() || minimumNode.stderr.trim() || `exit ${minimumNode.code}`}. Run pnpm under Node 22.18.0 or set HACKSH_MINIMUM_NODE=/absolute/path/to/node.`,
   );
   const minimumNodeEnvironment = {
     ...process.env,

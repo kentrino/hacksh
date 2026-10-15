@@ -7,6 +7,12 @@ The name comes from 拍手 (_hakushu_), the Japanese word for "clap", as a nod t
 [clap](https://github.com/clap-rs/clap), the command-line argument parser for Rust. It is spelled
 with _hack_ and _sh_, as in shell.
 
+hacksh draws heavily on [Citty](https://github.com/unjs/citty) for its command API design and
+[Clack](https://github.com/bombshell-dev/clack) for its interactive prompts and terminal output.
+Many thanks to both projects and their contributors. hacksh uses Zod schemas for argument validation
+and type inference, including tuples for positional arguments; it does not guarantee API or behavior
+compatibility with Citty or Clack.
+
 ## Install
 
 ```sh
@@ -374,7 +380,7 @@ wrappers and the later presentation or prompting layers.
 
 For parsing and usage rendering without execution, use the async composition APIs. `parseArgs`
 parses exactly the supplied command definition and argument segment, returns its schema output only,
-and throws `ZittyValidationError` on failure. It does not route subcommands, act on help or version
+and throws `HackshValidationError` on failure. It does not route subcommands, act on help or version
 tokens, or bypass validation; callers that resolve commands themselves must pass the selected
 command and its segment. `renderUsage` has no output side effects; `showUsage` sends that same text
 through an explicit printer or the same automatic pretty/JSON selection used by command
@@ -432,8 +438,8 @@ await runMain(main, {
 });
 ```
 
-Usage failures are `ZittyUsageError` instances. Argument failures are
-`ZittyValidationError` instances whose `issues` identify CLI names such as `--repo` or `<PR>`.
+Usage failures are `HackshUsageError` instances. Argument failures are
+`HackshValidationError` instances whose `issues` identify CLI names such as `--repo` or `<PR>`.
 Prompt failures are `HackshPromptError` instances with structured `reason` and `prompt` fields.
 
 ## Development
@@ -451,5 +457,5 @@ The packed-consumer test must execute its Node consumer with exactly Node 22.18.
 under that version, or supply an absolute executable path explicitly:
 
 ```sh
-ZITTY_MINIMUM_NODE=/absolute/path/to/node-v22.18.0 pnpm test:packed
+HACKSH_MINIMUM_NODE=/absolute/path/to/node-v22.18.0 pnpm test:packed
 ```
