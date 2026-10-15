@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/kentrino/hacksh/compare/v0.1.2...v0.2.0) (2026-10-15)
+
+
+### Features
+
+* add structured terminal output and interactive prompts ([#7](https://github.com/kentrino/hacksh/issues/7)) ([3520297](https://github.com/kentrino/hacksh/commit/3520297321fcfd2f55187e184d2de9aceb07653b))
+
 ## [0.1.2](https://github.com/kentrino/hacksh/compare/v0.1.1...v0.1.2) (2026-10-15)
 
 
