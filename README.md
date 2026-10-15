@@ -35,9 +35,10 @@ const main = defineCommand({
     verbose: z.boolean().default(false).describe("Show details"),
   }),
   argOptions: { repo: { alias: "R" }, verbose: { alias: ["v", "V"] } },
-  async run({ args, rawArgs, extraArgs, passthrough }) {
+  async run({ args, rawArgs, extraArgs, passthrough, logger }) {
     // args is { _: [number?]; repo?: string; verbose: boolean }
-    console.log({ args, rawArgs, extraArgs, passthrough });
+    logger.info("Loading commits for {repo}", { repo: args.repo ?? "the current repository" });
+    logger.debug("Invocation arguments", { rawArgs, extraArgs, passthrough });
   },
 });
 
@@ -155,8 +156,8 @@ const main = defineCommand({
   subCommands: {
     new: defineCommand({
       args: z.object({ name: z.string() }),
-      async run({ args }) {
-        console.log(args.name);
+      async run({ args, logger }) {
+        logger.success("Created {name}", { name: args.name });
       },
     }),
     migrate: defineCommand({
@@ -179,6 +180,35 @@ listing, including usage shown for an unknown command. Hidden commands remain av
 their own `--help` output remains available. If every subcommand is hidden, help keeps the generic
 `<COMMAND>` syntax but omits the empty `COMMANDS` section.
 
+## Structured logging
+
+Every `run` context has a `logger`. Its `trace`, `debug`, `info`, `warn`, `error`, and `fatal`
+methods emit structured records through the invocation's printer. `step` and `success` are
+info-level records with a distinct semantic kind for presentation. Placeholders in braces use the
+record's properties:
+
+```ts
+const deploy = defineCommand({
+  name: "deploy",
+  async run({ logger }) {
+    const log = logger.with({ app: "web", env: "prod" });
+    log.step("Deploying {app} to {env}");
+    log.getChild("upload").debug("Uploaded {files} files", { files: 12 });
+    log.success("Deployed {app}");
+  },
+});
+```
+
+Properties passed to an individual call override properties bound by `with`. `getChild` appends a
+category segment; hacksh automatically starts the category with the named root and each resolved
+subcommand. Missing placeholders remain unchanged. Passing an `Error` to `error` or `fatal` uses
+its message and retains the original error as `properties.error` for structured printers.
+
+Each `log` print event contains a `record` with `level`, `kind`, `category`, interpolated `message`,
+template `rawMessage`, merged `properties`, and a numeric `timestamp`. Logger calls do not need to
+be awaited: they use the invocation's serialized output queue, which is drained before execution
+finishes. A printer failure rejects the invocation without changing a successful `run` value.
+
 ## Programmatic execution and errors
 
 `runCommand(command, argv, options)` handles help and version output without exiting, throws errors
@@ -199,11 +229,12 @@ await runCommand(main, ["--help"], { printer });
 // events[0] is { type: "usage", command, text, stream: "stdout" }
 ```
 
-The current events are `usage`, `version`, and `error`. Usage events include the resolved command,
-rendered text, and their intended `stdout` or `stderr` stream. Version events include the version
-string. Error events include both the original thrown value and its default display message.
-Printer calls are serialized, may be asynchronous, and are drained before `runCommand` or
-`runMain` completes or exits. A printer rejection rejects `runCommand`.
+The current events are `usage`, `version`, `error`, and `log`. Usage events include the resolved
+command, rendered text, and their intended `stdout` or `stderr` stream. Version events include the
+version string. Error events include both the original thrown value and its default display
+message; log events contain the structured record described above. Printer calls are serialized,
+may be asynchronous, and are drained before `runCommand` or `runMain` completes or exits. A printer
+rejection rejects `runCommand`.
 
 For parsing and usage rendering without execution, use the async composition APIs. `parseArgs`
 parses exactly the supplied command definition and argument segment, returns its schema output only,

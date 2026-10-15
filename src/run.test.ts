@@ -7,6 +7,8 @@ import {
   runMain,
   ZittyUsageError,
   type CommandDef,
+  type Logger,
+  type LogRecord,
   type PrintEvent,
   type Printer,
   type ShowUsageCallback,
@@ -105,6 +107,176 @@ describe("command routing", () => {
     const namedLeaf = defineCommand({ name: "custom", run: ({ cmd }) => cmd });
     const namedRoot = defineCommand({ subCommands: { alias: namedLeaf } });
     await expect(runCommand(namedRoot, ["alias"])).resolves.toBe(namedLeaf);
+  });
+});
+
+describe("run logger", () => {
+  it("emits every level and info kind as structured, interpolated records", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_797_000_000_000);
+    const records: LogRecord[] = [];
+    const result = { unchanged: true };
+    const command = defineCommand({
+      name: "tool",
+      run({ logger }) {
+        expectTypeOf(logger).toEqualTypeOf<Logger>();
+        logger.trace("trace {value}", { value: 1 });
+        logger.debug("debug", { value: 2 });
+        logger.info("info", { value: 3 });
+        logger.warn("warn", { value: 4 });
+        logger.error("error", { value: 5 });
+        logger.fatal("fatal", { value: 6 });
+        logger.step("step", { value: 7 });
+        logger.success("success", { value: 8 });
+        return result;
+      },
+    });
+
+    await expect(
+      runCommand(command, [], {
+        printer: {
+          print(event) {
+            if (event.type === "log") records.push(event.record);
+          },
+        },
+      }),
+    ).resolves.toBe(result);
+
+    expect(records.map(({ level, kind }) => [level, kind])).toEqual([
+      ["trace", "message"],
+      ["debug", "message"],
+      ["info", "message"],
+      ["warning", "message"],
+      ["error", "message"],
+      ["fatal", "message"],
+      ["info", "step"],
+      ["info", "success"],
+    ]);
+    expect(records[0]).toEqual({
+      level: "trace",
+      kind: "message",
+      category: ["tool"],
+      message: "trace 1",
+      rawMessage: "trace {value}",
+      properties: { value: 1 },
+      timestamp: 1_797_000_000_000,
+    });
+  });
+
+  it("merges bound properties with call precedence and composes child categories", async () => {
+    const records: LogRecord[] = [];
+    const leaf = defineCommand({
+      run({ logger }) {
+        expect(logger.category).toEqual(["root", "group", "leaf"]);
+        logger
+          .with({ app: "bound", env: "prod", attempt: 1 })
+          .with({ attempt: 2 })
+          .getChild("upload")
+          .info("Deploying {app} to {env}, attempt {attempt}: {missing}", {
+            app: "explicit",
+            attempt: 3,
+          });
+      },
+    });
+    const root = defineCommand({
+      name: "root",
+      subCommands: { group: defineCommand({ subCommands: { leaf } }) },
+    });
+
+    await runCommand(root, ["group", "leaf"], {
+      printer: {
+        print(event) {
+          if (event.type === "log") records.push(event.record);
+        },
+      },
+    });
+
+    expect(records[0]).toMatchObject({
+      category: ["root", "group", "leaf", "upload"],
+      message: "Deploying explicit to prod, attempt 3: {missing}",
+      rawMessage: "Deploying {app} to {env}, attempt {attempt}: {missing}",
+      properties: { app: "explicit", env: "prod", attempt: 3 },
+    });
+  });
+
+  it("retains Error inputs as structured properties", async () => {
+    const records: LogRecord[] = [];
+    const failure = new Error("connection lost", { cause: new Error("socket closed") });
+    const command = defineCommand({
+      run({ logger }) {
+        logger.with({ requestId: "req-1" }).error(failure, { retryable: true });
+      },
+    });
+
+    await runCommand(command, [], {
+      printer: {
+        print(event) {
+          if (event.type === "log") records.push(event.record);
+        },
+      },
+    });
+
+    expect(records[0]).toMatchObject({
+      level: "error",
+      message: "connection lost",
+      rawMessage: "connection lost",
+      properties: { requestId: "req-1", retryable: true, error: failure },
+    });
+    expect(records[0]?.properties.error).toBe(failure);
+  });
+
+  it("serializes log writes and drains them before preserving the run result", async () => {
+    const sequence: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const result = { status: "complete" };
+    const invocation = runCommand(
+      defineCommand({
+        run({ logger }) {
+          logger.info("first");
+          logger.info("second");
+          return result;
+        },
+      }),
+      [],
+      {
+        printer: {
+          async print(event) {
+            if (event.type !== "log") return;
+            sequence.push(`start:${event.record.message}`);
+            if (event.record.message === "first") {
+              await new Promise<void>((resolve) => {
+                releaseFirst = resolve;
+              });
+            }
+            sequence.push(`end:${event.record.message}`);
+          },
+        },
+      },
+    );
+
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf("function"));
+    expect(sequence).toEqual(["start:first"]);
+    releaseFirst?.();
+    await expect(invocation).resolves.toBe(result);
+    expect(sequence).toEqual(["start:first", "end:first", "start:second", "end:second"]);
+  });
+
+  it("rejects after run when an asynchronous log write fails", async () => {
+    const failure = new Error("log failed");
+    const command = defineCommand({
+      run({ logger }) {
+        logger.info("queued");
+        return "run result";
+      },
+    });
+
+    await expect(
+      runCommand(command, [], {
+        printer: {
+          print: async (event) =>
+            event.type === "log" ? Promise.reject(failure) : Promise.resolve(),
+        },
+      }),
+    ).rejects.toBe(failure);
   });
 });
 

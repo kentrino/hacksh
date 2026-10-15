@@ -2,10 +2,12 @@ export { defineCommand } from "./command.ts";
 export type { ArgOptions, ArgOptionsMap, CommandContext, CommandDef } from "./command.ts";
 export { ZittyUsageError, ZittyValidationError } from "./errors.ts";
 export type { ZittyIssue } from "./errors.ts";
+export type { Logger, LogKind, LogLevel, LogProperties, LogRecord } from "./logger.ts";
 export { parseArgs } from "./parser.ts";
 export { consolePrinter } from "./printer.ts";
 export type {
   ErrorPrintEvent,
+  LogPrintEvent,
   Printer,
   PrintEvent,
   PrintStream,

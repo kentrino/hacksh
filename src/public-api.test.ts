@@ -8,6 +8,12 @@ import {
   showUsage,
   ZittyValidationError,
   type Printer,
+  type Logger,
+  type LogKind,
+  type LogLevel,
+  type LogPrintEvent,
+  type LogProperties,
+  type LogRecord,
   type RunCommandOptions,
   type RunMainOptions,
 } from "./index.ts";
@@ -93,6 +99,28 @@ describe("public parsing API", () => {
     await expect(parseArgs(command, ["--", "--value", "after"])).rejects.toBeInstanceOf(
       ZittyValidationError,
     );
+  });
+});
+
+describe("public logger API", () => {
+  it("infers logger types on the command context and print event", () => {
+    defineCommand({
+      run({ logger }) {
+        expectTypeOf(logger).toEqualTypeOf<Logger>();
+        expectTypeOf(logger.category).toEqualTypeOf<readonly string[]>();
+        expectTypeOf<Logger["info"]>().parameter(0).toEqualTypeOf<string>();
+        expectTypeOf<Logger["info"]>().parameter(1).toEqualTypeOf<LogProperties | undefined>();
+        expectTypeOf<Logger["error"]>().parameter(0).toEqualTypeOf<string | Error>();
+        expectTypeOf(logger.with({ requestId: "1" })).toEqualTypeOf<Logger>();
+        expectTypeOf(logger.getChild("child")).toEqualTypeOf<Logger>();
+      },
+    });
+
+    expectTypeOf<LogLevel>().toEqualTypeOf<
+      "trace" | "debug" | "info" | "warning" | "error" | "fatal"
+    >();
+    expectTypeOf<LogKind>().toEqualTypeOf<"message" | "step" | "success">();
+    expectTypeOf<LogPrintEvent["record"]>().toEqualTypeOf<LogRecord>();
   });
 });
 

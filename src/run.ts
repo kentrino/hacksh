@@ -1,6 +1,7 @@
 import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { ZittyUsageError } from "./errors.ts";
+import { createLogger } from "./logger.ts";
 import {
   parseCommandArgs,
   tokenizedBefore,
@@ -82,7 +83,15 @@ async function executeCommand<S extends ArgsSchema>(
   if (!resolved.command.run) {
     throw new ZittyUsageError("No command specified", resolved.command);
   }
-  return resolved.command.run({ ...parsed, cmd: resolved.command, rawArgs: resolved.rawArgs });
+  const category = resolved.segments.flatMap(({ command }) =>
+    command.name === undefined ? [] : [command.name],
+  );
+  return resolved.command.run({
+    ...parsed,
+    cmd: resolved.command,
+    rawArgs: resolved.rawArgs,
+    logger: createLogger(printer, category),
+  });
 }
 
 function printUsage(

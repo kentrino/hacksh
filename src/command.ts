@@ -1,4 +1,5 @@
 import type { output } from "zod/v4/core";
+import type { Logger } from "./logger.ts";
 import { aliasList } from "./options.ts";
 import {
   isArrayInput,
@@ -25,6 +26,7 @@ export interface CommandContext<S extends ArgsSchema> {
   rawArgs: string[];
   passthrough: string[];
   extraArgs: string[];
+  logger: Logger;
 }
 
 export interface CommandDef<S extends ArgsSchema = EmptyArgs> {

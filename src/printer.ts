@@ -1,4 +1,5 @@
 import type { AnyCommandDef } from "./command.ts";
+import type { LogRecord } from "./logger.ts";
 
 export type PrintStream = "stdout" | "stderr";
 
@@ -20,8 +21,13 @@ export interface ErrorPrintEvent {
   message: string;
 }
 
+export interface LogPrintEvent {
+  type: "log";
+  record: LogRecord;
+}
+
 /** A semantic output value emitted by hacksh. */
-export type PrintEvent = UsagePrintEvent | VersionPrintEvent | ErrorPrintEvent;
+export type PrintEvent = UsagePrintEvent | VersionPrintEvent | ErrorPrintEvent | LogPrintEvent;
 
 /** Receives every output event produced by one command invocation. */
 export interface Printer {
@@ -38,6 +44,10 @@ export const consolePrinter: Printer = {
         return console.log(event.version);
       case "error":
         return console.error(event.message);
+      case "log":
+        return ["warning", "error", "fatal"].includes(event.record.level)
+          ? console.error(event.record.message)
+          : console.log(event.record.message);
     }
   },
 };
