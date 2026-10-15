@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/kentrino/hacksh/compare/v0.3.0...v0.3.1) (2026-10-15)
+
+
+### Refactoring
+
+* **api:** rename obsolete Zitty symbols to Hacksh ([#13](https://github.com/kentrino/hacksh/issues/13)) ([aa0d55a](https://github.com/kentrino/hacksh/commit/aa0d55aa345eec0b548a10113fbc42defc0eff5a))
+
 ## [0.3.0](https://github.com/kentrino/hacksh/compare/v0.2.1...v0.3.0) (2026-10-15)
 
 
