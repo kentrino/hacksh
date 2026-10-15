@@ -6,6 +6,7 @@ import {
   parseArgs,
   renderUsage,
   showUsage,
+  summarizeUsage,
   ZittyValidationError,
   type Printer,
   type Logger,
@@ -14,6 +15,9 @@ import {
   type LogPrintEvent,
   type LogProperties,
   type LogRecord,
+  type OutputMode,
+  type OutputPreference,
+  type PrintEvent,
   type RunCommandOptions,
   type RunMainOptions,
 } from "./index.ts";
@@ -136,10 +140,31 @@ describe("public usage API", () => {
 
     expect(print).toHaveBeenCalledWith({
       type: "usage",
-      command,
+      usage: expect.objectContaining({ name: "tool", synopsis: "tool [OPTIONS]" }),
       text: expect.stringContaining("USAGE tool"),
       stream: "stderr",
     });
+    const event = print.mock.calls[0]![0] as PrintEvent;
+    expect(event).not.toHaveProperty("command");
+    if (event.type === "usage") {
+      expect(event.usage).toEqual({
+        name: "tool",
+        synopsis: "tool [OPTIONS]",
+        arguments: [],
+        options: [],
+        commands: [],
+      });
+    }
+  });
+
+  it("exposes stable output selection contracts", () => {
+    expectTypeOf<RunCommandOptions["output"]>().toEqualTypeOf<OutputPreference | undefined>();
+    expectTypeOf<RunMainOptions["output"]>().toEqualTypeOf<OutputPreference | undefined>();
+    expectTypeOf<OutputMode>().toEqualTypeOf<{
+      format: "pretty" | "json";
+      interactive: boolean;
+      color: boolean;
+    }>();
   });
 
   it("omits hidden subcommands from parent and nested listings", async () => {
@@ -242,6 +267,42 @@ describe("public usage API", () => {
     expect(usage).toContain("INPUT...  Input files (Choices: txt, md)");
     expect(usage).toContain("--format=<FORMAT>  Output format (Choices: json, yaml)");
     expect(usage).toContain("--no-overwrite  Keep existing files");
+    expect(summarizeUsage(command)).toMatchObject({
+      name: "convert",
+      synopsis: "convert [OPTIONS] <SIZE> [INPUT...]",
+      arguments: [
+        {
+          name: "SIZE",
+          required: true,
+          variadic: false,
+          description: "Item size",
+          choices: ["small", "large"],
+        },
+        {
+          name: "INPUT",
+          required: false,
+          variadic: true,
+          description: "Input files",
+          choices: ["txt", "md"],
+        },
+      ],
+      options: [
+        {
+          name: "format",
+          flags: ["--format"],
+          takesValue: true,
+          valueName: "FORMAT",
+          choices: ["json", "yaml"],
+        },
+        {
+          name: "overwrite",
+          flags: ["--overwrite"],
+          takesValue: false,
+          defaultValue: false,
+          negatedDescription: "Keep existing files",
+        },
+      ],
+    });
   });
 
   it.each([

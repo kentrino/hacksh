@@ -144,8 +144,9 @@ OPTIONS
 when an alias is longer than one character or is used by more than one option, and when
 `argOptions` has a `_` key. Without an alias of the same letter, `-h` and `-v` are shorthands
 for `--help` and `--version`. Defining an `h` or `v` alias replaces the shorthand, so `convert -v`
-above sets `verbose`; `--help` and `--version` remain available. Help remains plain text when
-`NO_COLOR` or `CI` is set.
+above sets `verbose`; `--help` and `--version` remain available. Output selection does not reserve
+any additional command-line flags, so names such as `--json`, `--output`, and `--log-format` remain
+available to application schemas.
 
 ## Subcommands
 
@@ -211,6 +212,39 @@ template `rawMessage`, merged `properties`, and a numeric `timestamp`. Logger ca
 be awaited: they use the invocation's serialized output queue, which is drained before execution
 finishes. A printer failure rejects the invocation without changing a successful `run` value.
 
+## Output formats
+
+`runMain` and `runCommand` resolve one output mode before command routing, parsing, or execution.
+Their `output` option accepts `"auto"` (the default), `"pretty"`, or `"json"`. A valid
+`HACKSH_OUTPUT` environment value takes precedence over that option. `auto` selects JSON only when
+`CI` has a non-empty value; redirecting or piping stdout alone retains pretty output. Invalid
+explicit option or environment values throw a `TypeError` instead of silently choosing a format.
+
+```ts
+await runMain(main, { output: "auto" });
+// HACKSH_OUTPUT=json my-cli --help overrides the configured preference.
+```
+
+The resolved `OutputMode` has `format`, `interactive`, and `color` fields. Interaction is enabled
+only for pretty output outside CI when both stdin and stdout are TTYs. Color is enabled only for
+pretty output to a stdout TTY when `NO_COLOR` is absent. These decisions are independent: an
+explicit pretty format in CI can use color, but remains noninteractive. `env`, `stdin`, `stdout`,
+and `stderr` can be supplied in execution options for embedded or tested invocations.
+
+JSON output contains exactly one `PrintEvent` object per line. Help and version events and
+trace/debug/info logs go to stdout; errors and warning/error/fatal logs go to stderr. Usage attached
+to an error retains its `stderr` stream. Every log level is emitted by default. JSON strings have
+terminal control sequences removed, and the printer never serializes executable command or Zod
+schema objects.
+
+Arbitrary log properties and error details are normalized predictably: BigInt values become
+decimal strings; non-finite numbers become `null`; `undefined`, symbols, and functions receive
+explicit string markers; dates use ISO strings; maps and sets become arrays; and cycles become
+`"[Circular]"`. Errors retain their name, message, stack, cause, and enumerable properties.
+Unreadable properties become `"[Unserializable]"`. If an exotic value prevents normalization
+entirely, the line keeps the original event `type` and adds `serializationError`, so downstream
+JSON-lines parsing remains synchronized.
+
 ## Programmatic execution and errors
 
 `runCommand(command, argv, options)` handles help and version output without exiting, throws errors
@@ -228,15 +262,22 @@ const printer: Printer = {
 };
 
 await runCommand(main, ["--help"], { printer });
-// events[0] is { type: "usage", command, text, stream: "stdout" }
+// events[0] is { type: "usage", usage, text, stream: "stdout" }
 ```
 
 The current events are `usage`, `version`, `error`, and `log`. Usage events include the resolved
-command, rendered text, and their intended `stdout` or `stderr` stream. Version events include the
-version string. Error events include both the original thrown value and its default display
-message; log events contain the structured record described above. Printer calls are serialized,
-may be asynchronous, and are drained before `runCommand` or `runMain` completes or exits. A printer
-rejection rejects `runCommand`.
+command's schema-free name, version, description, synopsis, arguments, options, and visible child
+commands, plus rendered text and the intended `stdout` or `stderr` stream. Version events include
+the version string. Error events contain a schema-free summary with structured validation issues,
+standard `Error` fields, custom enumerable properties, and causes; log events contain the
+structured record described above. Printer calls are serialized, may be asynchronous, and are
+drained before `runCommand` or `runMain` completes or exits. A printer rejection rejects
+`runCommand`.
+
+Use `createJsonPrinter({ stdout, stderr })` to reuse the built-in JSON-lines behavior with custom
+writable targets. `summarizeUsage(command)` returns the same canonical help metadata carried by a
+usage event. `resolveOutputMode(...)` exposes the selection contract for wrappers and the
+later presentation or prompting layers.
 
 For parsing and usage rendering without execution, use the async composition APIs. `parseArgs`
 parses exactly the supplied command definition and argument segment, returns its schema output only,

@@ -329,10 +329,80 @@ describe("help and version", () => {
     await runCommand(command, ["--version"], { printer });
 
     expect(events).toMatchObject([
-      { type: "usage", command, stream: "stdout" },
+      { type: "usage", usage: { name: "tool", version: "1.2.3" }, stream: "stdout" },
       { type: "version", version: "1.2.3" },
     ]);
     expect(events[0]).toMatchObject({ text: expect.stringContaining("USAGE tool") });
+    expect(events[0]).not.toHaveProperty("command");
+  });
+
+  it("does not reserve output-format command arguments", async () => {
+    const run = vi.fn(({ args }) => args);
+    const command = defineCommand({
+      args: z.object({
+        output: z.string(),
+        json: z.boolean().default(false),
+        logFormat: z.string(),
+      }),
+      run,
+    });
+
+    await expect(
+      runCommand(command, ["--output", "file", "--json", "--log-format", "compact"], {
+        output: "pretty",
+      }),
+    ).resolves.toEqual({ output: "file", json: true, logFormat: "compact" });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("rejects invalid output settings before routing or execution", async () => {
+    const run = vi.fn();
+    const command = defineCommand({ run });
+
+    await expect(runCommand(command, [], { output: "yaml" as "json", env: {} })).rejects.toThrow(
+      "Invalid output value yaml",
+    );
+    await expect(runCommand(command, [], { env: { HACKSH_OUTPUT: "xml" } })).rejects.toThrow(
+      "Invalid HACKSH_OUTPUT value xml",
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("runs identical command code with pretty and JSON output", async () => {
+    const results: string[] = [];
+    const run = vi.fn(({ logger }) => {
+      logger.info("same {mode}", { mode: "code" });
+      results.push("ran");
+      return "result";
+    });
+    const command = defineCommand({ run });
+    const events: PrintEvent[] = [];
+    await expect(
+      runCommand(command, [], {
+        output: "pretty",
+        printer: { print: (event) => void events.push(event) },
+      }),
+    ).resolves.toBe("result");
+
+    const lines: string[] = [];
+    await expect(
+      runCommand(command, [], {
+        output: "json",
+        env: {},
+        stdout: {
+          isTTY: false,
+          write: (value) => void lines.push(value),
+        },
+      }),
+    ).resolves.toBe("result");
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(results).toEqual(["ran", "ran"]);
+    expect(events[0]).toMatchObject({ type: "log", record: { message: "same code" } });
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      type: "log",
+      record: { message: "same code" },
+    });
   });
 
   it("serializes async printer events and waits for them before completing", async () => {
@@ -411,12 +481,12 @@ describe("help and version", () => {
       },
     });
 
-    await runCommand(root, ["--help"]);
+    await runCommand(root, ["--help"], { output: "pretty" });
     const parentHelp = String(log.mock.calls.at(-1)?.[0]);
     expect(parentHelp).toContain("public  Public command");
     expect(parentHelp).not.toContain("internal");
 
-    await runCommand(root, ["internal", "--help"]);
+    await runCommand(root, ["internal", "--help"], { output: "pretty" });
     const hiddenHelp = String(log.mock.calls.at(-1)?.[0]);
     expect(hiddenHelp).toContain("Internal command (internal)");
     expect(hiddenHelp).toContain("USAGE internal [OPTIONS]");
@@ -436,15 +506,23 @@ describe("help and version", () => {
       subCommands: { child },
     });
 
-    await expect(runCommand(root, ["--enabled=no", "child"])).rejects.toMatchObject({
+    await expect(
+      runCommand(root, ["--enabled=no", "child"], { output: "pretty" }),
+    ).rejects.toMatchObject({
       issues: [{ arg: "--enabled", message: "expects true or false" }],
     });
-    await expect(runCommand(root, ["child", "--child-flag=no"])).rejects.toMatchObject({
+    await expect(
+      runCommand(root, ["child", "--child-flag=no"], { output: "pretty" }),
+    ).rejects.toMatchObject({
       issues: [{ arg: "--child-flag", message: "expects true or false" }],
     });
     await expect(runCommand(root, ["child", "--enabled=no"])).resolves.toEqual(["--enabled=no"]);
-    await expect(runCommand(root, ["--enabled=no", "child", "--help"])).resolves.toBeUndefined();
-    await expect(runCommand(root, ["--enabled=no", "--version"])).resolves.toBeUndefined();
+    await expect(
+      runCommand(root, ["--enabled=no", "child", "--help"], { output: "pretty" }),
+    ).resolves.toBeUndefined();
+    await expect(
+      runCommand(root, ["--enabled=no", "--version"], { output: "pretty" }),
+    ).resolves.toBeUndefined();
     expect(log.mock.calls.at(-1)?.[0]).toBe("1.0.0");
   });
 
@@ -460,7 +538,7 @@ describe("help and version", () => {
     });
     const root = defineCommand({ name: "git-worktree", subCommands: { new: leaf } });
 
-    await runCommand(root, ["new", "--help"]);
+    await runCommand(root, ["new", "--help"], { output: "pretty" });
     const help = String(log.mock.calls[0]?.[0]);
     expect(help).toContain("Create a worktree\nwith a selected branch (new)");
     expect(help).toContain("USAGE new [OPTIONS] <PATH>");
@@ -478,7 +556,7 @@ describe("help and version", () => {
       argOptions: { repo: { alias: "R" } },
       subCommands: { child: defineCommand({ description: "Do work", run: () => undefined }) },
     });
-    await runCommand(root, ["--help"]);
+    await runCommand(root, ["--help"], { output: "pretty" });
     const help = String(log.mock.calls[0]?.[0]);
     expect(help).toContain("A useful tool (tool v1.2.3)");
     expect(help).toContain("-R, --repo=<repo>  Repository");
@@ -500,9 +578,9 @@ describe("help and version", () => {
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({ args: { verbose: true, host: true } }),
     );
-    await runCommand(root, ["--version"]);
+    await runCommand(root, ["--version"], { output: "pretty" });
     expect(log).toHaveBeenCalledWith("1.2.3");
-    await runCommand(root, ["--help"]);
+    await runCommand(root, ["--help"], { output: "pretty" });
     expect(log.mock.calls.at(-1)?.[0]).toContain("USAGE tool");
   });
 
@@ -539,6 +617,47 @@ describe("help and version", () => {
 });
 
 describe("runMain", () => {
+  it("uses the resolved JSON mode for routing and validation errors before run", async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const run = vi.fn();
+    const command = defineCommand({
+      name: "tool",
+      args: z.object({ count: z.coerce.number() }),
+      run,
+    });
+
+    await expect(
+      runMain(command, {
+        argv: ["--count", "invalid"],
+        output: "pretty",
+        env: { HACKSH_OUTPUT: "json" },
+        stdin: { isTTY: true },
+        stdout: {
+          isTTY: false,
+          write: (value) => void stdout.push(value),
+        },
+        stderr: {
+          write: (value) => void stderr.push(value),
+        },
+      }),
+    ).rejects.toThrow("exit:1");
+
+    expect(run).not.toHaveBeenCalled();
+    expect(stdout).toEqual([]);
+    expect(stderr).toHaveLength(2);
+    expect(stderr.map((line) => JSON.parse(line).type)).toEqual(["error", "usage"]);
+    expect(JSON.parse(stderr[0]!)).toMatchObject({
+      error: {
+        name: "ZittyValidationError",
+        issues: [{ arg: "--count", code: "invalid_type" }],
+      },
+    });
+  });
+
   it("routes usage errors through one printer and drains it before exit", async () => {
     const sequence: string[] = [];
     const events: PrintEvent[] = [];
@@ -559,8 +678,8 @@ describe("runMain", () => {
       "exit:1",
     );
     expect(events).toMatchObject([
-      { type: "error", message: "No command specified" },
-      { type: "usage", stream: "stderr", command: { name: "tool" } },
+      { type: "error", error: { name: "ZittyUsageError", message: "No command specified" } },
+      { type: "usage", stream: "stderr", usage: { name: "tool" } },
     ]);
     expect(sequence).toEqual(["start:error", "end:error", "start:usage", "end:usage", "exit:1"]);
   });
@@ -583,7 +702,49 @@ describe("runMain", () => {
         printer: { print: (event) => void events.push(event) },
       }),
     ).rejects.toThrow("stopped");
-    expect(events).toEqual([{ type: "error", error: failure, message: "Error: boom" }]);
+    expect(events).toEqual([
+      {
+        type: "error",
+        error: expect.objectContaining({ name: "Error", message: "boom" }),
+      },
+    ]);
+  });
+
+  it("summarizes Error causes and custom properties without retaining the thrown object", async () => {
+    const events: PrintEvent[] = [];
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("stopped");
+    }) as never);
+    const cause = new Error("root cause");
+    const failure = Object.assign(new Error("boom", { cause }), {
+      code: "E_BOOM",
+      retryable: false,
+    });
+
+    await expect(
+      runMain(
+        defineCommand({
+          run() {
+            throw failure;
+          },
+        }),
+        { argv: [], printer: { print: (event) => void events.push(event) } },
+      ),
+    ).rejects.toThrow("stopped");
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "error",
+      error: {
+        name: "Error",
+        message: "boom",
+        cause,
+        properties: { code: "E_BOOM", retryable: false },
+      },
+    });
+    expect(events[0]).not.toHaveProperty("message");
+    expect(events[0]).not.toHaveProperty("error.command");
+    expect(events[0]).not.toHaveProperty("error", failure);
   });
 
   it("propagates a printer rejection on a successful main invocation", async () => {
@@ -612,7 +773,9 @@ describe("runMain", () => {
       },
     });
 
-    await expect(runMain(command, { argv: ["unknown"] })).rejects.toThrow("exit:1");
+    await expect(runMain(command, { argv: ["unknown"], output: "pretty" })).rejects.toThrow(
+      "exit:1",
+    );
     expect(exit).toHaveBeenCalledWith(1);
     const output = error.mock.calls.map(([value]) => String(value)).join("\n");
     expect(output).toContain("Unknown command `unknown`");
@@ -663,11 +826,13 @@ describe("runMain", () => {
     };
     const command = defineCommand({ name: "tool", args: z.object({ value: z.string() }) });
 
-    await runMain(command, { argv: ["--help"], showUsage: display });
+    await runMain(command, { argv: ["--help"], showUsage: display, output: "pretty" });
     expect(log).toHaveBeenCalledWith("custom:tool");
     expect(error).not.toHaveBeenCalled();
 
-    await expect(runMain(command, { argv: [], showUsage: display })).rejects.toThrow("stopped");
+    await expect(
+      runMain(command, { argv: [], showUsage: display, output: "pretty" }),
+    ).rejects.toThrow("stopped");
     expect(error).toHaveBeenCalledWith(expect.stringContaining("Invalid arguments:"));
     expect(error).toHaveBeenCalledWith("custom:tool");
     expect(calls).toEqual(["tool", "tool"]);
@@ -684,7 +849,7 @@ describe("runMain", () => {
     };
 
     await expect(
-      runMain(defineCommand({ name: "empty" }), { argv: [], showUsage }),
+      runMain(defineCommand({ name: "empty" }), { argv: [], showUsage, output: "pretty" }),
     ).rejects.toThrow("exit:1");
     expect(exit).toHaveBeenCalledWith(1);
   });
@@ -752,7 +917,9 @@ describe("runMain", () => {
     }) as never);
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await expect(runMain(defineCommand({ name: "empty" }))).rejects.toThrow("stopped");
+    await expect(runMain(defineCommand({ name: "empty" }), { output: "pretty" })).rejects.toThrow(
+      "stopped",
+    );
     expect(error).toHaveBeenCalledWith("No command specified");
     expect(error).toHaveBeenCalledWith(expect.stringContaining("USAGE empty"));
     error.mockClear();
@@ -764,6 +931,7 @@ describe("runMain", () => {
             throw new Error("boom");
           },
         }),
+        { output: "pretty" },
       ),
     ).rejects.toThrow("stopped");
     expect(error).toHaveBeenCalledWith("Error: boom");

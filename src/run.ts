@@ -1,6 +1,6 @@
 import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
-import { ZittyUsageError } from "./errors.ts";
+import { summarizeError, ZittyUsageError } from "./errors.ts";
 import { createLogger } from "./logger.ts";
 import {
   parseCommandArgs,
@@ -10,12 +10,19 @@ import {
 } from "./parser.ts";
 import {
   consolePrinter,
+  createJsonPrinter,
   createPrintQueue,
+  createStreamPrinter,
+  resolveOutputMode,
+  type OutputPreference,
+  type OutputWriter,
   type Printer,
   type PrintQueue,
   type PrintStream,
+  type TerminalInput,
+  type TerminalOutput,
 } from "./printer.ts";
-import { showUsage, type ShowUsageCallback } from "./usage.ts";
+import { showUsage, summarizeUsage, type ShowUsageCallback } from "./usage.ts";
 
 interface CommandSegment {
   command: AnyCommandDef;
@@ -101,13 +108,41 @@ function printUsage(
   stream: PrintStream,
 ): void | Promise<void> {
   return displayUsage(command, {
-    write: (text) => printer.print({ type: "usage", command, text, stream }),
+    write: (text) => printer.print({ type: "usage", usage: summarizeUsage(command), text, stream }),
   });
 }
 
-export interface RunCommandOptions {
+export interface OutputOptions {
+  output?: OutputPreference;
+  env?: Readonly<Record<string, string | undefined>>;
+  stdin?: TerminalInput;
+  stdout?: TerminalOutput;
+  stderr?: OutputWriter;
+}
+
+export interface RunCommandOptions extends OutputOptions {
   printer?: Printer;
   showUsage?: ShowUsageCallback;
+}
+
+function prepareOutput(options: RunCommandOptions): PrintQueue {
+  const stdin = options.stdin ?? process.stdin;
+  const stdout = options.stdout ?? process.stdout;
+  const stderr = options.stderr ?? process.stderr;
+  const mode = resolveOutputMode({
+    output: options.output,
+    env: options.env,
+    inputIsTTY: stdin.isTTY,
+    outputIsTTY: stdout.isTTY,
+  });
+  const printer =
+    options.printer ??
+    (mode.format === "json"
+      ? createJsonPrinter({ stdout, stderr })
+      : options.stdout || options.stderr
+        ? createStreamPrinter({ stdout, stderr })
+        : consolePrinter);
+  return createPrintQueue(printer);
 }
 
 export async function runCommand<S extends ArgsSchema>(
@@ -115,7 +150,7 @@ export async function runCommand<S extends ArgsSchema>(
   argv: string[],
   options: RunCommandOptions = {},
 ): Promise<unknown> {
-  const output = createPrintQueue(options.printer ?? consolePrinter);
+  const output = prepareOutput(options);
   try {
     return await executeCommand(root, argv, options.showUsage ?? showUsage, output.printer);
   } finally {
@@ -123,7 +158,7 @@ export async function runCommand<S extends ArgsSchema>(
   }
 }
 
-export interface RunMainOptions {
+export interface RunMainOptions extends OutputOptions {
   onError?: (error: unknown) => void | Promise<void>;
   argv?: string[];
   printer?: Printer;
@@ -143,7 +178,7 @@ export async function runMain<S extends ArgsSchema>(
   options: RunMainOptions = {},
 ): Promise<void> {
   const displayUsage = options.showUsage ?? showUsage;
-  const output = createPrintQueue(options.printer ?? consolePrinter);
+  const output = prepareOutput(options);
   try {
     await executeCommand(
       command,
@@ -158,13 +193,12 @@ export async function runMain<S extends ArgsSchema>(
     }
     try {
       if (error instanceof ZittyUsageError) {
-        await output.printer.print({ type: "error", error, message: error.message });
+        await output.printer.print({ type: "error", error: summarizeError(error) });
         await printUsage(displayUsage, error.command, output.printer, "stderr");
       } else {
         await output.printer.print({
           type: "error",
-          error,
-          message: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          error: summarizeError(error),
         });
       }
     } finally {

@@ -301,6 +301,7 @@ const writes = [];
 await showUsage(legacyCommand, { async write(text) { writes.push(text); } });
 if (writes.length !== 1 || writes[0] !== usage) throw new Error("usage APIs diverged");
 const main = createMain(command, {
+  output: "pretty",
   async showUsage(selected, { write }) {
     await write("CUSTOM\\n" + await renderUsage(selected));
   },
@@ -360,7 +361,10 @@ const parsed: Promise<z.output<typeof schema>> = parseArgs(command, [
 const rendered: Promise<string> = renderUsage(command);
 const shown: Promise<void> = showUsage(command, { write: async (_text) => {} });
 const callback: ShowUsageCallback = async (selected, { write }) => write(await renderUsage(selected));
-const main: (argv?: string[]) => Promise<void> = createMain(command, { showUsage: callback });
+const main: (argv?: string[]) => Promise<void> = createMain(command, {
+  output: "pretty",
+  showUsage: callback,
+});
 const miniSchema = mini.object({
   _: mini.tuple([mini.enum(["fast", "safe"])], mini.string()),
   enabled: mini._default(mini.boolean(), true),
