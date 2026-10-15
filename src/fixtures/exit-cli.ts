@@ -7,4 +7,4 @@ const command = defineCommand({
   run: ({ args }) => console.log(String(args.count)),
 });
 
-await runMain(command);
+await runMain(command, { output: "pretty" });

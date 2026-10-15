@@ -1,5 +1,8 @@
 import type { AnyCommandDef } from "./command.ts";
+import { summarizeErrors } from "./errors.ts";
 import { aliasList, kebabCase } from "./options.ts";
+import { selectOutputPrinter, type OutputOptions } from "./output.ts";
+import type { Printer, PrintStream } from "./printer.ts";
 import { POSITIONALS_KEY, readArgInfo, readPositionals, schemaShape } from "./schema.ts";
 
 function details(
@@ -21,7 +24,49 @@ function formatDefault(value: unknown): string {
     return value.toString();
   }
   if (value === null) return "null";
-  return JSON.stringify(value) ?? "undefined";
+  try {
+    return JSON.stringify(value) ?? "undefined";
+  } catch {
+    return "[Unserializable]";
+  }
+}
+
+export interface UsageArgumentSummary {
+  name: string;
+  required: boolean;
+  variadic: boolean;
+  description?: string;
+  choices?: readonly string[];
+  defaultValue?: unknown;
+}
+
+export interface UsageOptionSummary {
+  name: string;
+  flags: readonly string[];
+  takesValue: boolean;
+  valueName?: string;
+  required: boolean;
+  description?: string;
+  choices?: readonly string[];
+  defaultValue?: unknown;
+  negatedDescription?: string;
+}
+
+export interface UsageCommandSummary {
+  name: string;
+  description?: string;
+}
+
+/** A schema-free description of the useful help metadata for a command. */
+export interface UsageSummary {
+  name: string;
+  heading?: string;
+  version?: string;
+  description?: string;
+  synopsis: string;
+  arguments: readonly UsageArgumentSummary[];
+  options: readonly UsageOptionSummary[];
+  commands: readonly UsageCommandSummary[];
 }
 
 function heading(command: AnyCommandDef): string | undefined {
@@ -34,69 +79,121 @@ function heading(command: AnyCommandDef): string | undefined {
   return command.description ?? identity;
 }
 
-function formatUsage(command: AnyCommandDef): string {
-  const lines: string[] = [];
-  const title = heading(command);
-  if (title) lines.push(title, "");
-
+/** Build a serializable help summary without retaining command or schema objects. */
+export function summarizeUsage(command: AnyCommandDef): UsageSummary {
   const shape = command.args ? schemaShape(command.args) : {};
   const positionals = readPositionals(shape);
-  const items = positionals?.items ?? [];
-  const rest = positionals?.rest;
-  const syntax = items.map(({ schema, label }) =>
+  const positionalItems = positionals?.items ?? [];
+  const syntax = positionalItems.map(({ schema, label }) =>
     readArgInfo(schema).required ? `<${label}>` : `[${label}]`,
   );
-  if (rest) syntax.push(`[${rest.label}...]`);
+  if (positionals?.rest) syntax.push(`[${positionals.rest.label}...]`);
   if (command.subCommands && Object.keys(command.subCommands).length > 0) syntax.push("<COMMAND>");
-  lines.push(
-    `USAGE ${command.name ?? "command"} [OPTIONS]${syntax.length ? ` ${syntax.join(" ")}` : ""}`,
-  );
 
-  if (items.length > 0 || rest) {
-    lines.push("", "ARGUMENTS", "");
-    for (const { schema, label } of items) {
+  const args: UsageArgumentSummary[] = positionalItems.map(({ schema, label }) => {
+    const info = readArgInfo(schema);
+    return {
+      name: label,
+      required: info.required,
+      variadic: false,
+      ...(info.description === undefined ? {} : { description: info.description }),
+      ...(info.choices === undefined ? {} : { choices: info.choices }),
+      ...(info.defaultValue === undefined
+        ? {}
+        : { defaultValue: summarizeErrors(info.defaultValue) }),
+    };
+  });
+  if (positionals?.rest) {
+    const info = readArgInfo(positionals.rest.schema);
+    args.push({
+      name: positionals.rest.label,
+      required: false,
+      variadic: true,
+      ...(info.description === undefined ? {} : { description: info.description }),
+      ...(info.choices === undefined ? {} : { choices: info.choices }),
+    });
+  }
+
+  const options = Object.entries(shape)
+    .filter(([key]) => key !== POSITIONALS_KEY)
+    .map(([key, schema]): UsageOptionSummary => {
       const info = readArgInfo(schema);
+      const argOptions = command.argOptions?.[key];
+      const aliases = argOptions?.alias
+        ? aliasList(argOptions.alias).map((item) => `-${item}`)
+        : [];
+      const name = kebabCase(key);
+      const valueName = argOptions?.valueName ?? name;
+      return {
+        name,
+        flags: [...aliases, `--${name}`],
+        takesValue: info.takesValue,
+        required: info.required,
+        ...(info.takesValue ? { valueName } : {}),
+        ...(info.description === undefined ? {} : { description: info.description }),
+        ...(info.choices === undefined ? {} : { choices: info.choices }),
+        ...(info.defaultValue === undefined
+          ? {}
+          : { defaultValue: summarizeErrors(info.defaultValue) }),
+        ...(argOptions?.negatedDescription === undefined
+          ? {}
+          : { negatedDescription: argOptions.negatedDescription }),
+      };
+    });
+
+  const commands = Object.entries(command.subCommands ?? {})
+    .filter(([, child]) => !child.hidden)
+    .map(([name, child]) => ({
+      name,
+      ...(child.description === undefined ? {} : { description: child.description }),
+    }));
+  const name = command.name ?? "command";
+  const title = heading(command);
+  return {
+    name,
+    ...(title === undefined ? {} : { heading: title }),
+    ...(command.version === undefined ? {} : { version: command.version }),
+    ...(command.description === undefined ? {} : { description: command.description }),
+    synopsis: `${name} [OPTIONS]${syntax.length ? ` ${syntax.join(" ")}` : ""}`,
+    arguments: args,
+    options,
+    commands,
+  };
+}
+
+function formatUsage(summary: UsageSummary): string {
+  const lines: string[] = [];
+  if (summary.heading) lines.push(summary.heading, "");
+  lines.push(`USAGE ${summary.synopsis}`);
+
+  if (summary.arguments.length > 0) {
+    lines.push("", "ARGUMENTS", "");
+    for (const argument of summary.arguments) {
       lines.push(
-        `  ${label}  ${details(info.description, info.required, info.defaultValue, info.choices)}`.trimEnd(),
-      );
-    }
-    if (rest) {
-      const info = readArgInfo(rest.schema);
-      lines.push(
-        `  ${rest.label}...  ${details(info.description, false, undefined, info.choices)}`.trimEnd(),
+        `  ${argument.name}${argument.variadic ? "..." : ""}  ${details(argument.description, argument.required, argument.defaultValue, argument.choices)}`.trimEnd(),
       );
     }
   }
 
-  const options = Object.entries(shape).filter(([key]) => key !== POSITIONALS_KEY);
-  if (options.length > 0) {
+  if (summary.options.length > 0) {
     lines.push("", "OPTIONS", "");
-    for (const [key, schema] of options) {
-      const info = readArgInfo(schema);
-      const argOptions = command.argOptions?.[key];
-      const prefix = argOptions?.alias
-        ? `${aliasList(argOptions.alias)
-            .map((item) => `-${item}`)
-            .join(", ")}, `
-        : "";
-      const valueName = argOptions?.valueName ?? kebabCase(key);
-      const long = `--${kebabCase(key)}${info.takesValue ? `=<${valueName}>` : ""}`;
-      lines.push(
-        `  ${prefix}${long}  ${details(info.description, info.required, info.defaultValue, info.choices)}`.trimEnd(),
+    for (const option of summary.options) {
+      const flags = option.flags.map((flag) =>
+        flag.startsWith("--") && option.takesValue ? `${flag}=<${option.valueName}>` : flag,
       );
-      if (!info.takesValue && argOptions?.negatedDescription) {
-        lines.push(`  --no-${kebabCase(key)}  ${argOptions.negatedDescription}`);
+      lines.push(
+        `  ${flags.join(", ")}  ${details(option.description, option.required, option.defaultValue, option.choices)}`.trimEnd(),
+      );
+      if (!option.takesValue && option.negatedDescription) {
+        lines.push(`  --no-${option.name}  ${option.negatedDescription}`);
       }
     }
   }
 
-  const visibleSubCommands = Object.entries(command.subCommands ?? {}).filter(
-    ([, child]) => !child.hidden,
-  );
-  if (visibleSubCommands.length > 0) {
+  if (summary.commands.length > 0) {
     lines.push("", "COMMANDS", "");
-    for (const [name, child] of visibleSubCommands) {
-      lines.push(`  ${name}  ${child.description ?? ""}`.trimEnd());
+    for (const command of summary.commands) {
+      lines.push(`  ${command.name}  ${command.description ?? ""}`.trimEnd());
     }
   }
   return lines.join("\n");
@@ -104,8 +201,10 @@ function formatUsage(command: AnyCommandDef): string {
 
 export type UsageWriter = (text: string) => void | Promise<void>;
 
-export interface ShowUsageOptions {
+export interface ShowUsageOptions extends OutputOptions {
   write?: UsageWriter;
+  printer?: Printer;
+  stream?: PrintStream;
 }
 
 export type UsageOutput = Required<Pick<ShowUsageOptions, "write">>;
@@ -117,7 +216,7 @@ export type ShowUsageCallback = (
 
 /** Generate usage text without writing to stdout or stderr. */
 export async function renderUsage(command: AnyCommandDef): Promise<string> {
-  return formatUsage(command);
+  return formatUsage(summarizeUsage(command));
 }
 
 /** Generate and write usage text, awaiting asynchronous writers. */
@@ -125,6 +224,14 @@ export async function showUsage(
   command: AnyCommandDef,
   options: ShowUsageOptions = {},
 ): Promise<void> {
-  const text = await renderUsage(command);
-  return (options.write ?? console.log)(text);
+  const usage = summarizeUsage(command);
+  const text = formatUsage(usage);
+  if (options.write) return options.write(text);
+  const printer = options.printer ?? selectOutputPrinter(options);
+  return printer.print({
+    type: "usage",
+    usage,
+    text,
+    stream: options.stream ?? "stdout",
+  });
 }

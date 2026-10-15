@@ -35,9 +35,10 @@ const main = defineCommand({
     verbose: z.boolean().default(false).describe("Show details"),
   }),
   argOptions: { repo: { alias: "R" }, verbose: { alias: ["v", "V"] } },
-  async run({ args, rawArgs, extraArgs, passthrough }) {
+  async run({ args, rawArgs, extraArgs, passthrough, logger }) {
     // args is { _: [number?]; repo?: string; verbose: boolean }
-    console.log({ args, rawArgs, extraArgs, passthrough });
+    logger.info("Loading commits for {repo}", { repo: args.repo ?? "the current repository" });
+    logger.debug("Invocation arguments", { rawArgs, extraArgs, passthrough });
   },
 });
 
@@ -143,8 +144,9 @@ OPTIONS
 when an alias is longer than one character or is used by more than one option, and when
 `argOptions` has a `_` key. Without an alias of the same letter, `-h` and `-v` are shorthands
 for `--help` and `--version`. Defining an `h` or `v` alias replaces the shorthand, so `convert -v`
-above sets `verbose`; `--help` and `--version` remain available. Help remains plain text when
-`NO_COLOR` or `CI` is set.
+above sets `verbose`; `--help` and `--version` remain available. Output selection does not reserve
+any additional command-line flags, so names such as `--json`, `--output`, and `--log-format` remain
+available to application schemas.
 
 ## Subcommands
 
@@ -155,8 +157,8 @@ const main = defineCommand({
   subCommands: {
     new: defineCommand({
       args: z.object({ name: z.string() }),
-      async run({ args }) {
-        console.log(args.name);
+      async run({ args, logger }) {
+        logger.success("Created {name}", { name: args.name });
       },
     }),
     migrate: defineCommand({
@@ -179,22 +181,209 @@ listing, including usage shown for an unknown command. Hidden commands remain av
 their own `--help` output remains available. If every subcommand is hidden, help keeps the generic
 `<COMMAND>` syntax but omits the empty `COMMANDS` section.
 
+## Structured logging
+
+Every `run` context has a `logger`. Its `trace`, `debug`, `info`, `warn`, `error`, and `fatal`
+methods emit structured records through the invocation's printer. `step` and `success` are
+info-level records with a distinct semantic kind for presentation. Placeholders in braces use the
+record's properties. Every level is emitted and displayed by the default printer; there is no
+built-in severity threshold or verbose flag.
+
+```ts
+const deploy = defineCommand({
+  name: "deploy",
+  async run({ logger }) {
+    const log = logger.with({ app: "web", env: "prod" });
+    log.step("Deploying {app} to {env}");
+    log.getChild("upload").debug("Uploaded {files} files", { files: 12 });
+    log.success("Deployed {app}");
+  },
+});
+```
+
+Properties passed to an individual call override properties bound by `with`. `getChild` appends a
+category segment; hacksh automatically starts the category with the named root and each resolved
+subcommand. Missing placeholders, and placeholders whose values cannot be converted to text,
+remain unchanged without discarding their properties. Passing an `Error` to `error` or `fatal`
+uses its message and adds a canonical, schema-free error summary as `properties.error`. Error
+values nested in other log properties are summarized the same way before custom printers receive
+the event.
+
+Each `log` print event contains a `record` with `level`, `kind`, `category`, interpolated `message`,
+template `rawMessage`, merged `properties`, and a numeric `timestamp`. Logger calls do not need to
+be awaited: they use the invocation's serialized output queue, which is drained before execution
+finishes. A printer failure rejects the invocation without changing a successful `run` value.
+
+## Interactive input
+
+The logger also owns the invocation's interactive input. Use `select`, `confirm`, and `text` from
+the same logger (including loggers returned by `with` and `getChild`) so prompts use the selected
+printer and output mode.
+
+```ts
+const deploy = defineCommand({
+  name: "deploy",
+  async run({ logger }) {
+    const environment = await logger.select({
+      message: "Environment",
+      options: [
+        { value: "staging", hint: "safe default" },
+        { value: "production", label: "Production" },
+      ] as const,
+      initialValue: "staging",
+    }); // "staging" | "production"
+    const confirmed = await logger.confirm({ message: `Deploy to ${environment}?` });
+    if (!confirmed) return;
+    const release = await logger.text({
+      message: "Release name",
+      placeholder: "v1.2.3",
+      validate: (value) => (value.length === 0 ? "A release name is required" : undefined),
+    });
+    logger.success("Deploying {release}", { release });
+  },
+});
+```
+
+Select values retain their literal union type. Arrow keys change the selected choice, Enter accepts
+it, and `initialValue` controls the initial selection. Confirm accepts `y`, `n`, or Enter; Enter
+uses `initialValue` when supplied and otherwise means no. Text displays its placeholder without
+using it as input, supports editing, and repeats the prompt only when `validate` returns a nonempty
+message; `""` means valid. Backspace removes one Unicode code point. Input pasted after a selection
+or confirmation is retained for the next sequential prompt instead of being discarded.
+The built-in prompt API intentionally stops at select, confirm, and text; it does not provide a
+multiselect prompt.
+
+Prompts are allowed only when the resolved mode is interactive: pretty output outside CI with TTY
+stdin and stdout. JSON, CI, and non-TTY invocations throw `HackshPromptError` immediately even if a
+default is available. Its `reason` and `prompt` fields identify why input failed and the prompt's
+`kind`, `message`, and select `choices`. Reasons distinguish `non-interactive`, `cancelled`, `eof`,
+`overlapping`, `invalid-options`, `input-error`, and `printer-error`. Ctrl-C and Escape cancel;
+`runMain` reports cancellation and exits with status 130. Only one prompt may be active in an
+invocation. Input listeners and raw terminal mode are restored after every outcome.
+Failed prompts emit a non-visible `closed` prompt state through the same printer before rejecting,
+so callers that catch cancellation, EOF, input, or printer errors do not leave stale terminal UI.
+
+Active pretty prompts redraw in place rather than appending a block for every key. A completed
+prompt collapses to one result line. If a logger event arrives while a prompt is active, the
+printer removes the prompt, renders the event, and then redraws the current prompt state.
+Physical rows are calculated from explicit newlines, ANSI-free Unicode display width, and
+`stdout.columns`, including terminal wrapping. When a custom output writer does not expose a
+positive `columns` value, the renderer conservatively counts explicit lines only.
+
+## Output formats
+
+`runMain` and `runCommand` resolve one output mode before command routing, parsing, or execution.
+Their `output` option accepts `"auto"` (the default), `"pretty"`, or `"json"`. A valid
+`HACKSH_OUTPUT` environment value takes precedence over that option. `auto` selects JSON only when
+`CI` has a non-empty value; redirecting or piping stdout alone retains pretty output. Invalid
+explicit option or environment values never execute the command. `runCommand` rejects with a
+`TypeError`. `runMain` gives that error to `onError` when configured; otherwise it emits the error
+through a supplied printer or as a dedicated JSON error line, drains output, and exits with status
+code `1`. Output values are case-sensitive.
+
+```ts
+await runMain(main, { output: "auto" });
+// HACKSH_OUTPUT=json my-cli --help overrides the configured preference.
+```
+
+The resolved `OutputMode` has `format`, `interactive`, and `color` fields. Interaction is enabled
+only for pretty output outside CI when both stdin and stdout are TTYs. Color is enabled only for
+pretty output to a stdout TTY when `NO_COLOR` is empty or absent. These decisions are independent: an
+explicit pretty format in CI can use color, but remains noninteractive. `env`, `stdin`, `stdout`,
+and `stderr` can be supplied in execution options for embedded or tested invocations.
+Custom `stdin` values implement the readable-stream operations `on`, `removeListener`, `resume`,
+and `pause`; `isTTY`, `isRaw`, `readableFlowing`, and `setRawMode` describe optional terminal
+capabilities. A stream without those readable operations fails with an `input-error` if prompting
+is attempted.
+
+JSON output contains exactly one `PrintEvent` object per line. Help and version events and
+trace/debug/info logs go to stdout; errors and warning/error/fatal logs go to stderr. Usage attached
+to an error retains its `stderr` stream. Every log level is emitted by default. JSON strings have
+terminal control sequences removed, and the printer never serializes executable command or Zod
+schema objects.
+
+Arbitrary log properties and error details are normalized predictably: BigInt values become
+decimal strings; non-finite numbers become `null`; `undefined`, symbols, and functions receive
+explicit string markers; dates and URLs use their guarded `toJSON` representations; Buffer uses
+its `{ type, data }` representation; typed arrays become arrays; maps and sets become arrays; and
+cycles become `"[Circular]"`. ANSI sequences are removed from keys as well as values. Errors retain
+their kind, name, message, stack, canonical cause, validation issues, and independently readable
+enumerable properties. Unreadable properties become `"[Unserializable]"`; a throwing `toJSON`
+falls back to those properties. If an exotic value prevents normalization entirely, the line
+keeps the original event `type` and adds `serializationError`, so downstream JSON-lines parsing
+remains synchronized.
+
+Pretty output uses a fixed presentation with semantic marks and a continuation bar. Trace, debug,
+info, warning, error, and fatal records each have a distinct mark; step and success records have
+their own marks as well, so meaning does not depend on color. Categories appear before log messages,
+and every line of multiline messages, properties, help, and errors remains inside the same visual
+block. All six log levels are displayed by default.
+
+```text
+◇  [deploy] Building web
+│    files: 12
+✔  [deploy] Deployed web
+▲  [deploy] Cache was not cleared
+```
+
+Pretty output uses Unicode symbols by default. Set `unicode: false` on `runMain` or `runCommand` for
+ASCII marks and bars. Color is still resolved from the selected output mode: it requires pretty
+output and a stdout TTY, and any non-empty `NO_COLOR` disables it. Unicode selection does not affect
+JSON output. An invocation does not add automatic start or end messages; the renderer presents only
+the semantic events that the command emits.
+
 ## Programmatic execution and errors
 
-`runCommand(command, argv)` handles help and version output without exiting, throws errors to its
-caller, and returns the selected `run` handler's result.
+`runCommand(command, argv, options)` handles help and version output without exiting, throws errors
+to its caller, and returns the selected `run` handler's result. Pass a `printer` in `options` to
+receive all output produced by that invocation as structured events:
+
+```ts
+import { runCommand, type PrintEvent, type Printer } from "hacksh";
+
+const events: PrintEvent[] = [];
+const printer: Printer = {
+  async print(event) {
+    events.push(event);
+  },
+};
+
+await runCommand(main, ["--help"], { printer });
+// events[0] is { type: "usage", usage, text, stream: "stdout" }
+```
+
+The current events are `usage`, `version`, `error`, `log`, and `prompt`. Usage events include the resolved
+command's schema-free name, version, description, synopsis, arguments, options, and visible child
+commands, plus rendered text and the intended `stdout` or `stderr` stream. Version events include
+the version string. Error events contain a schema-free summary with an explicit `kind`, structured
+validation issues, standard `Error` fields, custom enumerable properties, and recursively
+canonical causes; log events contain the structured record described above. Prompt events contain
+the prompt kind, status, current value or choices, placeholder, and validation message. Printer calls are serialized, may be asynchronous, and are
+drained before `runCommand` or `runMain` completes or exits. A printer rejection rejects
+`runCommand`.
+
+Use `createPrettyPrinter({ color, unicode, stdout, stderr })` to reuse the built-in human-readable
+renderer with custom writable targets, or `createJsonPrinter({ stdout, stderr })` to reuse the
+built-in JSON-lines behavior. The pretty renderer has no public theme API; replacing the fixed
+presentation requires a custom `Printer`. `consolePrinter` and `createStreamPrinter` remain the
+undecorated compatibility adapters. `summarizeUsage(command)` returns the same canonical help
+metadata carried by a usage event. `resolveOutputMode(...)` exposes the selection contract for
+wrappers and the later presentation or prompting layers.
 
 For parsing and usage rendering without execution, use the async composition APIs. `parseArgs`
 parses exactly the supplied command definition and argument segment, returns its schema output only,
 and throws `ZittyValidationError` on failure. It does not route subcommands, act on help or version
 tokens, or bypass validation; callers that resolve commands themselves must pass the selected
 command and its segment. `renderUsage` has no output side effects; `showUsage` sends that same text
-to an optional synchronous or asynchronous writer (and otherwise uses `console.log`). These
-functions are async so future command-resolution features can be added without changing their
-return types.
+through an explicit printer or the same automatic pretty/JSON selection used by command
+invocations. Its `output`, `env`, `stdin`, `stdout`, `stderr`, and `unicode` options configure that
+automatic path. The existing synchronous or asynchronous `write` option remains supported and
+takes precedence over printer selection; an explicit `printer` also retains its existing behavior.
+These functions are async so future command-resolution features can be added without changing
+their return types.
 
 ```ts
-import { parseArgs, renderUsage, showUsage } from "hacksh";
+import { consolePrinter, parseArgs, renderUsage, showUsage } from "hacksh";
 
 const args = await parseArgs(main, ["42", "--repo", "owner/repo"]);
 // args is inferred from the schema as:
@@ -202,10 +391,8 @@ const args = await parseArgs(main, ["42", "--repo", "owner/repo"]);
 
 const text: string = await renderUsage(main); // does not write output
 await showUsage(main, {
-  async write(usage) {
-    await Promise.resolve();
-    console.info(usage);
-  },
+  printer: consolePrinter,
+  stream: "stderr",
 });
 ```
 
@@ -225,9 +412,11 @@ await mainEntry(); // uses the configured argv
 await mainEntry([]); // an explicit empty invocation overrides it
 ```
 
-`showUsage` customizes both ordinary help and the usage appended to validation or routing errors.
-The supplied `write` function targets stdout for help and stderr for errors. The callback may be
-async. Pass `onError` to replace the entire default error display, including usage:
+The legacy `RunMainOptions.showUsage` callback still customizes both ordinary help and the usage
+appended to validation or routing errors. Its supplied `write` function targets stdout for help and
+stderr for errors by emitting usage events through the invocation's selected printer, and the
+callback may be async. Pass `onError` to replace the entire default error display, including usage;
+output written by this application callback remains its own responsibility:
 
 ```ts
 await runMain(main, {
@@ -243,16 +432,18 @@ await runMain(main, {
 
 Usage failures are `ZittyUsageError` instances. Argument failures are
 `ZittyValidationError` instances whose `issues` identify CLI names such as `--repo` or `<PR>`.
+Prompt failures are `HackshPromptError` instances with structured `reason` and `prompt` fields.
 
 ## Development
 
-| Command            | Description                               |
-| ------------------ | ----------------------------------------- |
-| `vp check`         | Format, lint, and type check              |
-| `vp test`          | Run tests                                 |
-| `vp pack`          | Build `src/index.ts` into `dist`          |
-| `vp run ready`     | Run check, test, and build                |
-| `pnpm test:packed` | Test the tarball with Node 22.18 and Deno |
+| Command                | Description                                           |
+| ---------------------- | ----------------------------------------------------- |
+| `vp check`             | Format, lint, and type check                          |
+| `vp test`              | Run tests                                             |
+| `pnpm test:prompt-pty` | Probe prompts in a real terminal                      |
+| `vp pack`              | Build `src/index.ts` into `dist`                      |
+| `vp run ready`         | Run check, test, and build                            |
+| `pnpm test:packed`     | Test the tarball with Node 22.18, host Node, and Deno |
 
 The packed-consumer test must execute its Node consumer with exactly Node 22.18.0. Run pnpm itself
 under that version, or supply an absolute executable path explicitly:

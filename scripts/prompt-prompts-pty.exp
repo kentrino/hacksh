@@ -1,0 +1,26 @@
+#!/usr/bin/expect -f
+
+set timeout 5
+set node [lindex $argv 0]
+set fixture [lindex $argv 1]
+set mode [lindex $argv 2]
+
+spawn -noecho /bin/sh -c {stty columns 20; exec "$@"} prompt-probe env NODE_NO_WARNINGS=1 NO_COLOR=1 $node --experimental-strip-types $fixture $mode
+if {$mode eq "flow"} {
+  expect "Environment"
+  send "\033\[B\r"
+  expect "Continue?"
+  send "yof\r"
+  expect "Too short"
+  send "abcdefghijklmnopqrstuvwxyz0123456789fF\r"
+} elseif {$mode eq "caught-cancel"} {
+  expect "Caught cancellation"
+  send "\003"
+} else {
+  expect "Cancel me"
+  send "\003"
+}
+expect eof
+catch wait status
+puts "PTY_CHILD_STATUS $status"
+exit [lindex $status 3]

@@ -3,10 +3,14 @@ import { z } from "zod";
 import {
   createMain,
   defineCommand,
+  parseArgs,
   runCommand,
   runMain,
   ZittyUsageError,
+  ZittyValidationError,
   type CommandDef,
+  type PrintEvent,
+  type Printer,
   type ShowUsageCallback,
 } from "./index.ts";
 
@@ -107,6 +111,84 @@ describe("command routing", () => {
 });
 
 describe("help and version", () => {
+  it("routes help and version through the invocation printer as structured events", async () => {
+    const events: PrintEvent[] = [];
+    const printer: Printer = { print: (event) => void events.push(event) };
+    const command = defineCommand({ name: "tool", version: "1.2.3" });
+
+    await runCommand(command, ["--help"], { printer });
+    await runCommand(command, ["--version"], { printer });
+
+    expect(events).toMatchObject([
+      { type: "usage", usage: { name: "tool", version: "1.2.3" }, stream: "stdout" },
+      { type: "version", version: "1.2.3" },
+    ]);
+    expect(events[0]).toMatchObject({ text: expect.stringContaining("USAGE tool") });
+    expect(events[0]).not.toHaveProperty("command");
+  });
+
+  it("serializes async printer events and waits for them before completing", async () => {
+    const calls: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    let blockNext = true;
+    const printer: Printer = {
+      async print(event) {
+        calls.push(`start:${event.type}`);
+        if (blockNext) {
+          blockNext = false;
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+        }
+        calls.push(`end:${event.type}`);
+      },
+    };
+    const showUsage: ShowUsageCallback = (command, { write }) => {
+      void write(`first:${command.name}`);
+      void write(`second:${command.name}`);
+    };
+
+    let completed = false;
+    const invocation = runCommand(defineCommand({ name: "tool" }), ["--help"], {
+      printer,
+      showUsage,
+    }).then(() => {
+      completed = true;
+    });
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf("function"));
+    expect(calls).toEqual(["start:usage"]);
+    expect(completed).toBe(false);
+
+    releaseFirst?.();
+    await invocation;
+    expect(calls).toEqual(["start:usage", "end:usage", "start:usage", "end:usage"]);
+  });
+
+  it("preserves legacy callback order when the printer writes synchronously", async () => {
+    const output: string[] = [];
+    const showUsage: ShowUsageCallback = (_command, { write }) => {
+      output.push("HEADER");
+      void write("USAGE");
+      output.push("FOOTER");
+    };
+
+    await runCommand(defineCommand({ name: "tool" }), ["--help"], {
+      printer: { print: (event) => void output.push(event.type.toUpperCase()) },
+      showUsage,
+    });
+
+    expect(output).toEqual(["HEADER", "USAGE", "FOOTER"]);
+  });
+
+  it("rejects the invocation when an async printer rejects", async () => {
+    const failure = new Error("printer failed");
+    const printer: Printer = { print: async () => Promise.reject(failure) };
+
+    await expect(runCommand(defineCommand({ name: "tool" }), ["--help"], { printer })).rejects.toBe(
+      failure,
+    );
+  });
+
   it("shows help for a hidden command without exposing it in parent help", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const root = defineCommand({
@@ -121,12 +203,12 @@ describe("help and version", () => {
       },
     });
 
-    await runCommand(root, ["--help"]);
+    await runCommand(root, ["--help"], { output: "pretty" });
     const parentHelp = String(log.mock.calls.at(-1)?.[0]);
     expect(parentHelp).toContain("public  Public command");
     expect(parentHelp).not.toContain("internal");
 
-    await runCommand(root, ["internal", "--help"]);
+    await runCommand(root, ["internal", "--help"], { output: "pretty" });
     const hiddenHelp = String(log.mock.calls.at(-1)?.[0]);
     expect(hiddenHelp).toContain("Internal command (internal)");
     expect(hiddenHelp).toContain("USAGE internal [OPTIONS]");
@@ -146,16 +228,24 @@ describe("help and version", () => {
       subCommands: { child },
     });
 
-    await expect(runCommand(root, ["--enabled=no", "child"])).rejects.toMatchObject({
+    await expect(
+      runCommand(root, ["--enabled=no", "child"], { output: "pretty" }),
+    ).rejects.toMatchObject({
       issues: [{ arg: "--enabled", message: "expects true or false" }],
     });
-    await expect(runCommand(root, ["child", "--child-flag=no"])).rejects.toMatchObject({
+    await expect(
+      runCommand(root, ["child", "--child-flag=no"], { output: "pretty" }),
+    ).rejects.toMatchObject({
       issues: [{ arg: "--child-flag", message: "expects true or false" }],
     });
     await expect(runCommand(root, ["child", "--enabled=no"])).resolves.toEqual(["--enabled=no"]);
-    await expect(runCommand(root, ["--enabled=no", "child", "--help"])).resolves.toBeUndefined();
-    await expect(runCommand(root, ["--enabled=no", "--version"])).resolves.toBeUndefined();
-    expect(log.mock.calls.at(-1)?.[0]).toBe("1.0.0");
+    await expect(
+      runCommand(root, ["--enabled=no", "child", "--help"], { output: "pretty" }),
+    ).resolves.toBeUndefined();
+    await expect(
+      runCommand(root, ["--enabled=no", "--version"], { output: "pretty" }),
+    ).resolves.toBeUndefined();
+    expect(log.mock.calls.at(-1)?.[0]).toBe("●  1.0.0");
   });
 
   it("renders the deepest command help and bypasses required validation", async () => {
@@ -170,9 +260,9 @@ describe("help and version", () => {
     });
     const root = defineCommand({ name: "git-worktree", subCommands: { new: leaf } });
 
-    await runCommand(root, ["new", "--help"]);
+    await runCommand(root, ["new", "--help"], { output: "pretty" });
     const help = String(log.mock.calls[0]?.[0]);
-    expect(help).toContain("Create a worktree\nwith a selected branch (new)");
+    expect(help).toContain("◆  Create a worktree\n│  with a selected branch (new)");
     expect(help).toContain("USAGE new [OPTIONS] <PATH>");
     expect(help).toContain("PATH  Target path (Required)");
     expect(help).toContain("--force  Overwrite target (Default: false)");
@@ -188,7 +278,7 @@ describe("help and version", () => {
       argOptions: { repo: { alias: "R" } },
       subCommands: { child: defineCommand({ description: "Do work", run: () => undefined }) },
     });
-    await runCommand(root, ["--help"]);
+    await runCommand(root, ["--help"], { output: "pretty" });
     const help = String(log.mock.calls[0]?.[0]);
     expect(help).toContain("A useful tool (tool v1.2.3)");
     expect(help).toContain("-R, --repo=<repo>  Repository");
@@ -210,9 +300,9 @@ describe("help and version", () => {
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({ args: { verbose: true, host: true } }),
     );
-    await runCommand(root, ["--version"]);
-    expect(log).toHaveBeenCalledWith("1.2.3");
-    await runCommand(root, ["--help"]);
+    await runCommand(root, ["--version"], { output: "pretty" });
+    expect(log).toHaveBeenCalledWith("●  1.2.3");
+    await runCommand(root, ["--help"], { output: "pretty" });
     expect(log.mock.calls.at(-1)?.[0]).toContain("USAGE tool");
   });
 
@@ -249,6 +339,155 @@ describe("help and version", () => {
 });
 
 describe("runMain", () => {
+  it("routes usage errors through one printer and drains it before exit", async () => {
+    const sequence: string[] = [];
+    const events: PrintEvent[] = [];
+    const printer: Printer = {
+      async print(event) {
+        sequence.push(`start:${event.type}`);
+        await Promise.resolve();
+        events.push(event);
+        sequence.push(`end:${event.type}`);
+      },
+    };
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      sequence.push(`exit:${code}`);
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    await expect(runMain(defineCommand({ name: "tool" }), { argv: [], printer })).rejects.toThrow(
+      "exit:1",
+    );
+    expect(events).toMatchObject([
+      { type: "error", error: { name: "ZittyUsageError", message: "No command specified" } },
+      { type: "usage", stream: "stderr", usage: { name: "tool" } },
+    ]);
+    expect(sequence).toEqual(["start:error", "end:error", "start:usage", "end:usage", "exit:1"]);
+  });
+
+  it("routes unexpected errors through the selected printer", async () => {
+    const events: PrintEvent[] = [];
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("stopped");
+    }) as never);
+    const failure = new Error("boom");
+    const command = defineCommand({
+      run() {
+        throw failure;
+      },
+    });
+
+    await expect(
+      runMain(command, {
+        argv: [],
+        printer: { print: (event) => void events.push(event) },
+      }),
+    ).rejects.toThrow("stopped");
+    expect(events).toEqual([
+      {
+        type: "error",
+        error: expect.objectContaining({ name: "Error", message: "boom" }),
+      },
+    ]);
+  });
+
+  it("summarizes Error causes and custom properties without retaining the thrown object", async () => {
+    const events: PrintEvent[] = [];
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("stopped");
+    }) as never);
+    const cause = new Error("root cause");
+    const failure = Object.assign(new Error("boom", { cause }), {
+      code: "E_BOOM",
+      retryable: false,
+    });
+
+    await expect(
+      runMain(
+        defineCommand({
+          run() {
+            throw failure;
+          },
+        }),
+        { argv: [], printer: { print: (event) => void events.push(event) } },
+      ),
+    ).rejects.toThrow("stopped");
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "error",
+      error: {
+        kind: "error",
+        name: "Error",
+        message: "boom",
+        cause: { kind: "error", name: "Error", message: "root cause" },
+        properties: { code: "E_BOOM", retryable: false },
+      },
+    });
+    expect(events[0]).not.toHaveProperty("message");
+    expect(events[0]).not.toHaveProperty("error.command");
+    expect(events[0]).not.toHaveProperty("error", failure);
+  });
+
+  it("summarizes an actual validation error used as a cause without schema leakage", async () => {
+    const invalid = defineCommand({
+      name: "invalid",
+      args: z.object({ count: z.number() }),
+      run: vi.fn(),
+    });
+    const validation = await parseArgs(invalid, ["--count", "nope"]).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(validation).toBeInstanceOf(ZittyValidationError);
+    const failure = new Error("wrapped", { cause: validation });
+    (validation as ZittyValidationError & { related: Error }).related = failure;
+    const events: PrintEvent[] = [];
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("stopped");
+    }) as never);
+
+    await expect(
+      runMain(
+        defineCommand({
+          run() {
+            throw failure;
+          },
+        }),
+        { argv: [], printer: { print: (event) => void events.push(event) } },
+      ),
+    ).rejects.toThrow("stopped");
+
+    const event = events[0];
+    if (event?.type !== "error") throw new Error("Expected an error event");
+    expect(event.error).toMatchObject({
+      kind: "error",
+      cause: {
+        kind: "validation",
+        issues: [{ arg: "--count", code: "invalid_type" }],
+      },
+    });
+    const cause = event.error.cause as {
+      properties: { related: { cause: unknown } };
+    };
+    expect(cause).not.toHaveProperty("command");
+    expect(cause.properties.related).toBe(event.error);
+    expect(cause).not.toHaveProperty("issues.0.details.inst");
+  });
+
+  it("propagates a printer rejection on a successful main invocation", async () => {
+    const exit = vi.spyOn(process, "exit");
+    const failure = new Error("printer failed");
+
+    await expect(
+      runMain(defineCommand({ name: "tool" }), {
+        argv: ["--help"],
+        printer: { print: async () => Promise.reject(failure) },
+      }),
+    ).rejects.toBe(failure);
+    expect(exit).not.toHaveBeenCalled();
+  });
+
   it("omits hidden commands from usage reported for an unknown command", async () => {
     const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
@@ -262,7 +501,9 @@ describe("runMain", () => {
       },
     });
 
-    await expect(runMain(command, { argv: ["unknown"] })).rejects.toThrow("exit:1");
+    await expect(runMain(command, { argv: ["unknown"], output: "pretty" })).rejects.toThrow(
+      "exit:1",
+    );
     expect(exit).toHaveBeenCalledWith(1);
     const output = error.mock.calls.map(([value]) => String(value)).join("\n");
     expect(output).toContain("Unknown command `unknown`");
@@ -313,13 +554,15 @@ describe("runMain", () => {
     };
     const command = defineCommand({ name: "tool", args: z.object({ value: z.string() }) });
 
-    await runMain(command, { argv: ["--help"], showUsage: display });
-    expect(log).toHaveBeenCalledWith("custom:tool");
+    await runMain(command, { argv: ["--help"], showUsage: display, output: "pretty" });
+    expect(log).toHaveBeenCalledWith("◆  custom:tool");
     expect(error).not.toHaveBeenCalled();
 
-    await expect(runMain(command, { argv: [], showUsage: display })).rejects.toThrow("stopped");
+    await expect(
+      runMain(command, { argv: [], showUsage: display, output: "pretty" }),
+    ).rejects.toThrow("stopped");
     expect(error).toHaveBeenCalledWith(expect.stringContaining("Invalid arguments:"));
-    expect(error).toHaveBeenCalledWith("custom:tool");
+    expect(error).toHaveBeenCalledWith("◆  custom:tool");
     expect(calls).toEqual(["tool", "tool"]);
   });
 
@@ -334,7 +577,7 @@ describe("runMain", () => {
     };
 
     await expect(
-      runMain(defineCommand({ name: "empty" }), { argv: [], showUsage }),
+      runMain(defineCommand({ name: "empty" }), { argv: [], showUsage, output: "pretty" }),
     ).rejects.toThrow("exit:1");
     expect(exit).toHaveBeenCalledWith(1);
   });
@@ -352,6 +595,29 @@ describe("runMain", () => {
 
     await expect(runMain(command, { argv: [], onError })).rejects.toThrow("reporting failed");
     expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("exits one after onError succeeds even when pending printer output rejects", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const failure = new Error("usage failed");
+    const onError = vi.fn();
+    const showUsage: ShowUsageCallback = (_command, { write }) => {
+      void write("usage");
+      throw failure;
+    };
+
+    await expect(
+      runMain(defineCommand({ name: "tool" }), {
+        argv: ["--help"],
+        printer: { print: async () => Promise.reject(new Error("printer failed")) },
+        showUsage,
+        onError,
+      }),
+    ).rejects.toThrow("exit:1");
+    expect(onError).toHaveBeenCalledWith(failure);
+    expect(exit).toHaveBeenCalledWith(1);
   });
 
   it("uses process argv, replaces reporting with async onError, and exits one", async () => {
@@ -379,8 +645,10 @@ describe("runMain", () => {
     }) as never);
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await expect(runMain(defineCommand({ name: "empty" }))).rejects.toThrow("stopped");
-    expect(error).toHaveBeenCalledWith("No command specified");
+    await expect(runMain(defineCommand({ name: "empty" }), { output: "pretty" })).rejects.toThrow(
+      "stopped",
+    );
+    expect(error).toHaveBeenCalledWith("■  No command specified");
     expect(error).toHaveBeenCalledWith(expect.stringContaining("USAGE empty"));
     error.mockClear();
 
@@ -391,8 +659,48 @@ describe("runMain", () => {
             throw new Error("boom");
           },
         }),
+        { output: "pretty" },
       ),
     ).rejects.toThrow("stopped");
-    expect(error).toHaveBeenCalledWith("Error: boom");
+    expect(error).toHaveBeenCalledWith("■  boom");
+  });
+
+  it("uses the same pretty error mark regardless of error class name", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("stopped");
+    }) as never);
+
+    class RenamedUsageError extends ZittyUsageError {
+      override name = "RenamedUsageError";
+    }
+    const usageCommand = defineCommand({ name: "tool" });
+    await expect(
+      runMain(
+        defineCommand({
+          run() {
+            throw new RenamedUsageError("usage failed", usageCommand);
+          },
+        }),
+        { argv: [], output: "pretty", env: {} },
+      ),
+    ).rejects.toThrow("stopped");
+    expect(error).toHaveBeenCalledWith("■  usage failed");
+    expect(error).not.toHaveBeenCalledWith("■  Error: usage failed");
+
+    error.mockClear();
+    const pretender = new Error("ordinary failed");
+    pretender.name = "ZittyPretender";
+    await expect(
+      runMain(
+        defineCommand({
+          run() {
+            throw pretender;
+          },
+        }),
+        { argv: [], output: "pretty", env: {} },
+      ),
+    ).rejects.toThrow("stopped");
+    expect(error).toHaveBeenCalledWith("■  ordinary failed");
   });
 });

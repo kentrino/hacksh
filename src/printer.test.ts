@@ -1,0 +1,649 @@
+import { describe, expect, it, vi } from "vite-plus/test";
+import {
+  consolePrinter,
+  createJsonPrinter,
+  createPrettyPrinter,
+  createStreamPrinter,
+  resolveOutputMode,
+  type PrintEvent,
+} from "./index.ts";
+
+function memoryWriters() {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  return {
+    stdout,
+    stderr,
+    writers: {
+      stdout: { write: (value: string) => void stdout.push(value) },
+      stderr: { write: (value: string) => void stderr.push(value) },
+    },
+  };
+}
+
+function effectiveTerminalLines(chunks: readonly string[]): string[] {
+  const lines = [""];
+  let row = 0;
+  const input = chunks.join("");
+  for (let index = 0; index < input.length;) {
+    if (input.startsWith("\u001b[1A", index)) {
+      row = Math.max(0, row - 1);
+      index += 4;
+    } else if (input.startsWith("\u001b[2K", index)) {
+      lines[row] = "";
+      index += 4;
+    } else if (input[index] === "\n") {
+      row += 1;
+      lines[row] ??= "";
+      index += 1;
+    } else {
+      lines[row] = `${lines[row]}${input[index]}`;
+      index += 1;
+    }
+  }
+  while (lines.length > 1 && lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+describe("output mode", () => {
+  it.each([
+    ["auto outside CI on terminals", {}, "auto", true, true, ["pretty", true, true]],
+    ["auto in CI", { CI: "1" }, "auto", true, true, ["json", false, false]],
+    ["auto with non-empty false CI", { CI: "false" }, "auto", true, true, ["json", false, false]],
+    ["auto through a pipe", {}, "auto", true, false, ["pretty", false, false]],
+    ["explicit JSON", {}, "json", true, true, ["json", false, false]],
+    ["explicit pretty in CI", { CI: "1" }, "pretty", true, true, ["pretty", false, true]],
+    ["empty NO_COLOR", { NO_COLOR: "" }, "pretty", true, true, ["pretty", true, true]],
+    ["non-empty NO_COLOR", { NO_COLOR: "1" }, "pretty", true, true, ["pretty", true, false]],
+    ["input is not a TTY", {}, "pretty", false, true, ["pretty", false, true]],
+  ] as const)("resolves %s", (_name, env, output, inputIsTTY, outputIsTTY, expected) => {
+    expect(resolveOutputMode({ env, output, inputIsTTY, outputIsTTY })).toEqual({
+      format: expected[0],
+      interactive: expected[1],
+      color: expected[2],
+    });
+  });
+
+  it("gives HACKSH_OUTPUT precedence over the configured preference", () => {
+    expect(
+      resolveOutputMode({
+        output: "pretty",
+        env: { CI: "1", HACKSH_OUTPUT: "json" },
+        inputIsTTY: true,
+        outputIsTTY: true,
+      }),
+    ).toEqual({ format: "json", interactive: false, color: false });
+  });
+
+  it("rejects explicit invalid configuration", () => {
+    expect(() => resolveOutputMode({ output: "yaml" as "json", env: {} })).toThrowError(
+      "Invalid output value yaml; expected auto, pretty, or json",
+    );
+    expect(() => resolveOutputMode({ env: { HACKSH_OUTPUT: "" } })).toThrowError(
+      "Invalid HACKSH_OUTPUT value ; expected auto, pretty, or json",
+    );
+  });
+
+  it("treats environment access denied by a host runtime as unavailable", () => {
+    const env = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("permission denied");
+        },
+      },
+    );
+
+    expect(
+      resolveOutputMode({ env, output: "pretty", inputIsTTY: true, outputIsTTY: true }),
+    ).toEqual({ format: "pretty", interactive: true, color: true });
+  });
+});
+
+describe("pretty printer", () => {
+  it("redraws select, confirm, and text states in place and collapses submitted results", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    const events: PrintEvent[] = [
+      {
+        type: "prompt",
+        prompt: {
+          kind: "select",
+          message: "Environment",
+          status: "active",
+          value: "staging",
+          choices: [
+            { value: "staging", label: "Staging", selected: true },
+            { value: "production", label: "Production", selected: false },
+          ],
+        },
+      },
+      {
+        type: "prompt",
+        prompt: {
+          kind: "select",
+          message: "Environment",
+          status: "submitted",
+          value: "production",
+          choices: [
+            { value: "staging", label: "Staging", selected: false },
+            { value: "production", label: "Production", selected: true },
+          ],
+        },
+      },
+      {
+        type: "prompt",
+        prompt: {
+          kind: "confirm",
+          message: "Continue?",
+          status: "active",
+          value: false,
+          defaultValue: false,
+        },
+      },
+      {
+        type: "prompt",
+        prompt: { kind: "confirm", message: "Continue?", status: "submitted", value: true },
+      },
+      {
+        type: "prompt",
+        prompt: {
+          kind: "text",
+          message: "Name",
+          status: "active",
+          value: "",
+          placeholder: "release",
+        },
+      },
+      {
+        type: "prompt",
+        prompt: {
+          kind: "text",
+          message: "Name",
+          status: "error",
+          value: "x",
+          placeholder: "release",
+          error: "Too short",
+        },
+      },
+      {
+        type: "prompt",
+        prompt: { kind: "text", message: "Name", status: "submitted", value: "fox" },
+      },
+    ];
+    for (const event of events) void printer.print(event);
+
+    expect(output.stdout.join("")).toContain("\u001b[1A\u001b[2K");
+    expect(effectiveTerminalLines(output.stdout)).toEqual([
+      "✔  Environment: Production",
+      "✔  Continue?: Yes",
+      "✔  Name: fox",
+    ]);
+  });
+
+  it("removes and redraws an active prompt around interleaved logs", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "confirm", message: "Continue?", status: "active", value: false },
+    });
+    void printer.print({
+      type: "log",
+      record: {
+        level: "info",
+        kind: "message",
+        category: [],
+        message: "background update",
+        rawMessage: "background update",
+        properties: {},
+        timestamp: 1,
+      },
+    });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "confirm", message: "Continue?", status: "submitted", value: true },
+    });
+
+    expect(effectiveTerminalLines(output.stdout)).toEqual([
+      "●  background update",
+      "✔  Continue?: Yes",
+    ]);
+  });
+
+  it("closes an unsuccessful prompt before later logs", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "text", message: "Cancelled", status: "active", value: "partial" },
+    });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "text", message: "Cancelled", status: "closed", value: "partial" },
+    });
+    for (const message of ["first log", "second log"]) {
+      void printer.print({
+        type: "log",
+        record: {
+          level: "info",
+          kind: "message",
+          category: [],
+          message,
+          rawMessage: message,
+          properties: {},
+          timestamp: 1,
+        },
+      });
+    }
+
+    expect(effectiveTerminalLines(output.stdout)).toEqual(["●  first log", "●  second log"]);
+  });
+
+  it("counts wrapped, multiline, ANSI, and wide-character terminal rows", () => {
+    const stdout: string[] = [];
+    const printer = createPrettyPrinter({
+      color: true,
+      unicode: true,
+      stdout: { columns: 20, write: (value) => void stdout.push(value) },
+      stderr: { write: () => undefined },
+    });
+    void printer.print({
+      type: "prompt",
+      prompt: {
+        kind: "select",
+        message: "Choose a target\nSecond line",
+        status: "active",
+        value: "wide",
+        choices: [{ value: "wide", label: "界".repeat(10), selected: true }],
+      },
+    });
+    void printer.print({
+      type: "prompt",
+      prompt: {
+        kind: "select",
+        message: "Choose a target\nSecond line",
+        status: "submitted",
+        value: "wide",
+        choices: [{ value: "wide", label: "界".repeat(10), selected: true }],
+      },
+    });
+
+    expect(stdout[1]!.startsWith("\u001b[1A\u001b[2K".repeat(4))).toBe(true);
+  });
+
+  it("uses explicit newlines only when output columns are unknown", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "text", message: "Long", status: "active", value: "x".repeat(36) },
+    });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "text", message: "Long", status: "submitted", value: "x".repeat(36) },
+    });
+
+    expect(output.stdout[1]!.startsWith("\u001b[1A\u001b[2K".repeat(2))).toBe(true);
+  });
+  it("distinguishes every level, step, and success without color", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({
+      color: false,
+      unicode: true,
+      ...output.writers,
+    });
+    const records = [
+      ["trace", "message"],
+      ["debug", "message"],
+      ["info", "message"],
+      ["warning", "message"],
+      ["error", "message"],
+      ["fatal", "message"],
+      ["info", "step"],
+      ["info", "success"],
+    ] as const;
+
+    records.forEach(
+      ([level, kind]) =>
+        void printer.print({
+          type: "log",
+          record: {
+            level,
+            kind,
+            category: [],
+            message: `${level}:${kind}`,
+            rawMessage: `${level}:${kind}`,
+            properties: {},
+            timestamp: 1,
+          },
+        }),
+    );
+
+    expect(output.stdout).toEqual([
+      "·  trace:message\n",
+      "◆  debug:message\n",
+      "●  info:message\n",
+      "◇  info:step\n",
+      "✔  info:success\n",
+    ]);
+    expect(output.stderr).toEqual([
+      "▲  warning:message\n",
+      "■  error:message\n",
+      "✖  fatal:message\n",
+    ]);
+  });
+
+  it("uses ASCII marks, category labels, bars, and multiline property values", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({
+      color: false,
+      unicode: false,
+      ...output.writers,
+    });
+
+    void printer.print({
+      type: "log",
+      record: {
+        level: "info",
+        kind: "success",
+        category: ["deploy", "upload"],
+        message: "Uploaded files\nWaiting for confirmation",
+        rawMessage: "Uploaded files\nWaiting for confirmation",
+        properties: { "multi\nkey": "first line\nsecond line", stats: { files: 2 } },
+        timestamp: 1,
+      },
+    });
+
+    expect(output.stdout).toEqual([
+      "+  [deploy:upload] Uploaded files\n" +
+        "|  Waiting for confirmation\n" +
+        "|    multi\n" +
+        "|      key: first line\n" +
+        "|      second line\n" +
+        "|    stats: {\n" +
+        "|        files: 2\n" +
+        "|      }\n",
+    ]);
+  });
+
+  it("renders multiline help and error details with consistent bars and stream routing", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({
+      color: false,
+      unicode: true,
+      ...output.writers,
+    });
+
+    void printer.print({
+      type: "usage",
+      usage: { name: "tool", synopsis: "tool", arguments: [], options: [], commands: [] },
+      text: "USAGE tool\n\nOPTIONS\n  --help",
+      stream: "stdout",
+    });
+    void printer.print({
+      type: "error",
+      error: {
+        kind: "error",
+        name: "Error",
+        message: "Could not deploy\nTry again",
+        cause: { message: "network down" },
+      },
+    });
+
+    expect(output.stdout).toEqual(["◆  USAGE tool\n│\n│  OPTIONS\n│    --help\n"]);
+    expect(output.stderr).toEqual([
+      "■  Could not deploy\n" +
+        "│  Try again\n" +
+        "│    cause: {\n" +
+        "│        message: 'network down'\n" +
+        "│      }\n",
+    ]);
+  });
+
+  it("adds ANSI styles only when color is enabled", () => {
+    const colored = memoryWriters();
+    const plain = memoryWriters();
+    const event: PrintEvent = { type: "version", version: "1.2.3" };
+
+    void createPrettyPrinter({ color: true, unicode: true, ...colored.writers }).print(event);
+    void createPrettyPrinter({ color: false, unicode: true, ...plain.writers }).print(event);
+
+    expect(colored.stdout[0]).toContain("\u001b[");
+    const ansiStyle = new RegExp(`${String.fromCodePoint(27)}\\[[0-9;]*m`, "g");
+    expect(colored.stdout[0]!.replaceAll(ansiStyle, "")).toBe("●  1.2.3\n");
+    expect(plain.stdout).toEqual(["●  1.2.3\n"]);
+  });
+});
+
+describe("undecorated compatibility printers", () => {
+  it("keeps consolePrinter and createStreamPrinter free of pretty decoration", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const streamOutput = memoryWriters();
+    const event: PrintEvent = { type: "version", version: "1.2.3" };
+
+    void consolePrinter.print(event);
+    void createStreamPrinter(streamOutput.writers).print(event);
+
+    expect(log).toHaveBeenCalledWith("1.2.3");
+    expect(streamOutput.stdout).toEqual(["1.2.3\n"]);
+    expect(streamOutput.stderr).toEqual([]);
+  });
+});
+
+describe("JSON printer", () => {
+  it("writes one parseable, undecorated line per semantic event to its documented stream", () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const printer = createJsonPrinter({
+      stdout: { write: (value) => void stdout.push(value) },
+      stderr: { write: (value) => void stderr.push(value) },
+    });
+    const events: PrintEvent[] = [
+      {
+        type: "usage",
+        usage: {
+          name: "tool",
+          synopsis: "tool [OPTIONS]",
+          arguments: [],
+          options: [],
+          commands: [],
+        },
+        text: "\u001b[31mUSAGE\u001b[0m tool",
+        stream: "stdout",
+      },
+      { type: "version", version: "1.2.3" },
+      {
+        type: "log",
+        record: {
+          level: "info",
+          kind: "success",
+          category: ["tool"],
+          message: "done",
+          rawMessage: "done",
+          properties: { count: 2 },
+          timestamp: 1,
+        },
+      },
+      {
+        type: "log",
+        record: {
+          level: "warning",
+          kind: "message",
+          category: ["tool"],
+          message: "careful",
+          rawMessage: "careful",
+          properties: {},
+          timestamp: 2,
+        },
+      },
+      { type: "error", error: { kind: "error", name: "Error", message: "failed" } },
+      {
+        type: "usage",
+        usage: {
+          name: "tool",
+          synopsis: "tool [OPTIONS]",
+          arguments: [],
+          options: [],
+          commands: [],
+        },
+        text: "USAGE tool",
+        stream: "stderr",
+      },
+    ];
+
+    for (const event of events) void printer.print(event);
+
+    expect(stdout).toHaveLength(3);
+    expect(stderr).toHaveLength(3);
+    for (const line of [...stdout, ...stderr]) {
+      expect(line.endsWith("\n")).toBe(true);
+      expect(line.trim().split("\n")).toHaveLength(1);
+      expect(line).not.toContain("\u001b");
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+    expect(JSON.parse(stdout[0]!)).toMatchObject({ type: "usage", text: "USAGE tool" });
+    expect(JSON.parse(stderr[0]!)).toMatchObject({
+      type: "log",
+      record: { level: "warning", properties: {} },
+    });
+  });
+
+  it("normalizes cycles, BigInt, Error causes, unsupported values, and hostile properties", () => {
+    const lines: string[] = [];
+    const printer = createJsonPrinter({
+      stdout: { write: (value) => void lines.push(value) },
+    });
+    const cycle: Record<string, unknown> = { big: 12n, missing: undefined };
+    cycle.self = cycle;
+    Object.defineProperty(cycle, "hostile", {
+      enumerable: true,
+      get() {
+        throw new Error("no access");
+      },
+    });
+    const cause = new Error("root");
+    const failure = new Error("outer", { cause });
+    (cause as Error & { cause?: unknown }).cause = failure;
+
+    void printer.print({
+      type: "log",
+      record: {
+        level: "info",
+        kind: "message",
+        category: [],
+        message: "values",
+        rawMessage: "values",
+        properties: { cycle, failure, fn: vi.fn(), symbol: Symbol("value") },
+        timestamp: Number.NaN,
+      },
+    });
+
+    const parsed = JSON.parse(lines[0]!);
+    expect(parsed.record).toMatchObject({
+      timestamp: null,
+      properties: {
+        cycle: {
+          big: "12",
+          missing: "[undefined]",
+          self: "[Circular]",
+          hostile: "[Unserializable]",
+        },
+        failure: { name: "Error", message: "outer", cause: { message: "root" } },
+        fn: "[function:Mock]",
+        symbol: "[symbol:value]",
+      },
+    });
+    expect(parsed.record.properties.failure.cause.cause).toBe("[Circular]");
+  });
+
+  it("normalizes URL, Buffer, typed arrays, toJSON, ANSI keys, and properties independently", () => {
+    const lines: string[] = [];
+    const printer = createJsonPrinter({ stdout: { write: (value) => void lines.push(value) } });
+    const failure = Object.assign(new Error("partial"), { safe: "kept" });
+    Object.defineProperty(failure, "hostile", {
+      enumerable: true,
+      get() {
+        throw new Error("no access");
+      },
+    });
+    const throwingToJSON = {
+      safe: "still here",
+      toJSON() {
+        throw new Error("no JSON");
+      },
+    };
+
+    void printer.print({
+      type: "log",
+      record: {
+        level: "info",
+        kind: "message",
+        category: [],
+        message: "values",
+        rawMessage: "values",
+        properties: {
+          url: new URL("https://example.com/path?q=1"),
+          buffer: Buffer.from([1, 2, 255]),
+          typed: new Uint16Array([3, 65_535]),
+          custom: { toJSON: () => ({ answer: 42, error: new Error("from toJSON") }) },
+          throwingToJSON,
+          "\u001b[31mcolored\u001b[0m": "\u001b[32mgreen\u001b[0m",
+          failure,
+        },
+        timestamp: 1,
+      },
+    });
+
+    const properties = JSON.parse(lines[0]!).record.properties;
+    expect(properties).toMatchObject({
+      url: "https://example.com/path?q=1",
+      buffer: { type: "Buffer", data: [1, 2, 255] },
+      typed: [3, 65_535],
+      custom: {
+        answer: 42,
+        error: { kind: "error", name: "Error", message: "from toJSON" },
+      },
+      throwingToJSON: { safe: "still here", toJSON: "[function:toJSON]" },
+      colored: "green",
+      failure: {
+        kind: "error",
+        name: "Error",
+        message: "partial",
+        properties: { safe: "kept", hostile: "[Unserializable]" },
+      },
+    });
+    expect(Object.keys(properties)).not.toContain("\u001b[31mcolored\u001b[0m");
+  });
+
+  it("keeps a parseable event line when an exotic value resists inspection", () => {
+    const lines: string[] = [];
+    const printer = createJsonPrinter({ stdout: { write: (value) => void lines.push(value) } });
+    const hostile = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error("no prototype");
+        },
+      },
+    );
+
+    void printer.print({
+      type: "log",
+      record: {
+        level: "info",
+        kind: "message",
+        category: [],
+        message: "hostile",
+        rawMessage: "hostile",
+        properties: { hostile },
+        timestamp: 1,
+      },
+    });
+
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      type: "log",
+      record: { properties: { hostile: "[Unserializable]" } },
+    });
+  });
+});

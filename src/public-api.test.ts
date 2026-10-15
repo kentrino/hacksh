@@ -1,7 +1,35 @@
 import { describe, expect, expectTypeOf, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import * as mini from "zod/mini";
-import { defineCommand, parseArgs, renderUsage, showUsage, ZittyValidationError } from "./index.ts";
+import {
+  defineCommand,
+  HackshPromptError,
+  createPrettyPrinter,
+  parseArgs,
+  renderUsage,
+  showUsage,
+  summarizeUsage,
+  ZittyValidationError,
+  type Printer,
+  type Logger,
+  type HackshErrorKind,
+  type LogKind,
+  type LogLevel,
+  type LogPrintEvent,
+  type LogProperties,
+  type LogRecord,
+  type OutputMode,
+  type OutputPreference,
+  type PrettyPrinterOptions,
+  type PrintEvent,
+  type PromptPrintEvent,
+  type PromptState,
+  type RunCommandOptions,
+  type RunMainOptions,
+  type TerminalInput,
+  type TerminalOutput,
+  type ShowUsageOptions,
+} from "./index.ts";
 
 describe("public parsing API", () => {
   it("returns only validated zod output and awaits async validation", async () => {
@@ -87,7 +115,100 @@ describe("public parsing API", () => {
   });
 });
 
+describe("public logger API", () => {
+  it("infers logger types on the command context and print event", () => {
+    defineCommand({
+      run({ logger }) {
+        expectTypeOf(logger).toEqualTypeOf<Logger>();
+        expectTypeOf(logger.category).toEqualTypeOf<readonly string[]>();
+        expectTypeOf<Logger["info"]>().parameter(0).toEqualTypeOf<string>();
+        expectTypeOf<Logger["info"]>().parameter(1).toEqualTypeOf<LogProperties | undefined>();
+        expectTypeOf<Logger["error"]>().parameter(0).toEqualTypeOf<string | Error>();
+        expectTypeOf(logger.with({ requestId: "1" })).toEqualTypeOf<Logger>();
+        expectTypeOf(logger.getChild("child")).toEqualTypeOf<Logger>();
+        expectTypeOf(
+          logger.select({
+            message: "Environment",
+            options: [{ value: "staging" }, { value: "production" }] as const,
+          }),
+        ).toEqualTypeOf<Promise<"staging" | "production">>();
+        expectTypeOf(logger.confirm({ message: "Continue?" })).toEqualTypeOf<Promise<boolean>>();
+        expectTypeOf(logger.text({ message: "Name" })).toEqualTypeOf<Promise<string>>();
+      },
+    });
+
+    expectTypeOf<LogLevel>().toEqualTypeOf<
+      "trace" | "debug" | "info" | "warning" | "error" | "fatal"
+    >();
+    expectTypeOf<LogKind>().toEqualTypeOf<"message" | "step" | "success">();
+    expectTypeOf<HackshErrorKind>().toEqualTypeOf<
+      "error" | "prompt" | "usage" | "validation" | "thrown"
+    >();
+    expectTypeOf<LogPrintEvent["record"]>().toEqualTypeOf<LogRecord>();
+    expectTypeOf<PromptPrintEvent>().toMatchTypeOf<PrintEvent>();
+    expectTypeOf<RunCommandOptions["stdin"]>().toEqualTypeOf<TerminalInput | undefined>();
+    const inspectPrompt = (state: PromptState): void => {
+      if (state.kind === "select") expectTypeOf(state.value).toEqualTypeOf<string>();
+      else if (state.kind === "confirm") expectTypeOf(state.value).toEqualTypeOf<boolean>();
+      else expectTypeOf(state.value).toEqualTypeOf<string>();
+    };
+    expectTypeOf(inspectPrompt).toBeFunction();
+    expectTypeOf(
+      new HackshPromptError("cancelled", { kind: "text", message: "Name" }, "no"),
+    ).toMatchTypeOf<Error>();
+  });
+});
+
 describe("public usage API", () => {
+  it("emits direct usage through a typed printer", async () => {
+    const print = vi.fn<Printer["print"]>();
+    const printer: Printer = { print };
+    const command = defineCommand({ name: "tool" });
+
+    expectTypeOf<RunCommandOptions["printer"]>().toEqualTypeOf<Printer | undefined>();
+    expectTypeOf<RunMainOptions["printer"]>().toEqualTypeOf<Printer | undefined>();
+    await showUsage(command, { printer, stream: "stderr" });
+
+    expect(print).toHaveBeenCalledWith({
+      type: "usage",
+      usage: expect.objectContaining({ name: "tool", synopsis: "tool [OPTIONS]" }),
+      text: expect.stringContaining("USAGE tool"),
+      stream: "stderr",
+    });
+    const event = print.mock.calls[0]![0] as PrintEvent;
+    expect(event).not.toHaveProperty("command");
+    if (event.type === "usage") {
+      expect(event.usage).toEqual({
+        name: "tool",
+        heading: "tool",
+        synopsis: "tool [OPTIONS]",
+        arguments: [],
+        options: [],
+        commands: [],
+      });
+    }
+  });
+
+  it("exposes stable output selection contracts", () => {
+    expectTypeOf<RunCommandOptions["output"]>().toEqualTypeOf<OutputPreference | undefined>();
+    expectTypeOf<RunMainOptions["output"]>().toEqualTypeOf<OutputPreference | undefined>();
+    expectTypeOf<OutputMode>().toEqualTypeOf<{
+      format: "pretty" | "json";
+      interactive: boolean;
+      color: boolean;
+    }>();
+    expectTypeOf<RunCommandOptions["unicode"]>().toEqualTypeOf<boolean | undefined>();
+    expectTypeOf<PrettyPrinterOptions>().toEqualTypeOf<{
+      color: boolean;
+      unicode: boolean;
+      stdout?: TerminalOutput;
+      stderr?: { write(text: string): unknown };
+    }>();
+    expectTypeOf(createPrettyPrinter).parameter(0).toEqualTypeOf<PrettyPrinterOptions>();
+    expectTypeOf<ShowUsageOptions["output"]>().toEqualTypeOf<OutputPreference | undefined>();
+    expectTypeOf<ShowUsageOptions["unicode"]>().toEqualTypeOf<boolean | undefined>();
+  });
+
   it("omits hidden subcommands from parent and nested listings", async () => {
     const group = defineCommand({
       subCommands: {
@@ -188,6 +309,42 @@ describe("public usage API", () => {
     expect(usage).toContain("INPUT...  Input files (Choices: txt, md)");
     expect(usage).toContain("--format=<FORMAT>  Output format (Choices: json, yaml)");
     expect(usage).toContain("--no-overwrite  Keep existing files");
+    expect(summarizeUsage(command)).toMatchObject({
+      name: "convert",
+      synopsis: "convert [OPTIONS] <SIZE> [INPUT...]",
+      arguments: [
+        {
+          name: "SIZE",
+          required: true,
+          variadic: false,
+          description: "Item size",
+          choices: ["small", "large"],
+        },
+        {
+          name: "INPUT",
+          required: false,
+          variadic: true,
+          description: "Input files",
+          choices: ["txt", "md"],
+        },
+      ],
+      options: [
+        {
+          name: "format",
+          flags: ["--format"],
+          takesValue: true,
+          valueName: "FORMAT",
+          choices: ["json", "yaml"],
+        },
+        {
+          name: "overwrite",
+          flags: ["--overwrite"],
+          takesValue: false,
+          defaultValue: false,
+          negatedDescription: "Keep existing files",
+        },
+      ],
+    });
   });
 
   it.each([
@@ -245,10 +402,30 @@ describe("public usage API", () => {
     expect(written).toEqual([text]);
   });
 
-  it("writes to console.log by default", async () => {
+  it("uses automatic pretty output for standalone help", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    await showUsage(defineCommand({ name: "tool" }));
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("USAGE tool"));
+    await showUsage(defineCommand({ name: "tool" }), { env: {} });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("◆  tool\n│\n│  USAGE tool"));
+  });
+
+  it.each([
+    ["CI", { CI: "1" }, undefined],
+    ["HACKSH_OUTPUT", { HACKSH_OUTPUT: "json" }, "pretty"],
+  ] as const)("selects standalone JSON help through %s", async (_name, env, output) => {
+    const stdout: string[] = [];
+    await showUsage(defineCommand({ name: "tool" }), {
+      env,
+      output,
+      stdout: { isTTY: true, write: (text) => void stdout.push(text) },
+    });
+
+    expect(stdout).toHaveLength(1);
+    expect(JSON.parse(stdout[0]!)).toMatchObject({
+      type: "usage",
+      usage: { name: "tool", synopsis: "tool [OPTIONS]" },
+      stream: "stdout",
+    });
+    expect(stdout[0]).not.toContain(`${String.fromCodePoint(27)}[`);
   });
 
   it.each(["NO_COLOR", "CI"])(
