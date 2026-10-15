@@ -1,7 +1,7 @@
 ---
 id: terminal-output-03-output-mode
 phase: 3
-status: working
+status: done
 depends_on: ["terminal-output-02-logger"]
 ---
 
@@ -9,7 +9,7 @@ depends_on: ["terminal-output-02-logger"]
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `0019-output-format-selection` issue and designs.
 
-Current state: worker `s-terminal-output-03`, pane `w2P:pP`, session `01a13f15-9f63-7cb1-9ba6-069a8c304efb`; reviewer `c-review-terminal-output-03`, pane `w2P:pQ`, session `ecab4332-f6b8-405e-bd47-f371e3313656`; corrections R7–R8 committed at `8d01c6f`; next action: re-review. Blockers: none.
+Current state: accepted at `cd49203`; next action: issue 04. Blockers: none. Worker `s-terminal-output-03` (session `01a13f15-9f63-7cb1-9ba6-069a8c304efb`) and reviewer `c-review-terminal-output-03` (session `ecab4332-f6b8-405e-bd47-f371e3313656`) completed.
 
 ## Scope and decisions
 
@@ -19,10 +19,10 @@ Ownership: related source modules, tests and public documentation for this respo
 
 ## Acceptance criteria
 
-- [ ] AC1: Mode priority, CI, TTY, NO_COLOR and invalid settings behave as documented; verify matrix tests and early-error paths. (plan: layers / `0019-output-format-selection`).
-- [ ] AC2: All event kinds serialize as parseable JSON lines without ANSI; preserve structured usage and error information and robust unknown property serialization; verify tests. (plan: layers / `0019-output-format-selection`).
-- [ ] AC3: No argument namespace changes and run code is identical across formats; verify behavior/type tests. (plan: layers / `0019-output-format-selection`).
-- [ ] Review: correctness and quality review accepted; corrections verified.
+- [x] AC1: Mode priority, CI, TTY, NO_COLOR and invalid settings behave as documented; verify matrix tests and early-error paths. (plan: layers / `0019-output-format-selection`).
+- [x] AC2: All event kinds serialize as parseable JSON lines without ANSI; preserve structured usage and error information and robust unknown property serialization; verify tests. (plan: layers / `0019-output-format-selection`).
+- [x] AC3: No argument namespace changes and run code is identical across formats; verify behavior/type tests. (plan: layers / `0019-output-format-selection`).
+- [x] Review: correctness and quality review accepted; corrections verified.
 
 ## Evidence
 
@@ -134,7 +134,7 @@ Deno reported `2.7.14`. Committing produced tree
 - `pnpm build`: passed; ESM JavaScript, source map, and bundled declarations were
   emitted for target Node 22.18.0.
 - `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node
-  pnpm test:packed`: passed; packed Node 22.18.0 and Deno consumers passed.
+pnpm test:packed`: passed; packed Node 22.18.0 and Deno consumers passed.
 - `git diff --check && git diff --cached --check`: passed on the correction
   validation snapshot.
 
@@ -142,3 +142,9 @@ R7 limits error-summary traversal to Errors, arrays, Maps/Sets and plain objects
 ArrayBuffer views, class instances, and values with `toJSON` pass unchanged to the
 JSON normalizer. R8 renders the invalid-setting exit status as status code `1`
 without creating an accidental Markdown list item.
+
+## Acceptance
+
+Parent inspected committed mode-matrix, JSON/event, type, invocation and process-test evidence for AC1–AC3. Reviewer accepted full `43cdf76..cd49203` scope, with no remaining findings after independent Node v24.15.0 probes. Nested validation errors retain canonical data without command/schema leakage, including errors held inside preserved class instances at JSON serialization time. Custom printers preserve non-plain class instances (and may therefore encounter raw nested errors there); JSON normalization remains canonical. The supported contracts and tests cover this deliberate boundary.
+
+Final source validation: 134 tests, check, build, Node 22.18.0/Deno packed consumers passed; prior CI run of 133 tests covers unchanged mode behavior, and final integration owns a fresh full CI check. Correction regressions are committed in run/printer/process/public API tests. Issue 01's temporary raw event contracts and issue 02's raw Error properties are now superseded by the structured summary APIs documented here.

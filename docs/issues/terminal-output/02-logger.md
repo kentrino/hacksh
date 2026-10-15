@@ -78,3 +78,5 @@ threshold or verbose flag. No unresolved worker items remain pending re-review.
 ## Acceptance
 
 Parent inspected committed logger/runtime/type coverage and correction evidence for AC1–AC2. Reviewer accepted full `bcc9829..5cb1a78` scope after independently rerunning coercion probes on Node v24.15.0: both formerly throwing values yield unchanged placeholders, preserving records and return behavior. No required findings remain. Final source validation: 103 tests, check, build and Node 22.18.0/Deno packed consumers passed; evidence above identifies source snapshots and committed repeatable tests.
+
+Contract evolution: issue 03 (`cd49203`) canonicalizes Error values for structured output while preserving non-plain instances for JSON normalization. Earlier raw Error identity evidence is historical; current regression coverage asserts canonical summaries and preserved ordinary data/return identity. AC1–AC2 remain covered by the current 134-test suite and issue 03 review.
