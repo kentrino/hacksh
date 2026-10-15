@@ -136,6 +136,7 @@ export class PromptController implements Prompter {
     initial: PromptState,
     accept: (character: string, key: Key) => T | undefined,
     update: (character: string, key: Key) => PromptState | undefined,
+    submitted: (value: T) => PromptState,
   ): Promise<T> {
     if (!this.#interactive) {
       throw promptError(
@@ -165,6 +166,7 @@ export class PromptController implements Prompter {
         const keypressInput = new PassThrough();
         emitKeypressEvents(keypressInput);
         let settled = false;
+        let keypressQueue = Promise.resolve();
         const finish = (action: () => void): void => {
           if (settled) return;
           settled = true;
@@ -174,7 +176,11 @@ export class PromptController implements Prompter {
         const fail = (reason: HackshPromptErrorReason, message: string, cause?: unknown): void => {
           finish(() => reject(promptError(reason, prompt, message, cause)));
         };
-        const onKeypress = (character: string | undefined, key: Key = {}): void => {
+        const handleKeypress = async (
+          character: string | undefined,
+          key: Key = {},
+        ): Promise<void> => {
+          if (settled) return;
           if ((key.ctrl && key.name === "c") || key.name === "escape") {
             fail("cancelled", "Prompt cancelled");
             return;
@@ -190,11 +196,14 @@ export class PromptController implements Prompter {
               return;
             }
             const state = update(character ?? "", key);
-            if (state)
-              void this.#print(state, prompt).catch((error) => finish(() => reject(error)));
+            if (state) await this.#print(state, prompt);
           } catch (cause) {
-            fail("input-error", "Prompt input could not be processed", cause);
+            if (cause instanceof HackshPromptError) finish(() => reject(cause));
+            else fail("input-error", "Prompt input could not be processed", cause);
           }
+        };
+        const onKeypress = (character: string | undefined, key: Key = {}): void => {
+          keypressQueue = keypressQueue.then(() => handleKeypress(character, key));
         };
         const onEnd = (): void => fail("eof", "Prompt input ended before a value was submitted");
         const onError = (cause: unknown): void => fail("input-error", "Prompt input failed", cause);
@@ -243,7 +252,13 @@ export class PromptController implements Prompter {
     this.#active = false;
     if (restoreError) throw restoreError;
     if (!outcome.ok) throw outcome.error;
-    return outcome.value;
+    this.#active = true;
+    try {
+      await this.#print(submitted(outcome.value), prompt);
+      return outcome.value;
+    } finally {
+      this.#active = false;
+    }
   }
 
   async select<const T extends string>(options: SelectOptions<T>): Promise<T> {
@@ -313,8 +328,8 @@ export class PromptController implements Prompter {
           options.options.length;
         return state();
       },
+      () => state("submitted"),
     );
-    await this.#print(state("submitted"), prompt);
     return value;
   }
 
@@ -348,9 +363,11 @@ export class PromptController implements Prompter {
         else return undefined;
         return state();
       },
+      (result) => {
+        value = result;
+        return state("submitted");
+      },
     );
-    value = result;
-    await this.#print(state("submitted"), prompt);
     return result;
   }
 
@@ -405,8 +422,8 @@ export class PromptController implements Prompter {
         else return undefined;
         return state();
       },
+      () => state("submitted"),
     );
-    await this.#print(state("submitted"), prompt);
     return result;
   }
 }
