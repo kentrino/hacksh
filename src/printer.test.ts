@@ -5,10 +5,12 @@ describe("output mode", () => {
   it.each([
     ["auto outside CI on terminals", {}, "auto", true, true, ["pretty", true, true]],
     ["auto in CI", { CI: "1" }, "auto", true, true, ["json", false, false]],
+    ["auto with non-empty false CI", { CI: "false" }, "auto", true, true, ["json", false, false]],
     ["auto through a pipe", {}, "auto", true, false, ["pretty", false, false]],
     ["explicit JSON", {}, "json", true, true, ["json", false, false]],
     ["explicit pretty in CI", { CI: "1" }, "pretty", true, true, ["pretty", false, true]],
-    ["NO_COLOR presence", { NO_COLOR: "" }, "pretty", true, true, ["pretty", true, false]],
+    ["empty NO_COLOR", { NO_COLOR: "" }, "pretty", true, true, ["pretty", true, true]],
+    ["non-empty NO_COLOR", { NO_COLOR: "1" }, "pretty", true, true, ["pretty", true, false]],
     ["input is not a TTY", {}, "pretty", false, true, ["pretty", false, true]],
   ] as const)("resolves %s", (_name, env, output, inputIsTTY, outputIsTTY, expected) => {
     expect(resolveOutputMode({ env, output, inputIsTTY, outputIsTTY })).toEqual({
@@ -100,7 +102,7 @@ describe("JSON printer", () => {
           timestamp: 2,
         },
       },
-      { type: "error", error: { name: "Error", message: "failed" } },
+      { type: "error", error: { kind: "error", name: "Error", message: "failed" } },
       {
         type: "usage",
         usage: {
@@ -178,6 +180,62 @@ describe("JSON printer", () => {
       },
     });
     expect(parsed.record.properties.failure.cause.cause).toBe("[Circular]");
+  });
+
+  it("normalizes URL, Buffer, typed arrays, toJSON, ANSI keys, and properties independently", () => {
+    const lines: string[] = [];
+    const printer = createJsonPrinter({ stdout: { write: (value) => void lines.push(value) } });
+    const failure = Object.assign(new Error("partial"), { safe: "kept" });
+    Object.defineProperty(failure, "hostile", {
+      enumerable: true,
+      get() {
+        throw new Error("no access");
+      },
+    });
+    const throwingToJSON = {
+      safe: "still here",
+      toJSON() {
+        throw new Error("no JSON");
+      },
+    };
+
+    void printer.print({
+      type: "log",
+      record: {
+        level: "info",
+        kind: "message",
+        category: [],
+        message: "values",
+        rawMessage: "values",
+        properties: {
+          url: new URL("https://example.com/path?q=1"),
+          buffer: Buffer.from([1, 2, 255]),
+          typed: new Uint16Array([3, 65_535]),
+          custom: { toJSON: () => ({ answer: 42 }) },
+          throwingToJSON,
+          "\u001b[31mcolored\u001b[0m": "\u001b[32mgreen\u001b[0m",
+          failure,
+        },
+        timestamp: 1,
+      },
+    });
+
+    const properties = JSON.parse(lines[0]!).record.properties;
+    expect(properties).toMatchObject({
+      url: "https://example.com/path?q=1",
+      buffer: { type: "Buffer", data: [1, 2, 255] },
+      typed: [3, 65_535],
+      custom: { answer: 42 },
+      throwingToJSON: { safe: "still here", toJSON: "[function:toJSON]" },
+      colored: "green",
+      failure: {
+        kind: "error",
+        name: "Error",
+        message: "partial",
+        properties: { safe: "kept", hostile: "[Unserializable]" },
+      },
+    });
+    expect(Object.keys(properties)).not.toContain("\u001b[31mcolored\u001b[0m");
   });
 
   it("keeps a parseable event line when an exotic value resists inspection", () => {

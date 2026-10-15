@@ -1,4 +1,5 @@
 import type { Printer } from "./printer.ts";
+import { summarizeErrors } from "./errors.ts";
 
 export type LogLevel = "trace" | "debug" | "info" | "warning" | "error" | "fatal";
 
@@ -56,6 +57,7 @@ function createBoundLogger(
     const rawMessage = input instanceof Error ? input.message : input;
     const mergedProperties = { ...boundProperties, ...properties };
     if (input instanceof Error) mergedProperties.error = input;
+    const summarizedProperties = summarizeErrors(mergedProperties) as LogProperties;
 
     void printer.print({
       type: "log",
@@ -65,7 +67,7 @@ function createBoundLogger(
         category,
         message: interpolate(rawMessage, mergedProperties),
         rawMessage,
-        properties: mergedProperties,
+        properties: summarizedProperties,
         timestamp: Date.now(),
       },
     });

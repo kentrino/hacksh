@@ -3,9 +3,11 @@ import { z } from "zod";
 import {
   createMain,
   defineCommand,
+  parseArgs,
   runCommand,
   runMain,
   ZittyUsageError,
+  ZittyValidationError,
   type CommandDef,
   type Logger,
   type LogRecord,
@@ -237,7 +239,7 @@ describe("run logger", () => {
     expect(records[1]?.properties.value).toBe(throwingValue);
   });
 
-  it("retains Error inputs as structured properties", async () => {
+  it("retains Error inputs as canonical structured properties", async () => {
     const records: LogRecord[] = [];
     const failure = new Error("connection lost", { cause: new Error("socket closed") });
     const command = defineCommand({
@@ -258,9 +260,64 @@ describe("run logger", () => {
       level: "error",
       message: "connection lost",
       rawMessage: "connection lost",
-      properties: { requestId: "req-1", retryable: true, error: failure },
+      properties: {
+        requestId: "req-1",
+        retryable: true,
+        error: {
+          kind: "error",
+          name: "Error",
+          message: "connection lost",
+          cause: { kind: "error", name: "Error", message: "socket closed" },
+        },
+      },
     });
-    expect(records[0]?.properties.error).toBe(failure);
+    expect(records[0]?.properties.error).not.toBe(failure);
+  });
+
+  it("canonically summarizes actual validation errors in log properties and nested causes", async () => {
+    const invalid = defineCommand({
+      name: "invalid",
+      args: z.object({ count: z.number() }),
+    });
+    const validation = await parseArgs(invalid, ["--count", "nope"]).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(validation).toBeInstanceOf(ZittyValidationError);
+    const outer = new Error("outer", { cause: validation });
+    (validation as ZittyValidationError & { related: Error }).related = outer;
+
+    const events: PrintEvent[] = [];
+    await runCommand(
+      defineCommand({
+        run({ logger }) {
+          logger.info("validation", { validation });
+        },
+      }),
+      [],
+      { printer: { print: (event) => void events.push(event) } },
+    );
+
+    const log = events[0];
+    expect(log).toMatchObject({
+      type: "log",
+      record: {
+        properties: {
+          validation: {
+            kind: "validation",
+            name: "ZittyValidationError",
+            issues: [{ arg: "--count", code: "invalid_type" }],
+          },
+        },
+      },
+    });
+    if (log?.type !== "log") throw new Error("Expected a log event");
+    const summary = log.record.properties.validation as {
+      properties: { related: { cause: unknown } };
+    };
+    expect(summary).not.toHaveProperty("command");
+    expect(summary.properties.related.cause).toBe(summary);
+    expect(summary).not.toHaveProperty("issues.0.issue.inst");
   });
 
   it("serializes log writes and drains them before preserving the run result", async () => {
@@ -617,6 +674,102 @@ describe("help and version", () => {
 });
 
 describe("runMain", () => {
+  it("reports invalid output through a dedicated JSON error printer and never runs", async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const run = vi.fn();
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    await expect(
+      runMain(defineCommand({ run }), {
+        argv: [],
+        output: "YAML" as "json",
+        env: {},
+        stdout: { isTTY: true, write: (value) => void stdout.push(value) },
+        stderr: { write: (value) => void stderr.push(value) },
+      }),
+    ).rejects.toThrow("exit:1");
+
+    expect(run).not.toHaveBeenCalled();
+    expect(stdout).toEqual([]);
+    expect(stderr).toHaveLength(1);
+    expect(JSON.parse(stderr[0]!)).toMatchObject({
+      type: "error",
+      error: { kind: "error", name: "TypeError", message: expect.stringContaining("YAML") },
+    });
+  });
+
+  it("reports invalid output through a supplied printer", async () => {
+    const events: PrintEvent[] = [];
+    const sequence: string[] = [];
+    const run = vi.fn();
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      sequence.push(`exit:${code}`);
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    await expect(
+      runMain(defineCommand({ run }), {
+        argv: [],
+        env: { HACKSH_OUTPUT: "JSON" },
+        printer: {
+          async print(event) {
+            sequence.push("print:start");
+            await Promise.resolve();
+            events.push(event);
+            sequence.push("print:end");
+          },
+        },
+      }),
+    ).rejects.toThrow("exit:1");
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toMatchObject([{ type: "error", error: { kind: "error", name: "TypeError" } }]);
+    expect(sequence).toEqual(["print:start", "print:end", "exit:1"]);
+  });
+
+  it("hands invalid output to onError without executing or default reporting", async () => {
+    const events: PrintEvent[] = [];
+    const run = vi.fn();
+    const onError = vi.fn();
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    await expect(
+      runMain(defineCommand({ run }), {
+        argv: [],
+        output: "yaml" as "json",
+        env: {},
+        printer: { print: (event) => void events.push(event) },
+        onError,
+      }),
+    ).rejects.toThrow("exit:1");
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+    expect(onError).toHaveBeenCalledWith(expect.any(TypeError));
+  });
+
+  it("preserves an onError rejection for invalid output without forcing exit", async () => {
+    const exit = vi.spyOn(process, "exit");
+    const run = vi.fn();
+    const reportingFailure = new Error("reporting failed");
+
+    await expect(
+      runMain(defineCommand({ run }), {
+        output: "yaml" as "json",
+        env: {},
+        onError: async () => Promise.reject(reportingFailure),
+      }),
+    ).rejects.toBe(reportingFailure);
+
+    expect(run).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+  });
+
   it("uses the resolved JSON mode for routing and validation errors before run", async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
@@ -736,15 +889,62 @@ describe("runMain", () => {
     expect(events[0]).toMatchObject({
       type: "error",
       error: {
+        kind: "error",
         name: "Error",
         message: "boom",
-        cause,
+        cause: { kind: "error", name: "Error", message: "root cause" },
         properties: { code: "E_BOOM", retryable: false },
       },
     });
     expect(events[0]).not.toHaveProperty("message");
     expect(events[0]).not.toHaveProperty("error.command");
     expect(events[0]).not.toHaveProperty("error", failure);
+  });
+
+  it("summarizes an actual validation error used as a cause without schema leakage", async () => {
+    const invalid = defineCommand({
+      name: "invalid",
+      args: z.object({ count: z.number() }),
+      run: vi.fn(),
+    });
+    const validation = await parseArgs(invalid, ["--count", "nope"]).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(validation).toBeInstanceOf(ZittyValidationError);
+    const failure = new Error("wrapped", { cause: validation });
+    (validation as ZittyValidationError & { related: Error }).related = failure;
+    const events: PrintEvent[] = [];
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("stopped");
+    }) as never);
+
+    await expect(
+      runMain(
+        defineCommand({
+          run() {
+            throw failure;
+          },
+        }),
+        { argv: [], printer: { print: (event) => void events.push(event) } },
+      ),
+    ).rejects.toThrow("stopped");
+
+    const event = events[0];
+    if (event?.type !== "error") throw new Error("Expected an error event");
+    expect(event.error).toMatchObject({
+      kind: "error",
+      cause: {
+        kind: "validation",
+        issues: [{ arg: "--count", code: "invalid_type" }],
+      },
+    });
+    const cause = event.error.cause as {
+      properties: { related: { cause: unknown } };
+    };
+    expect(cause).not.toHaveProperty("command");
+    expect(cause.properties.related).toBe(event.error);
+    expect(cause).not.toHaveProperty("issues.0.details.inst");
   });
 
   it("propagates a printer rejection on a successful main invocation", async () => {
@@ -935,5 +1135,44 @@ describe("runMain", () => {
       ),
     ).rejects.toThrow("stopped");
     expect(error).toHaveBeenCalledWith("Error: boom");
+  });
+
+  it("uses error kind rather than class names for historical text prefixes", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("stopped");
+    }) as never);
+
+    class RenamedUsageError extends ZittyUsageError {
+      override name = "RenamedUsageError";
+    }
+    const usageCommand = defineCommand({ name: "tool" });
+    await expect(
+      runMain(
+        defineCommand({
+          run() {
+            throw new RenamedUsageError("usage failed", usageCommand);
+          },
+        }),
+        { argv: [], output: "pretty", env: {} },
+      ),
+    ).rejects.toThrow("stopped");
+    expect(error).toHaveBeenCalledWith("usage failed");
+    expect(error).not.toHaveBeenCalledWith("Error: usage failed");
+
+    error.mockClear();
+    const pretender = new Error("ordinary failed");
+    pretender.name = "ZittyPretender";
+    await expect(
+      runMain(
+        defineCommand({
+          run() {
+            throw pretender;
+          },
+        }),
+        { argv: [], output: "pretty", env: {} },
+      ),
+    ).rejects.toThrow("stopped");
+    expect(error).toHaveBeenCalledWith("Error: ordinary failed");
   });
 });

@@ -30,6 +30,8 @@ export class ZittyValidationError extends ZittyUsageError {
   }
 }
 
+export type HackshErrorKind = "error" | "usage" | "validation" | "thrown";
+
 export interface ValidationIssueSummary {
   arg: string;
   message: string;
@@ -39,6 +41,7 @@ export interface ValidationIssueSummary {
 }
 
 export interface HackshErrorSummary {
+  kind: HackshErrorKind;
   name: string;
   message: string;
   stack?: string;
@@ -48,49 +51,154 @@ export interface HackshErrorSummary {
   value?: unknown;
 }
 
-function summarizeIssue({ arg, message, issue }: ZittyIssue): ValidationIssueSummary {
+function safeString(value: unknown, fallback: string): string {
+  try {
+    return String(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function readProperty(value: object, key: PropertyKey): unknown {
+  try {
+    return Reflect.get(value, key);
+  } catch {
+    return "[Unserializable]";
+  }
+}
+
+function enumerableKeys(value: object): string[] {
+  try {
+    return Object.keys(value);
+  } catch {
+    return [];
+  }
+}
+
+function summarizeIssue(
+  { arg, message, issue }: ZittyIssue,
+  seen: WeakMap<object, unknown>,
+): ValidationIssueSummary {
   if (!issue) return { arg, message };
   const details: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(issue)) {
+  for (const key of enumerableKeys(issue)) {
     if (["code", "path", "message", "inst"].includes(key)) continue;
-    details[key] = value;
+    details[key] = summarizeErrors(readProperty(issue, key), seen);
   }
+  const code = readProperty(issue, "code");
+  const path = readProperty(issue, "path");
   return {
     arg,
     message,
-    ...(typeof issue.code === "string" ? { code: issue.code } : {}),
-    ...(Array.isArray(issue.path) ? { path: issue.path } : {}),
+    ...(typeof code === "string" ? { code } : {}),
+    ...(Array.isArray(path) ? { path } : {}),
     ...(Object.keys(details).length === 0 ? {} : { details }),
   };
 }
 
-/** Convert any thrown value into a command- and schema-free error description. */
-export function summarizeError(error: unknown): HackshErrorSummary {
-  if (!(error instanceof Error)) {
-    let message: string;
-    try {
-      message = String(error);
-    } catch {
-      message = "[Unserializable thrown value]";
-    }
-    return { name: "NonErrorThrown", message, value: error };
+function errorKind(error: Error): HackshErrorKind {
+  if (error instanceof ZittyValidationError) return "validation";
+  if (error instanceof ZittyUsageError) return "usage";
+  return "error";
+}
+
+function summarizeErrorWithSeen(error: Error, seen: WeakMap<object, unknown>): HackshErrorSummary {
+  const summary: HackshErrorSummary = {
+    kind: errorKind(error),
+    name: safeString(readProperty(error, "name"), "Error"),
+    message: safeString(readProperty(error, "message"), "[Unserializable error message]"),
+  };
+  seen.set(error, summary);
+
+  const stack = readProperty(error, "stack");
+  const cause = readProperty(error, "cause");
+  if (typeof stack === "string") summary.stack = stack;
+  if (cause !== undefined) summary.cause = summarizeErrors(cause, seen);
+  if (error instanceof ZittyValidationError) {
+    summary.issues = error.issues.map((issue) => summarizeIssue(issue, seen));
   }
+
   const reserved = new Set(["name", "message", "stack", "cause", "command", "issues"]);
   const properties: Record<string, unknown> = {};
-  for (const key of Object.keys(error)) {
+  for (const key of enumerableKeys(error)) {
     if (reserved.has(key)) continue;
-    try {
-      properties[key] = (error as unknown as Record<string, unknown>)[key];
-    } catch {
-      properties[key] = "[Unserializable]";
-    }
+    properties[key] = summarizeErrors(readProperty(error, key), seen);
   }
+  if (Object.keys(properties).length > 0) summary.properties = properties;
+  return summary;
+}
+
+/** Recursively replace Error values with command- and schema-free summaries. */
+export function summarizeErrors(
+  value: unknown,
+  seen: WeakMap<object, unknown> = new WeakMap(),
+): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const existing = seen.get(value);
+  if (existing !== undefined) return existing;
+  if (value instanceof Error) return summarizeErrorWithSeen(value, seen);
+
+  if (Array.isArray(value)) {
+    const result: unknown[] = [];
+    seen.set(value, result);
+    let changed = false;
+    for (const item of value) {
+      const summarized = summarizeErrors(item, seen);
+      result.push(summarized);
+      changed ||= summarized !== item;
+    }
+    if (changed) return result;
+    seen.set(value, value);
+    return value;
+  }
+  if (value instanceof Map) {
+    const result = new Map<unknown, unknown>();
+    seen.set(value, result);
+    let changed = false;
+    for (const [key, item] of value) {
+      const summarizedKey = summarizeErrors(key, seen);
+      const summarizedItem = summarizeErrors(item, seen);
+      result.set(summarizedKey, summarizedItem);
+      changed ||= summarizedKey !== key || summarizedItem !== item;
+    }
+    if (changed) return result;
+    seen.set(value, value);
+    return value;
+  }
+  if (value instanceof Set) {
+    const result = new Set<unknown>();
+    seen.set(value, result);
+    let changed = false;
+    for (const item of value) {
+      const summarized = summarizeErrors(item, seen);
+      result.add(summarized);
+      changed ||= summarized !== item;
+    }
+    if (changed) return result;
+    seen.set(value, value);
+    return value;
+  }
+  const result: Record<string, unknown> = {};
+  seen.set(value, result);
+  let changed = false;
+  for (const key of enumerableKeys(value)) {
+    const original = readProperty(value, key);
+    const summarized = summarizeErrors(original, seen);
+    result[key] = summarized;
+    changed ||= summarized !== original;
+  }
+  if (changed) return result;
+  seen.set(value, value);
+  return value;
+}
+
+/** Convert any thrown value into a canonical error description. */
+export function summarizeError(error: unknown): HackshErrorSummary {
+  if (error instanceof Error) return summarizeErrorWithSeen(error, new WeakMap());
   return {
-    name: error.name,
-    message: error.message,
-    ...(error.stack === undefined ? {} : { stack: error.stack }),
-    ...(error.cause === undefined ? {} : { cause: error.cause }),
-    ...(error instanceof ZittyValidationError ? { issues: error.issues.map(summarizeIssue) } : {}),
-    ...(Object.keys(properties).length === 0 ? {} : { properties }),
+    kind: "thrown",
+    name: "NonErrorThrown",
+    message: safeString(error, "[Unserializable thrown value]"),
+    value: summarizeErrors(error),
   };
 }

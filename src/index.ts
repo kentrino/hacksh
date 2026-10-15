@@ -1,7 +1,12 @@
 export { defineCommand } from "./command.ts";
 export type { ArgOptions, ArgOptionsMap, CommandContext, CommandDef } from "./command.ts";
 export { ZittyUsageError, ZittyValidationError } from "./errors.ts";
-export type { HackshErrorSummary, ValidationIssueSummary, ZittyIssue } from "./errors.ts";
+export type {
+  HackshErrorKind,
+  HackshErrorSummary,
+  ValidationIssueSummary,
+  ZittyIssue,
+} from "./errors.ts";
 export type { Logger, LogKind, LogLevel, LogProperties, LogRecord } from "./logger.ts";
 export { parseArgs } from "./parser.ts";
 export {

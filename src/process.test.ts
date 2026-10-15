@@ -30,4 +30,22 @@ describe("real process behavior", () => {
     expect(result.stderr).toContain("--count:");
     expect(result.stderr).toContain("USAGE exit-fixture [OPTIONS]");
   });
+
+  it("reports an invalid output environment as one JSON line without executing", () => {
+    const result = spawnSync(process.execPath, ["src/fixtures/exit-cli.ts", "--count", "3"], {
+      encoding: "utf8",
+      env: { ...process.env, HACKSH_OUTPUT: "JSON" },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr.trim().split("\n")).toHaveLength(1);
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      type: "error",
+      error: {
+        kind: "error",
+        name: "TypeError",
+        message: expect.stringContaining("Invalid HACKSH_OUTPUT value JSON"),
+      },
+    });
+  });
 });

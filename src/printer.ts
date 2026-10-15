@@ -1,7 +1,7 @@
 import type { HackshErrorSummary } from "./errors.ts";
 import type { LogRecord } from "./logger.ts";
+import { normalizeJson } from "./serialization.ts";
 import type { UsageSummary } from "./usage.ts";
-import { stripVTControlCharacters } from "node:util";
 
 export type PrintStream = "stdout" | "stderr";
 export type OutputPreference = "auto" | "pretty" | "json";
@@ -18,6 +18,14 @@ export interface ResolveOutputModeOptions {
   env?: Readonly<Record<string, string | undefined>>;
   inputIsTTY?: boolean;
   outputIsTTY?: boolean;
+}
+
+function fallbackValue(value: unknown): string {
+  try {
+    return String(value);
+  } catch {
+    return "[Unserializable]";
+  }
 }
 
 function validatePreference(value: unknown, source: string): OutputPreference | undefined {
@@ -52,7 +60,7 @@ export function resolveOutputMode(options: ResolveOutputModeOptions = {}): Outpu
   return {
     format,
     interactive: format === "pretty" && !ci && inputIsTTY && outputIsTTY,
-    color: format === "pretty" && outputIsTTY && readEnvironment(env, "NO_COLOR") === undefined,
+    color: format === "pretty" && outputIsTTY && !readEnvironment(env, "NO_COLOR"),
   };
 }
 
@@ -86,25 +94,37 @@ export interface Printer {
   print(event: PrintEvent): void | Promise<void>;
 }
 
+function isErrorLevel(level: LogRecord["level"]): boolean {
+  return level === "warning" || level === "error" || level === "fatal";
+}
+
+function eventStream(event: PrintEvent): PrintStream {
+  if (event.type === "error") return "stderr";
+  if (event.type === "usage") return event.stream;
+  if (event.type === "log" && isErrorLevel(event.record.level)) return "stderr";
+  return "stdout";
+}
+
+function formatTextEvent(event: PrintEvent): string {
+  switch (event.type) {
+    case "usage":
+      return event.text;
+    case "version":
+      return event.version;
+    case "error":
+      return event.error.kind === "usage" || event.error.kind === "validation"
+        ? event.error.message
+        : `Error: ${event.error.message}`;
+    case "log":
+      return event.record.message;
+  }
+}
+
 /** The undecorated text printer used for pretty output until presentation is customized. */
 export const consolePrinter: Printer = {
   print(event) {
-    switch (event.type) {
-      case "usage":
-        return event.stream === "stdout" ? console.log(event.text) : console.error(event.text);
-      case "version":
-        return console.log(event.version);
-      case "error":
-        return console.error(
-          event.error.name.startsWith("Zitty")
-            ? event.error.message
-            : `Error: ${event.error.message}`,
-        );
-      case "log":
-        return ["warning", "error", "fatal"].includes(event.record.level)
-          ? console.error(event.record.message)
-          : console.log(event.record.message);
-    }
+    const text = formatTextEvent(event);
+    return eventStream(event) === "stdout" ? console.log(text) : console.error(text);
   },
 };
 
@@ -134,136 +154,10 @@ export interface StreamPrinterOptions {
 export function createStreamPrinter(options: StreamPrinterOptions): Printer {
   return {
     print(event) {
-      switch (event.type) {
-        case "usage": {
-          (event.stream === "stdout" ? options.stdout : options.stderr).write(`${event.text}\n`);
-          return;
-        }
-        case "version": {
-          options.stdout.write(`${event.version}\n`);
-          return;
-        }
-        case "error": {
-          options.stderr.write(
-            `${event.error.name.startsWith("Zitty") ? event.error.message : `Error: ${event.error.message}`}\n`,
-          );
-          return;
-        }
-        case "log": {
-          (["warning", "error", "fatal"].includes(event.record.level)
-            ? options.stderr
-            : options.stdout
-          ).write(`${event.record.message}\n`);
-          return;
-        }
-      }
+      const writer = eventStream(event) === "stdout" ? options.stdout : options.stderr;
+      writer.write(`${formatTextEvent(event)}\n`);
     },
   };
-}
-
-function jsonStream(event: PrintEvent): PrintStream {
-  if (event.type === "error") return "stderr";
-  if (event.type === "usage") return event.stream;
-  if (event.type === "log" && ["warning", "error", "fatal"].includes(event.record.level)) {
-    return "stderr";
-  }
-  return "stdout";
-}
-
-function fallbackValue(value: unknown): string {
-  try {
-    return String(value);
-  } catch {
-    return "[Unserializable]";
-  }
-}
-
-function normalizeJson(value: unknown, ancestors = new Set<object>()): unknown {
-  switch (typeof value) {
-    case "string":
-      return stripVTControlCharacters(value);
-    case "boolean":
-      return value;
-    case "number":
-      return Number.isFinite(value) ? value : null;
-    case "bigint":
-      return value.toString();
-    case "undefined":
-      return "[undefined]";
-    case "symbol":
-      return `[symbol:${value.description ?? ""}]`;
-    case "function":
-      return `[function:${value.name || "anonymous"}]`;
-    case "object":
-      break;
-  }
-  if (value === null) return null;
-  if (ancestors.has(value)) return "[Circular]";
-
-  const nextAncestors = new Set(ancestors).add(value);
-  if (value instanceof Date) {
-    try {
-      return Number.isNaN(value.getTime()) ? "Invalid Date" : value.toISOString();
-    } catch {
-      return "Invalid Date";
-    }
-  }
-  if (value instanceof Error) {
-    const properties: Record<string, unknown> = {};
-    const errorRecord = value as unknown as Record<string, unknown>;
-    try {
-      for (const key of Object.keys(value))
-        properties[key] = normalizeJson(errorRecord[key], nextAncestors);
-    } catch {
-      properties.value = "[Unserializable]";
-    }
-    return {
-      name: value.name,
-      message: value.message,
-      ...(value.stack === undefined ? {} : { stack: value.stack }),
-      ...(value.cause === undefined ? {} : { cause: normalizeJson(value.cause, nextAncestors) }),
-      ...properties,
-    };
-  }
-  if (Array.isArray(value)) {
-    try {
-      return value.map((item) => normalizeJson(item, nextAncestors));
-    } catch {
-      return ["[Unserializable]"];
-    }
-  }
-  if (value instanceof Map) {
-    try {
-      return [...value].map(([key, item]) => [
-        normalizeJson(key, nextAncestors),
-        normalizeJson(item, nextAncestors),
-      ]);
-    } catch {
-      return "[Unserializable]";
-    }
-  }
-  if (value instanceof Set) {
-    try {
-      return [...value].map((item) => normalizeJson(item, nextAncestors));
-    } catch {
-      return "[Unserializable]";
-    }
-  }
-
-  const result: Record<string, unknown> = {};
-  const record = value as Record<string, unknown>;
-  try {
-    for (const key of Object.keys(value)) {
-      try {
-        result[key] = normalizeJson(record[key], nextAncestors);
-      } catch {
-        result[key] = "[Unserializable]";
-      }
-    }
-    return result;
-  } catch {
-    return fallbackValue(value);
-  }
 }
 
 /** Create a one-semantic-event-per-line JSON printer. */
@@ -282,7 +176,7 @@ export function createJsonPrinter(options: JsonPrinterOptions = {}): Printer {
         });
       }
       const line = `${serialized}\n`;
-      (jsonStream(event) === "stdout" ? stdout : stderr).write(line);
+      (eventStream(event) === "stdout" ? stdout : stderr).write(line);
     },
   };
 }

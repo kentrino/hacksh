@@ -173,12 +173,34 @@ async function drainAndExit(output: PrintQueue): Promise<never> {
   }
 }
 
+async function reportOutputSetupError(error: unknown, options: RunMainOptions): Promise<never> {
+  if (options.onError) {
+    await options.onError(error);
+    return drainAndExit(createPrintQueue(options.printer ?? { print: () => undefined }));
+  }
+
+  const output = createPrintQueue(
+    options.printer ??
+      createJsonPrinter({
+        stdout: options.stdout ?? process.stdout,
+        stderr: options.stderr ?? process.stderr,
+      }),
+  );
+  await output.printer.print({ type: "error", error: summarizeError(error) });
+  return drainAndExit(output);
+}
+
 export async function runMain<S extends ArgsSchema>(
   command: CommandDef<S>,
   options: RunMainOptions = {},
 ): Promise<void> {
   const displayUsage = options.showUsage ?? showUsage;
-  const output = prepareOutput(options);
+  let output: PrintQueue;
+  try {
+    output = prepareOutput(options);
+  } catch (error) {
+    return reportOutputSetupError(error, options);
+  }
   try {
     await executeCommand(
       command,

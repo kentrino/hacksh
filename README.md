@@ -205,7 +205,9 @@ Properties passed to an individual call override properties bound by `with`. `ge
 category segment; hacksh automatically starts the category with the named root and each resolved
 subcommand. Missing placeholders, and placeholders whose values cannot be converted to text,
 remain unchanged without discarding their properties. Passing an `Error` to `error` or `fatal`
-uses its message and retains the original error as `properties.error` for structured printers.
+uses its message and adds a canonical, schema-free error summary as `properties.error`. Error
+values nested in other log properties are summarized the same way before custom printers receive
+the event.
 
 Each `log` print event contains a `record` with `level`, `kind`, `category`, interpolated `message`,
 template `rawMessage`, merged `properties`, and a numeric `timestamp`. Logger calls do not need to
@@ -218,7 +220,11 @@ finishes. A printer failure rejects the invocation without changing a successful
 Their `output` option accepts `"auto"` (the default), `"pretty"`, or `"json"`. A valid
 `HACKSH_OUTPUT` environment value takes precedence over that option. `auto` selects JSON only when
 `CI` has a non-empty value; redirecting or piping stdout alone retains pretty output. Invalid
-explicit option or environment values throw a `TypeError` instead of silently choosing a format.
+explicit option or environment values never execute the command. `runCommand` rejects with a
+`TypeError`. `runMain` gives that error to `onError` when configured; otherwise it emits the error
+through a supplied printer or as a dedicated JSON error line, drains output, and exits with status
+
+1. Output values are case-sensitive.
 
 ```ts
 await runMain(main, { output: "auto" });
@@ -227,7 +233,7 @@ await runMain(main, { output: "auto" });
 
 The resolved `OutputMode` has `format`, `interactive`, and `color` fields. Interaction is enabled
 only for pretty output outside CI when both stdin and stdout are TTYs. Color is enabled only for
-pretty output to a stdout TTY when `NO_COLOR` is absent. These decisions are independent: an
+pretty output to a stdout TTY when `NO_COLOR` is empty or absent. These decisions are independent: an
 explicit pretty format in CI can use color, but remains noninteractive. `env`, `stdin`, `stdout`,
 and `stderr` can be supplied in execution options for embedded or tested invocations.
 
@@ -239,11 +245,14 @@ schema objects.
 
 Arbitrary log properties and error details are normalized predictably: BigInt values become
 decimal strings; non-finite numbers become `null`; `undefined`, symbols, and functions receive
-explicit string markers; dates use ISO strings; maps and sets become arrays; and cycles become
-`"[Circular]"`. Errors retain their name, message, stack, cause, and enumerable properties.
-Unreadable properties become `"[Unserializable]"`. If an exotic value prevents normalization
-entirely, the line keeps the original event `type` and adds `serializationError`, so downstream
-JSON-lines parsing remains synchronized.
+explicit string markers; dates and URLs use their guarded `toJSON` representations; Buffer uses
+its `{ type, data }` representation; typed arrays become arrays; maps and sets become arrays; and
+cycles become `"[Circular]"`. ANSI sequences are removed from keys as well as values. Errors retain
+their kind, name, message, stack, canonical cause, validation issues, and independently readable
+enumerable properties. Unreadable properties become `"[Unserializable]"`; a throwing `toJSON`
+falls back to those properties. If an exotic value prevents normalization entirely, the line
+keeps the original event `type` and adds `serializationError`, so downstream JSON-lines parsing
+remains synchronized.
 
 ## Programmatic execution and errors
 
@@ -268,9 +277,9 @@ await runCommand(main, ["--help"], { printer });
 The current events are `usage`, `version`, `error`, and `log`. Usage events include the resolved
 command's schema-free name, version, description, synopsis, arguments, options, and visible child
 commands, plus rendered text and the intended `stdout` or `stderr` stream. Version events include
-the version string. Error events contain a schema-free summary with structured validation issues,
-standard `Error` fields, custom enumerable properties, and causes; log events contain the
-structured record described above. Printer calls are serialized, may be asynchronous, and are
+the version string. Error events contain a schema-free summary with an explicit `kind`, structured
+validation issues, standard `Error` fields, custom enumerable properties, and recursively
+canonical causes; log events contain the structured record described above. Printer calls are serialized, may be asynchronous, and are
 drained before `runCommand` or `runMain` completes or exits. A printer rejection rejects
 `runCommand`.
 

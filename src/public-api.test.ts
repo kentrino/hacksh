@@ -10,6 +10,7 @@ import {
   ZittyValidationError,
   type Printer,
   type Logger,
+  type HackshErrorKind,
   type LogKind,
   type LogLevel,
   type LogPrintEvent,
@@ -124,6 +125,7 @@ describe("public logger API", () => {
       "trace" | "debug" | "info" | "warning" | "error" | "fatal"
     >();
     expectTypeOf<LogKind>().toEqualTypeOf<"message" | "step" | "success">();
+    expectTypeOf<HackshErrorKind>().toEqualTypeOf<"error" | "usage" | "validation" | "thrown">();
     expectTypeOf<LogPrintEvent["record"]>().toEqualTypeOf<LogRecord>();
   });
 });
@@ -149,6 +151,7 @@ describe("public usage API", () => {
     if (event.type === "usage") {
       expect(event.usage).toEqual({
         name: "tool",
+        heading: "tool",
         synopsis: "tool [OPTIONS]",
         arguments: [],
         options: [],
