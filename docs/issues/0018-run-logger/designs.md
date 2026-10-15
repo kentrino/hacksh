@@ -1,6 +1,6 @@
 # Designs
 
-どの案も、ロガーは1件の出力を `LogRecord` にして `Sink` へ渡すだけで、形式（0019）と見た目（0020）は `Sink` 側が決める。
+どの案も、ロガーは1件の出力を `LogRecord` にして printer（0022）へ渡すだけで、形式（0019）と見た目（0020）は printer 側が決める。ロガー自身は書き先を持たない。
 
 ```ts
 interface LogRecord {
@@ -12,7 +12,8 @@ interface LogRecord {
   timestamp: number;
 }
 
-type Sink = (record: LogRecord) => void;
+// hacksh が呼び出しごとに作り、run に渡す
+function createLogger(printer: Printer, category: readonly string[]): Logger;
 ```
 
 ## A. LogTape に寄せる
@@ -79,9 +80,11 @@ interface Logger {
 - 利点: 既存の `console.log` を機械的に置き換えられる。
 - 欠点: `log(...values)` は JSON での形が定まらず、構造化の利点が薄れる。
 
-## 書き先の差し替え（どの案にも共通）
+## テストでの検証（どの案にも共通）
+
+書き先はロガーではなく printer で差し替える（0022）。
 
 ```ts
-await runMain(main, { sink: (record) => records.push(record) });
-await runCommand(main, ["deploy"], { sink }); // または 0001 の呼び出しごとの値として渡す
+const events: PrintEvent[] = [];
+await runCommand(main, ["deploy"], { printer: { print: (event) => void events.push(event) } });
 ```

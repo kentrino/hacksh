@@ -1,45 +1,18 @@
 # Designs
 
-どの案も、人間向け表示は 0018 の `Sink` の一実装で、`run` のコードは変わらない。
+どの案も、人間向け表示は printer（0022）の人間向け形式の実装で、`run` のコードは変わらない。色は `node:util` の `styleText` で付け、依存は増やさない。
 
-## A. @clack/prompts を描画に使う
+## A. 記号と色の表をテーマとして持つ
 
-`LogRecord` を clack の `log.*` に振り分ける Sink を用意する。
-
-```ts
-import { log } from "@clack/prompts";
-
-const clackSink: Sink = (record) => {
-  switch (record.kind ?? record.level) {
-    case "step":
-      return log.step(record.message);
-    case "success":
-      return log.success(record.message);
-    case "warning":
-      return log.warn(record.message);
-    case "error":
-    case "fatal":
-      return log.error(record.message);
-    default:
-      return log.info(record.message);
-  }
-};
-```
-
-- 利点: 見た目と対話入力（0021）の描画を clack に任せられ、実装が最小。
-- 欠点: hacksh に依存が増える。`properties` の表示や JSON 形式との統一は自前で補う必要がある。
-
-## B. 自前の小さな描画 + テーマ
-
-`node:util` の `styleText` で色を付け、記号と色をテーマとして持つ。
+見た目を値の表として持ち、描画の手順は hacksh が固定する。
 
 ```ts
+type Style = Parameters<typeof styleText>[0];
+type Mark = "start" | "bar" | "end" | "step" | "success" | "info" | "warning" | "error";
+
 interface Theme {
-  symbols: Record<
-    "start" | "bar" | "end" | "step" | "success" | "info" | "warning" | "error",
-    string
-  >;
-  colors: Record<LogLevel | LogKind, Parameters<typeof styleText>[0]>;
+  symbols: Record<Mark, string>;
+  colors: Partial<Record<Mark, Style>>;
   formatProperties?(properties: Record<string, unknown>): string | undefined;
 }
 
@@ -54,28 +27,55 @@ const defaultTheme: Theme = {
     warning: "▲",
     error: "■",
   },
-  colors: { info: "blue", success: "green", warning: "yellow", error: "red" /* ... */ },
+  colors: { info: "blue", success: "green", warning: "yellow", error: "red", bar: "gray" },
 };
 
-function createPrettySink(options: {
+function createPrettyPrinter(options: {
   theme?: Partial<Theme>;
   color: boolean;
-  write(text: string): void;
-}): Sink;
+  stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
+}): Printer;
 ```
 
-- 利点: 依存が増えない。テーマで記号を ASCII に落とすなどの調整ができる。
-- 欠点: 描画と対話入力（0021）の実装・保守を自前で持つ。
+- 利点: 記号を ASCII に落とすなど、よくある調整が値の上書きで済む。
+- 欠点: 行の組み立て方（罫線の入れ方、プロパティの位置）は変えられない。
 
-## C. 表示を Sink の差し替えに任せ、既定は最小
+## B. 種類ごとの描画関数をテーマとして持つ
 
-hacksh は記号付きの1行表示だけを既定で持ち、clack 風の表示は別エントリ（例: `hacksh/clack`）として提供する。
+テーマを関数の集まりにし、1件の出力を何行にするかまでテーマが決める。
 
 ```ts
-import { clackSink } from "hacksh/clack"; // @clack/prompts を optional peer にする
+interface Theme {
+  log(record: LogRecord, style: Styler): string[];
+  usage(command: CommandSummary, style: Styler): string[];
+  error(error: HackshErrorSummary, style: Styler): string[];
+  prompt(state: PromptState, style: Styler): string[]; // 0021
+}
 
-await runMain(main, { sink: { pretty: clackSink } });
+type Styler = (format: Style, text: string) => string; // color: false なら素通し
+
+const clackLikeTheme: Theme = {
+  log: (record, style) => [style("gray", "│"), `${style("green", "◇")}  ${record.message}`],
+  // ...
+};
 ```
 
-- 利点: 本体を軽く保ち、表示の好みを利用者に委ねられる。
-- 欠点: 既定の見た目は clack 風にならない。エントリが増え、0021 の対話入力も同じ分割を追うことになる。
+- 利点: ヘルプや対話入力まで含めて、見た目を丸ごと差し替えられる。
+- 欠点: テーマが printer のイベントの種類と結合し、種類が増えるたびにテーマも追従する。
+
+## C. 見た目は固定し、色と記号の有無だけ切り替える
+
+テーマを公開せず、hacksh の見た目を一つに決める。調整できるのは色の有無と Unicode 記号の有無だけにする。
+
+```ts
+function createPrettyPrinter(options: {
+  color: boolean; // NO_COLOR・非端末で false
+  unicode: boolean; // false なら ┌│└◇✔ を +|+*v に落とす
+  stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
+}): Printer;
+```
+
+- 利点: 公開 API が最小で、hacksh を使う CLI の見た目が揃う。
+- 欠点: 見た目を変えたい作者は、printer を丸ごと自作するしかない。

@@ -15,6 +15,8 @@ CI 上や AI エージェントからの実行など、対話できない環境�
 
 - 対話できない環境で入力を待って止まらない（`terminal-output` テーマ）。
 - 誤った呼び出しは別の挙動へ流さず、明確なエラーにする（`ai-native` テーマ）。
+- 依存は `zod`（peer）以外に増やさない。入力欄の描画とキー入力の読み取りは自前で書く。
+- hacksh から出る出力は、すべて同じ printer を通る（0022）。入力欄の表示もその一つである。
 
 # Open Decisions
 
@@ -28,3 +30,4 @@ CI 上や AI エージェントからの実行など、対話できない環境�
 - `src/command.ts` — `CommandContext`
 - `src/errors.ts` — `ZittyUsageError`・`ZittyValidationError`
 - `docs/issues/0009-structured-cli-errors/issue.md` — CLI 実行時のエラーの構造化
+- `docs/issues/0022-single-printer/issue.md` — すべての出力が通る printer

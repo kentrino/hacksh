@@ -1,10 +1,10 @@
 # Designs
 
-対話できるかどうかは 0019 の `OutputMode.interactive` で決まる。
+対話できるかどうかは 0019 の `OutputMode.interactive` で決まる。どの案も、入力欄の描画は printer（0022）に `prompt` の表示として渡し、キー入力の読み取りは `node:readline` で自前に書く。
 
 ## A. ロガーに対話メソッドを足す（明示的に失敗）
 
-`logger` に clack と同じ形の入力メソッドを持たせる。対話できなければ常にエラーにする。
+`logger` に @clack/prompts と同じ形の入力メソッドを持たせる（API の形だけを借り、依存はしない）。対話できなければ常にエラーにする。
 
 ```ts
 interface Prompter {

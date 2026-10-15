@@ -1,6 +1,6 @@
 # Designs
 
-どの案も、決定結果は次の値に集約され、0018 の `Sink` と 0021 の対話可否を決める。
+どの案も、決定結果は次の値に集約され、既定の printer（0022）の選択と 0021 の対話可否を決める。
 
 ```ts
 interface OutputMode {
@@ -10,7 +10,7 @@ interface OutputMode {
 }
 ```
 
-JSON の1行は 0018 の `LogRecord` をそのまま直列化したものにする。
+JSON の printer は、ログ（0018 の `LogRecord`）を次のように1行で直列化する。ヘルプやエラーも同じ printer から1行ずつ出る。
 
 ```json
 {
