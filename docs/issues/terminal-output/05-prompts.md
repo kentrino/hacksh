@@ -9,7 +9,7 @@ depends_on: ["terminal-output-04-pretty"]
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `0021-run-prompts` issue and designs.
 
-Current state: worker implementation complete at `2e4a5cd`; next action: parent review and acceptance checks. Blockers: none.
+Current state: worker implementation complete at `7a9c73c`; next action: parent review and acceptance checks. Blockers: none.
 
 ## Scope and decisions
 
@@ -26,7 +26,7 @@ Ownership: related source modules, tests and public documentation for this respo
 
 ## Evidence
 
-Implementation commit: `2e4a5cd946f88a0a9fe5610f7c42efc07f2b34a7` (`feat: add interactive logger prompts`). Validated implementation tree: `665a2088403088601d29f593a900702a00052e62`; issue-only uncommitted diff at validation: `3c9f8aaab7f3b1a41a9158415c10c557746af8f8` from `git diff HEAD | git hash-object --stdin`.
+Implementation commits: `2e4a5cd946f88a0a9fe5610f7c42efc07f2b34a7` (`feat: add interactive logger prompts`) and lifecycle correction `7a9c73cdf8048927eb492e608ab3082a3991fb45` (`fix: serialize prompt state rendering`). Final validated implementation tree: `c3f780d33a26fa0abca1e423b6f267337ddfb2dd`. The final validation commands ran with HEAD tree `ab19598aabfa19824f3513327f85f4a0d47b0212` and uncommitted source diff hash `1c1b90afb9eb2fad8068695f8d045b3bfdce83f6`; committing that identical content produced the final tree without requiring another run.
 
 - `pnpm check` — macOS arm64, Node `v24.15.0`, pnpm `11.20.0`: passed; all 88 files formatted, no lint warnings, lint errors, or type errors.
 - `pnpm test` — macOS arm64, Node `v24.15.0`, pnpm `11.20.0`: passed; 9 files and 154 tests.
