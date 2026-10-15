@@ -45,11 +45,11 @@ function formatUsage(command: AnyCommandDef): string {
   if (command.variadic) positionalSet.add(command.variadic);
   const syntax = positional.map((key) => {
     const info = readArgInfo(shape[key]!);
-    const name = command.argDisplay?.[key]?.name ?? key.toUpperCase();
+    const name = command.argOptions?.[key]?.name ?? key.toUpperCase();
     return info.required ? `<${name}>` : `[${name}]`;
   });
   if (command.variadic) {
-    const name = command.argDisplay?.[command.variadic]?.name ?? command.variadic.toUpperCase();
+    const name = command.argOptions?.[command.variadic]?.name ?? command.variadic.toUpperCase();
     syntax.push(`[${name}...]`);
   }
   if (command.subCommands && Object.keys(command.subCommands).length > 0) syntax.push("<COMMAND>");
@@ -61,14 +61,14 @@ function formatUsage(command: AnyCommandDef): string {
     lines.push("", "ARGUMENTS", "");
     for (const key of positional) {
       const info = readArgInfo(shape[key]!);
-      const name = command.argDisplay?.[key]?.name ?? key.toUpperCase();
+      const name = command.argOptions?.[key]?.name ?? key.toUpperCase();
       lines.push(
         `  ${name}  ${details(info.description, info.required, info.defaultValue, info.choices)}`.trimEnd(),
       );
     }
     if (command.variadic) {
       const info = readArgInfo(shape[command.variadic]!);
-      const name = command.argDisplay?.[command.variadic]?.name ?? command.variadic.toUpperCase();
+      const name = command.argOptions?.[command.variadic]?.name ?? command.variadic.toUpperCase();
       lines.push(
         `  ${name}...  ${details(info.description, false, undefined, info.choices)}`.trimEnd(),
       );
@@ -80,20 +80,19 @@ function formatUsage(command: AnyCommandDef): string {
     lines.push("", "OPTIONS", "");
     for (const [key, schema] of options) {
       const info = readArgInfo(schema);
-      const alias = command.alias?.[key];
-      const prefix = alias
-        ? `${aliasList(alias)
+      const argOptions = command.argOptions?.[key];
+      const prefix = argOptions?.alias
+        ? `${aliasList(argOptions.alias)
             .map((item) => `-${item}`)
             .join(", ")}, `
         : "";
-      const display = command.argDisplay?.[key];
-      const valueName = display?.valueName ?? kebabCase(key);
+      const valueName = argOptions?.valueName ?? kebabCase(key);
       const long = `--${kebabCase(key)}${info.takesValue ? `=<${valueName}>` : ""}`;
       lines.push(
         `  ${prefix}${long}  ${details(info.description, info.required, info.defaultValue, info.choices)}`.trimEnd(),
       );
-      if (!info.takesValue && display?.negatedDescription) {
-        lines.push(`  --no-${kebabCase(key)}  ${display.negatedDescription}`);
+      if (!info.takesValue && argOptions?.negatedDescription) {
+        lines.push(`  --no-${kebabCase(key)}  ${argOptions.negatedDescription}`);
       }
     }
   }

@@ -35,7 +35,7 @@ describe("command routing", () => {
     const root = defineCommand({
       name: "git-worktree",
       args: z.object({ repo: z.string() }),
-      alias: { repo: "R" },
+      argOptions: { repo: { alias: "R" } },
       subCommands: { new: child },
       run: parentRun,
     });
@@ -186,7 +186,7 @@ describe("help and version", () => {
       version: "1.2.3",
       description: "A useful tool",
       args: z.object({ repo: z.string().optional().describe("Repository") }),
-      alias: { repo: "R" },
+      argOptions: { repo: { alias: "R" } },
       subCommands: { child: defineCommand({ description: "Do work", run: () => undefined }) },
     });
     await runCommand(root, ["--help"]);
@@ -204,7 +204,7 @@ describe("help and version", () => {
       name: "tool",
       version: "1.2.3",
       args: z.object({ verbose: z.boolean().default(false), host: z.boolean().default(false) }),
-      alias: { verbose: "v", host: "h" },
+      argOptions: { verbose: { alias: "v" }, host: { alias: "h" } },
       run,
     });
     await runCommand(root, ["-v", "-h"]);

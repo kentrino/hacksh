@@ -13,7 +13,7 @@ describe("argument parsing and validation", () => {
       first: z.string(),
       second: z.string().optional(),
     }),
-    alias: { repo: ["R", "Q"], dryRun: ["d", "D"] },
+    argOptions: { repo: { alias: ["R", "Q"] }, dryRun: { alias: ["d", "D"] } },
     positional: ["first", "second"],
   });
 
@@ -137,7 +137,7 @@ describe("argument parsing and validation", () => {
   it("preserves grouped unknown options once, including mixed groups", async () => {
     const grouped = defineCommand({
       args: z.object({ alpha: z.boolean().default(false) }),
-      alias: { alpha: "a" },
+      argOptions: { alpha: { alias: "a" } },
     });
     await expect(parseCommandArgs(grouped, ["-ab", "-xy", "tail"])).resolves.toEqual({
       args: { alpha: true },
@@ -233,7 +233,7 @@ describe("argument parsing and validation", () => {
           .refine(async (value) => value > 0, "must be positive"),
       }),
       positional: ["pr"],
-      argDisplay: { repo: { valueName: "OWNER/REPO" }, pr: { name: "NUMBER" } },
+      argOptions: { repo: { valueName: "OWNER/REPO" }, pr: { name: "NUMBER" } },
     });
     const error = await parseCommandArgs(validated, ["--repo", "bad", "0"]).catch(
       (caught: unknown) => caught,

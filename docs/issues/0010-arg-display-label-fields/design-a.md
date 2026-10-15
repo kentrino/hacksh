@@ -1,9 +1,9 @@
 # 案A: `valueName` に一本化する
 
-`ArgDisplay` から `name` を削除し、位置引数・可変長引数・名前付きオプションのすべてで `valueName` を値のラベルとして使う。
+`ArgOptions` から `name` を削除し、位置引数・可変長引数・名前付きオプションのすべてで `valueName` を値のラベルとして使う。
 
 ```ts
-argDisplay: {
+argOptions: {
   size: { valueName: "SIZE" },     // <SIZE>
   format: { valueName: "FORMAT" }, // --format=<FORMAT>
   files: { valueName: "INPUT" },   // [INPUT...]

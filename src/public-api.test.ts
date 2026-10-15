@@ -169,7 +169,7 @@ describe("public usage API", () => {
       args,
       positional: ["size"],
       variadic: "files",
-      argDisplay: {
+      argOptions: {
         size: { name: "SIZE" },
         format: { valueName: "FORMAT" },
         overwrite: { negatedDescription: "Keep existing files" },

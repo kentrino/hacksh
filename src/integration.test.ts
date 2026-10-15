@@ -59,7 +59,7 @@ describe("consumer-equivalent commands", () => {
     const command = defineCommand({
       args: z.object({ pr: z.coerce.number().int().optional(), repo: z.string().optional() }),
       positional: ["pr"],
-      alias: { repo: "R" },
+      argOptions: { repo: { alias: "R" } },
       run: ({ args }) => args,
     });
     await expect(runCommand(command, ["42", "-R", "owner/repo"])).resolves.toEqual({

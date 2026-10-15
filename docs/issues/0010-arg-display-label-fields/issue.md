@@ -1,16 +1,16 @@
 ---
-title: argDisplay の表示名が位置引数とオプションで別フィールドに分かれている
+title: argOptions の表示名が位置引数とオプションで別フィールドに分かれている
 theme: natural-api
 ---
 
 # Problem
 
-`ArgDisplay` には、ヘルプ上の値のラベルを変えるフィールドが `name` と `valueName` の二つある。位置引数と可変長引数には `name` だけが効き、名前付きオプションには `valueName` だけが効く。
+`ArgOptions` には、ヘルプ上の値のラベルを変えるフィールドが `name` と `valueName` の二つある。位置引数と可変長引数には `name` だけが効き、名前付きオプションには `valueName` だけが効く。
 
 合わない方を指定してもエラーにならず、ヘルプに反映されない。
 
 ```ts
-argDisplay: { repo: { name: "OWNER/REPO" }, pr: { valueName: "NUMBER" } }
+argOptions: { repo: { name: "OWNER/REPO" }, pr: { valueName: "NUMBER" } }
 // repo は名前付きオプション、pr は位置引数
 ```
 
@@ -26,8 +26,8 @@ USAGE demo [OPTIONS] <PR>
 
 # Rules
 
-- `argDisplay` はヘルプの表示だけを変え、スキーマのキー、解析結果、検証エラーのパスは変えない（README「Customize help arguments」）。
-- `argDisplay` のキーは引数スキーマと照合される。
+- `name` と `valueName` はヘルプの表示だけを変え、スキーマのキー、解析結果、検証エラーのパスは変えない（README「Argument options」）。
+- `argOptions` のキーは引数スキーマと照合される。
 
 # Open Decisions
 
@@ -38,9 +38,9 @@ USAGE demo [OPTIONS] <PR>
 
 # Related Files
 
-- `src/command.ts` — `ArgDisplay` の定義と `argDisplay` キーの検査
+- `src/command.ts` — `ArgOptions` の定義と `argOptions` キーの検査
 - `src/usage.ts` — `name` と `valueName` の参照箇所
-- `README.md` — 「Customize help arguments」の説明と例
+- `README.md` — 「Argument options」の説明と例
 - `src/parser.test.ts` — `name` と `valueName` を併用するテスト
 - `src/public-api.test.ts` — `valueName` を使うテスト
 - `scripts/test-packed-consumers.mjs` — `valueName` を使う利用者コード例

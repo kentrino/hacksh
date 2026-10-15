@@ -69,7 +69,8 @@ function optionModel(command: AnyCommandDef): OptionModel {
   if (command.args) {
     for (const [key, schema] of Object.entries(schemaShape(command.args))) {
       if (positional.has(key)) continue;
-      const aliases = command.alias?.[key] ? aliasList(command.alias[key]!) : [];
+      const alias = command.argOptions?.[key]?.alias;
+      const aliases = alias ? aliasList(alias) : [];
       const definition: OptionDefinition = {
         key,
         kebabName: kebabCase(key),

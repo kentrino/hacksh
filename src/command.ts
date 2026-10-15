@@ -9,15 +9,14 @@ import {
   type EmptyArgs,
 } from "./schema.ts";
 
-export type AliasMap<S extends ArgsSchema> = Partial<Record<ArgKey<S>, string | readonly string[]>>;
-
-export interface ArgDisplay {
+export interface ArgOptions {
+  alias?: string | readonly string[];
   name?: string;
   valueName?: string;
   negatedDescription?: string;
 }
 
-export type ArgDisplayMap<S extends ArgsSchema> = Partial<Record<ArgKey<S>, ArgDisplay>>;
+export type ArgOptionsMap<S extends ArgsSchema> = Partial<Record<ArgKey<S>, ArgOptions>>;
 
 export interface CommandContext<S extends ArgsSchema> {
   cmd: CommandDef<S>;
@@ -33,8 +32,7 @@ export interface CommandDef<S extends ArgsSchema = EmptyArgs> {
   description?: string;
   hidden?: boolean;
   args?: S;
-  alias?: AliasMap<S>;
-  argDisplay?: ArgDisplayMap<S>;
+  argOptions?: ArgOptionsMap<S>;
   positional?: readonly ArgKey<S>[];
   variadic?: ArgKey<S>;
   subCommands?: Record<string, CommandDef<ArgsSchema>>;
@@ -54,8 +52,8 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
   const variadic = rawVariadic as string | undefined;
   let sawOptional = false;
 
-  for (const key of Object.keys(def.argDisplay ?? {})) {
-    if (!shape[key]) throw new TypeError(`Unknown argument display key \`${key}\``);
+  for (const key of Object.keys(def.argOptions ?? {})) {
+    if (!shape[key]) throw new TypeError(`Unknown argument options key \`${key}\``);
   }
 
   for (const key of positional) {
@@ -95,11 +93,11 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
   }
 
   const usedAliases = new Set<string>();
-  for (const [key, value] of Object.entries(def.alias ?? {})) {
-    if (!shape[key]) throw new TypeError(`Unknown alias key \`${key}\``);
+  for (const [key, options] of Object.entries(def.argOptions ?? {})) {
+    if (options?.alias === undefined) continue;
     if (positionalSet.has(key) || key === variadic)
       throw new TypeError(`Positional argument \`${key}\` cannot have aliases`);
-    for (const alias of aliasList(value as string | readonly string[])) {
+    for (const alias of aliasList(options.alias)) {
       if (alias.length !== 1)
         throw new TypeError(`Alias \`${alias}\` must be exactly one character`);
       if (usedAliases.has(alias)) throw new TypeError(`Duplicate alias \`${alias}\``);

@@ -29,7 +29,7 @@ const main = defineCommand({
     verbose: z.boolean().default(false).describe("Show details"),
   }),
   positional: ["pr"],
-  alias: { repo: "R", verbose: ["v", "V"] },
+  argOptions: { repo: { alias: "R" }, verbose: { alias: ["v", "V"] } },
   async run({ args, rawArgs, extraArgs, passthrough }) {
     // args is { pr?: number; repo?: string; verbose: boolean }
     console.log({ args, rawArgs, extraArgs, passthrough });
@@ -71,11 +71,11 @@ const copy = defineCommand({
 Without `variadic`, additional positional arguments are kept in `extraArgs`. Unknown options are
 also kept in `extraArgs`; arguments after `--` are kept in `passthrough`.
 
-## Customize help arguments
+## Argument options
 
-`z.enum` choices and schema descriptions appear in generated help, including enums inside the
-supported schema wrappers and variadic arrays. Use `argDisplay` to customize help labels without
-changing schema keys, parsed output, or validation error paths:
+Use `argOptions` to set short aliases and help labels for each argument without changing schema
+keys, parsed output, or validation error paths. `z.enum` choices and schema descriptions appear in
+generated help, including enums inside the supported schema wrappers and variadic arrays.
 
 ```ts
 const convert = defineCommand({
@@ -84,22 +84,53 @@ const convert = defineCommand({
     size: z.enum(["small", "large"]).describe("Item size"),
     format: z.enum(["json", "yaml"]).optional().describe("Output format"),
     overwrite: z.boolean().default(true).describe("Replace existing files"),
+    verbose: z.boolean().default(false).describe("Show details"),
     files: z.array(z.string()).describe("Input files"),
   }),
   positional: ["size"],
   variadic: "files",
-  argDisplay: {
+  argOptions: {
     size: { name: "SIZE" },
-    format: { valueName: "FORMAT" },
+    format: { alias: "f", valueName: "FORMAT" },
     overwrite: { negatedDescription: "Keep existing files" },
+    verbose: { alias: ["v", "V"] },
     files: { name: "INPUT" },
   },
 });
 ```
 
-This renders positional labels such as `<SIZE>` and `[INPUT...]`, the named value
-`--format=<FORMAT>`, enum choices, and a separate `--no-overwrite` description. `argDisplay` keys
-are checked against the argument schema. Help remains plain text when `NO_COLOR` or `CI` is set.
+```sh
+convert large -f yaml -v a.txt b.txt
+# { size: "large", format: "yaml", overwrite: true, verbose: true, files: ["a.txt", "b.txt"] }
+```
+
+```text
+USAGE convert [OPTIONS] <SIZE> [INPUT...]
+
+ARGUMENTS
+
+  SIZE  Item size (Choices: small, large) (Required)
+  INPUT...  Input files
+
+OPTIONS
+
+  -f, --format=<FORMAT>  Output format (Choices: json, yaml)
+  --overwrite  Replace existing files (Default: true)
+  --no-overwrite  Keep existing files
+  -v, -V, --verbose  Show details (Default: false)
+```
+
+- `alias` gives a named option one or more single-character short forms.
+- `name` sets the label of a positional or variadic argument.
+- `valueName` sets the value label of a named option.
+- `negatedDescription` describes the `--no-` form of a boolean flag.
+
+`argOptions` keys are checked against the argument schema. `defineCommand` throws a `TypeError`
+when an alias is longer than one character, is used by more than one option, or is assigned to a
+positional or variadic argument. Without an alias of the same letter, `-h` and `-v` are shorthands
+for `--help` and `--version`. Defining an `h` or `v` alias replaces the shorthand, so `convert -v`
+above sets `verbose`; `--help` and `--version` remain available. Help remains plain text when
+`NO_COLOR` or `CI` is set.
 
 ## Subcommands
 

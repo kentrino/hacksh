@@ -218,7 +218,7 @@ const phaseCommand = defineCommand({
   }),
   positional: ["mode"],
   variadic: "files",
-  argDisplay: {
+  argOptions: {
     mode: { name: "MODE" },
     format: { valueName: "FORMAT" },
     enabled: { negatedDescription: "Disable feature" },
@@ -234,7 +234,7 @@ const miniPhaseCommand = defineCommand({
   }),
   positional: ["mode"],
   variadic: "files",
-  argDisplay: {
+  argOptions: {
     mode: { name: "MODE" },
     format: { valueName: "FORMAT" },
     enabled: { negatedDescription: "Disable feature" },
@@ -248,7 +248,7 @@ function hiddenCommand(flavor, args) {
     hidden: true,
     description: "Internal " + flavor + " command",
     args,
-    argDisplay: {
+    argOptions: {
       mode: { valueName: "MODE" },
       enabled: { negatedDescription: "Disable feature" },
     },
@@ -277,7 +277,7 @@ const legacyCommand = defineCommand({
     repo: z.string().optional(),
     files: z.array(z.string().transform((value) => value.toUpperCase())),
   }),
-  alias: { repo: ["R", "Q"] },
+  argOptions: { repo: { alias: ["R", "Q"] } },
   variadic: "files",
   run({ cmd, args, extraArgs, passthrough }) {
     console.log(JSON.stringify({ cmd: cmd.name, args, extraArgs, passthrough }));
@@ -326,8 +326,8 @@ import {
   parseArgs,
   renderUsage,
   showUsage,
-  type ArgDisplay,
-  type ArgDisplayMap,
+  type ArgOptions,
+  type ArgOptionsMap,
   type CommandDef,
   type ShowUsageCallback,
 } from "zitty";
@@ -339,9 +339,9 @@ const schema = z.object({
   format: z.enum(["json", "yaml"]).optional(),
   files: z.array(z.string()),
 });
-const display: ArgDisplay = { name: "MODE" };
-const displays: ArgDisplayMap<typeof schema> = {
-  mode: display,
+const modeOptions: ArgOptions = { name: "MODE" };
+const argOptions: ArgOptionsMap<typeof schema> = {
+  mode: modeOptions,
   format: { valueName: "FORMAT" },
   enabled: { negatedDescription: "Disable feature" },
   files: { name: "INPUT" },
@@ -350,7 +350,7 @@ const command = defineCommand({
   args: schema,
   positional: ["mode"],
   variadic: "files",
-  argDisplay: displays,
+  argOptions,
   run({ cmd, args }) {
     const same: CommandDef<typeof schema> = cmd;
     const output: {
@@ -379,7 +379,7 @@ const miniSchema = mini.object({
   enabled: mini._default(mini.boolean(), true),
   files: mini.array(mini.string()),
 });
-const miniDisplays: ArgDisplayMap<typeof miniSchema> = {
+const miniArgOptions: ArgOptionsMap<typeof miniSchema> = {
   mode: { name: "MODE" },
   enabled: { negatedDescription: "Disable feature" },
   files: { name: "INPUT" },
@@ -388,7 +388,7 @@ const miniCommand = defineCommand({
   args: miniSchema,
   positional: ["mode"],
   variadic: "files",
-  argDisplay: miniDisplays,
+  argOptions: miniArgOptions,
 });
 const miniParsed: Promise<{
   mode: "fast" | "safe";
@@ -429,8 +429,8 @@ void [
   shown,
   main,
   miniParsed,
-  displays,
-  miniDisplays,
+  argOptions,
+  miniArgOptions,
   hiddenRoot,
   hiddenMetadata,
 ];

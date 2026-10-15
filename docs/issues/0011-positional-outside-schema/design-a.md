@@ -15,7 +15,7 @@ args: z.object({
 
 - 要素の並びが位置引数の順序、末尾の `.optional()` が任意の位置引数、rest が可変長引数に対応する。
 - 解析結果の型は Zod の tuple の推論がそのまま使われる。
-- ラベルは各要素の `.meta({ title })` から取る。この場合 `argDisplay` の `name` は不要になる。
+- ラベルは各要素の `.meta({ title })` から取る。この場合 `argOptions` の `name` は不要になる。
 
 ## 未決事項
 
