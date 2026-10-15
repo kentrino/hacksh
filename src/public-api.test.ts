@@ -23,8 +23,10 @@ import {
   type PrettyPrinterOptions,
   type PrintEvent,
   type PromptPrintEvent,
+  type PromptState,
   type RunCommandOptions,
   type RunMainOptions,
+  type TerminalInput,
   type ShowUsageOptions,
 } from "./index.ts";
 
@@ -143,6 +145,13 @@ describe("public logger API", () => {
     >();
     expectTypeOf<LogPrintEvent["record"]>().toEqualTypeOf<LogRecord>();
     expectTypeOf<PromptPrintEvent>().toMatchTypeOf<PrintEvent>();
+    expectTypeOf<RunCommandOptions["stdin"]>().toEqualTypeOf<TerminalInput | undefined>();
+    const inspectPrompt = (state: PromptState): void => {
+      if (state.kind === "select") expectTypeOf(state.value).toEqualTypeOf<string>();
+      else if (state.kind === "confirm") expectTypeOf(state.value).toEqualTypeOf<boolean>();
+      else expectTypeOf(state.value).toEqualTypeOf<string>();
+    };
+    expectTypeOf(inspectPrompt).toBeFunction();
     expectTypeOf(
       new HackshPromptError("cancelled", { kind: "text", message: "Name" }, "no"),
     ).toMatchTypeOf<Error>();

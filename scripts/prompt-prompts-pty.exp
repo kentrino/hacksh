@@ -10,11 +10,9 @@ if {$mode eq "flow"} {
   expect "Environment"
   send "\033\[B\r"
   expect "Continue?"
-  send "y"
-  expect "Name"
-  send "x\r"
+  send "yof\r"
   expect "Too short"
-  send "hi\r"
+  send "F\r"
 } else {
   expect "Cancel me"
   send "\003"

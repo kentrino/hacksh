@@ -21,6 +21,29 @@ function memoryWriters() {
   };
 }
 
+function effectiveTerminalLines(chunks: readonly string[]): string[] {
+  const lines = [""];
+  let row = 0;
+  const input = chunks.join("");
+  for (let index = 0; index < input.length;) {
+    if (input.startsWith("\u001b[1A", index)) {
+      row = Math.max(0, row - 1);
+      index += 4;
+    } else if (input.startsWith("\u001b[2K", index)) {
+      lines[row] = "";
+      index += 4;
+    } else if (input[index] === "\n") {
+      row += 1;
+      lines[row] ??= "";
+      index += 1;
+    } else {
+      lines[row] = `${lines[row]}${input[index]}`;
+      index += 1;
+    }
+  }
+  return lines.filter((line) => line.length > 0);
+}
+
 describe("output mode", () => {
   it.each([
     ["auto outside CI on terminals", {}, "auto", true, true, ["pretty", true, true]],
@@ -77,6 +100,115 @@ describe("output mode", () => {
 });
 
 describe("pretty printer", () => {
+  it("redraws select, confirm, and text states in place and collapses submitted results", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    const events: PrintEvent[] = [
+      {
+        type: "prompt",
+        prompt: {
+          kind: "select",
+          message: "Environment",
+          status: "active",
+          value: "staging",
+          choices: [
+            { value: "staging", label: "Staging", selected: true },
+            { value: "production", label: "Production", selected: false },
+          ],
+        },
+      },
+      {
+        type: "prompt",
+        prompt: {
+          kind: "select",
+          message: "Environment",
+          status: "submitted",
+          value: "production",
+          choices: [
+            { value: "staging", label: "Staging", selected: false },
+            { value: "production", label: "Production", selected: true },
+          ],
+        },
+      },
+      {
+        type: "prompt",
+        prompt: {
+          kind: "confirm",
+          message: "Continue?",
+          status: "active",
+          value: false,
+          defaultValue: false,
+        },
+      },
+      {
+        type: "prompt",
+        prompt: { kind: "confirm", message: "Continue?", status: "submitted", value: true },
+      },
+      {
+        type: "prompt",
+        prompt: {
+          kind: "text",
+          message: "Name",
+          status: "active",
+          value: "",
+          placeholder: "release",
+        },
+      },
+      {
+        type: "prompt",
+        prompt: {
+          kind: "text",
+          message: "Name",
+          status: "error",
+          value: "x",
+          placeholder: "release",
+          error: "Too short",
+        },
+      },
+      {
+        type: "prompt",
+        prompt: { kind: "text", message: "Name", status: "submitted", value: "fox" },
+      },
+    ];
+    for (const event of events) void printer.print(event);
+
+    expect(output.stdout.join("")).toContain("\u001b[1A\u001b[2K");
+    expect(effectiveTerminalLines(output.stdout)).toEqual([
+      "✔  Environment: Production",
+      "✔  Continue?: Yes",
+      "✔  Name: fox",
+    ]);
+  });
+
+  it("removes and redraws an active prompt around interleaved logs", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "confirm", message: "Continue?", status: "active", value: false },
+    });
+    void printer.print({
+      type: "log",
+      record: {
+        level: "info",
+        kind: "message",
+        category: [],
+        message: "background update",
+        rawMessage: "background update",
+        properties: {},
+        timestamp: 1,
+      },
+    });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "confirm", message: "Continue?", status: "submitted", value: true },
+    });
+
+    expect(effectiveTerminalLines(output.stdout)).toEqual([
+      "●  background update",
+      "✔  Continue?: Yes",
+    ]);
+  });
   it("distinguishes every level, step, and success without color", () => {
     const output = memoryWriters();
     const printer = createPrettyPrinter({

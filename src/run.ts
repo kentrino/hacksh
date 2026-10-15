@@ -15,6 +15,7 @@ import {
   type Printer,
   type PrintQueue,
   type PrintStream,
+  type TerminalInput,
 } from "./printer.ts";
 import { selectOutputPrinter, type OutputOptions } from "./output.ts";
 import { showUsage, summarizeUsage, type ShowUsageCallback } from "./usage.ts";
@@ -117,7 +118,7 @@ export interface RunCommandOptions extends OutputOptions {
 
 interface PreparedOutput extends PrintQueue {
   interactive: boolean;
-  input: unknown;
+  input: TerminalInput;
 }
 
 function prepareOutput(options: RunCommandOptions): PreparedOutput {
@@ -129,7 +130,7 @@ function prepareOutput(options: RunCommandOptions): PreparedOutput {
     outputIsTTY: (options.stdout ?? process.stdout).isTTY,
   });
   return {
-    ...createPrintQueue(selectOutputPrinter(options, options.printer)),
+    ...createPrintQueue(selectOutputPrinter(options, options.printer, mode)),
     interactive: mode.interactive,
     input,
   };
@@ -165,6 +166,10 @@ async function drainAndExit(output: PrintQueue, code = 1): Promise<never> {
   } finally {
     process.exit(code);
   }
+}
+
+function commandErrorExitCode(error: unknown): number {
+  return error instanceof HackshPromptError && error.reason === "cancelled" ? 130 : 1;
 }
 
 async function reportOutputSetupError(error: unknown, options: RunMainOptions): Promise<never> {
@@ -210,10 +215,7 @@ export async function runMain<S extends ArgsSchema>(
   } catch (error) {
     if (options.onError) {
       await options.onError(error);
-      return drainAndExit(
-        output,
-        error instanceof HackshPromptError && error.reason === "cancelled" ? 130 : 1,
-      );
+      return drainAndExit(output, commandErrorExitCode(error));
     }
     try {
       if (error instanceof ZittyUsageError) {
@@ -226,10 +228,7 @@ export async function runMain<S extends ArgsSchema>(
         });
       }
     } finally {
-      await drainAndExit(
-        output,
-        error instanceof HackshPromptError && error.reason === "cancelled" ? 130 : 1,
-      );
+      await drainAndExit(output, commandErrorExitCode(error));
     }
   }
   await output.drain();

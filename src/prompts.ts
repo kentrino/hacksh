@@ -2,7 +2,15 @@ import { emitKeypressEvents } from "node:readline";
 import { PassThrough } from "node:stream";
 import type { HackshPromptErrorReason, PromptErrorDetails, PromptKind } from "./errors.ts";
 import { HackshPromptError } from "./errors.ts";
-import type { Printer, PromptState } from "./printer.ts";
+import type {
+  ConfirmPromptState,
+  Printer,
+  PromptState,
+  PromptStatus,
+  SelectPromptState,
+  TerminalInput,
+  TextPromptState,
+} from "./printer.ts";
 
 export interface SelectOption<T extends string> {
   value: T;
@@ -36,25 +44,19 @@ export interface Prompter {
 interface Key {
   name?: string;
   ctrl?: boolean;
+  meta?: boolean;
   sequence?: string;
-}
-
-interface PromptInput {
-  isTTY?: boolean;
-  isRaw?: boolean;
-  setRawMode?(mode: boolean): unknown;
-  isPaused?(): boolean;
-  readonly readableFlowing?: boolean | null;
-  resume?(): unknown;
-  pause?(): unknown;
-  on(event: string, listener: (...args: never[]) => void): unknown;
-  removeListener(event: string, listener: (...args: never[]) => void): unknown;
 }
 
 interface PromptControllerOptions {
   interactive: boolean;
-  input: unknown;
+  input: TerminalInput;
   print(event: Parameters<Printer["print"]>[0]): Promise<void>;
+}
+
+interface BufferedKeypress {
+  character: string | undefined;
+  key: Key;
 }
 
 function details(
@@ -99,22 +101,25 @@ function validateMessage(kind: PromptKind, message: unknown, choices?: readonly 
   }
 }
 
-function asInput(value: unknown, prompt: PromptErrorDetails): PromptInput {
+function asInput(value: TerminalInput, prompt: PromptErrorDetails): TerminalInput {
   if (
     typeof value !== "object" ||
     value === null ||
     typeof Reflect.get(value, "on") !== "function" ||
-    typeof Reflect.get(value, "removeListener") !== "function"
+    typeof Reflect.get(value, "removeListener") !== "function" ||
+    typeof Reflect.get(value, "resume") !== "function" ||
+    typeof Reflect.get(value, "pause") !== "function"
   ) {
     throw promptError("input-error", prompt, "Interactive input is not a readable stream");
   }
-  return value as PromptInput;
+  return value;
 }
 
 export class PromptController implements Prompter {
   readonly #interactive: boolean;
-  readonly #inputValue: unknown;
+  readonly #inputValue: TerminalInput;
   readonly #printEvent: PromptControllerOptions["print"];
+  readonly #bufferedKeys: BufferedKeypress[] = [];
   #active = false;
 
   constructor(options: PromptControllerOptions) {
@@ -166,12 +171,21 @@ export class PromptController implements Prompter {
         const keypressInput = new PassThrough();
         emitKeypressEvents(keypressInput);
         let settled = false;
-        let keypressQueue = Promise.resolve();
+        let draining = false;
+        let finalized = false;
+        let completion: (() => void) | undefined;
+        const queuedKeys = this.#bufferedKeys.splice(0);
+        const finalize = (): void => {
+          if (finalized || !settled || draining) return;
+          finalized = true;
+          cleanup();
+          completion?.();
+        };
         const finish = (action: () => void): void => {
           if (settled) return;
           settled = true;
-          cleanup();
-          action();
+          completion = action;
+          finalize();
         };
         const fail = (reason: HackshPromptErrorReason, message: string, cause?: unknown): void => {
           finish(() => reject(promptError(reason, prompt, message, cause)));
@@ -202,8 +216,28 @@ export class PromptController implements Prompter {
             else fail("input-error", "Prompt input could not be processed", cause);
           }
         };
+        const drainKeys = async (): Promise<void> => {
+          if (draining || finalized) return;
+          draining = true;
+          try {
+            while (queuedKeys.length > 0) {
+              if (settled) {
+                this.#bufferedKeys.push(...queuedKeys.splice(0));
+                break;
+              }
+              const next = queuedKeys.shift()!;
+              await handleKeypress(next.character, next.key);
+            }
+          } finally {
+            draining = false;
+            finalize();
+          }
+        };
         const onKeypress = (character: string | undefined, key: Key = {}): void => {
-          keypressQueue = keypressQueue.then(() => handleKeypress(character, key));
+          queuedKeys.push({ character, key });
+          void drainKeys().catch((cause: unknown) =>
+            fail("input-error", "Prompt input could not be processed", cause),
+          );
         };
         const onEnd = (): void => fail("eof", "Prompt input ended before a value was submitted");
         const onError = (cause: unknown): void => fail("input-error", "Prompt input failed", cause);
@@ -224,7 +258,10 @@ export class PromptController implements Prompter {
         input.on("end", onEnd as (...args: never[]) => void);
         input.on("close", onEnd as (...args: never[]) => void);
         input.on("error", onError as (...args: never[]) => void);
-        input.resume?.();
+        input.resume();
+        void drainKeys().catch((cause: unknown) =>
+          fail("input-error", "Prompt input could not be processed", cause),
+        );
       });
       outcome = { ok: true, value };
     } catch (cause) {
@@ -240,7 +277,7 @@ export class PromptController implements Prompter {
     let restoreError: HackshPromptError | undefined;
     try {
       if (rawChanged) input.setRawMode?.(false);
-      if (!originallyFlowing) input.pause?.();
+      if (!originallyFlowing) input.pause();
     } catch (cause) {
       restoreError = promptError(
         "input-error",
@@ -303,10 +340,11 @@ export class PromptController implements Prompter {
         `Unknown initial select value: ${String(options.initialValue)}`,
       );
     }
-    const state = (status: PromptState["status"] = "active"): PromptState => ({
+    const state = (status: PromptStatus = "active"): SelectPromptState => ({
       kind: "select",
       message: options.message,
       status,
+      value: options.options[selected]!.value,
       choices: options.options.map(({ value, label, hint }, index) => ({
         value,
         label: label ?? value,
@@ -339,34 +377,25 @@ export class PromptController implements Prompter {
     if (options.initialValue !== undefined && typeof options.initialValue !== "boolean") {
       throw promptError("invalid-options", prompt, "Confirm initialValue must be a boolean");
     }
-    let value = options.initialValue ?? false;
-    const state = (status: PromptState["status"] = "active"): PromptState => ({
+    const value = options.initialValue ?? false;
+    const state = (result: boolean, status: PromptStatus = "active"): ConfirmPromptState => ({
       kind: "confirm",
       message: options.message,
       status,
-      value: value ? "yes" : "no",
-      defaultValue:
-        options.initialValue === undefined ? undefined : options.initialValue ? "yes" : "no",
+      value: result,
+      ...(options.initialValue === undefined ? {} : { defaultValue: options.initialValue }),
     });
     const result = await this.#run<boolean>(
       prompt,
-      state(),
+      state(value),
       (character, key) => {
         if (key.name === "return" || key.name === "enter") return value;
         if (character.toLowerCase() === "y") return true;
         if (character.toLowerCase() === "n") return false;
         return undefined;
       },
-      (character) => {
-        if (character.toLowerCase() === "y") value = true;
-        else if (character.toLowerCase() === "n") value = false;
-        else return undefined;
-        return state();
-      },
-      (result) => {
-        value = result;
-        return state("submitted");
-      },
+      () => undefined,
+      (submitted) => state(submitted, "submitted"),
     );
     return result;
   }
@@ -383,8 +412,8 @@ export class PromptController implements Prompter {
     let value = "";
     let validationError: string | undefined;
     const state = (
-      status: PromptState["status"] = validationError ? "error" : "active",
-    ): PromptState => ({
+      status: PromptStatus = validationError ? "error" : "active",
+    ): TextPromptState => ({
       kind: "text",
       message: options.message,
       status,
@@ -410,15 +439,14 @@ export class PromptController implements Prompter {
             "Text validation must return a string or undefined",
           );
         }
-        validationError = error;
-        return error === undefined ? value : undefined;
+        validationError = error || undefined;
+        return validationError === undefined ? value : undefined;
       },
       (character, key) => {
         if (key.name === "return" || key.name === "enter") return state();
         validationError = undefined;
-        if (key.name === "backspace") value = value.slice(0, -1);
-        else if (!key.ctrl && !key.name?.startsWith("f") && character.length > 0)
-          value += character;
+        if (key.name === "backspace") value = Array.from(value).slice(0, -1).join("");
+        else if (!key.ctrl && !key.meta && character.length > 0) value += character;
         else return undefined;
         return state();
       },

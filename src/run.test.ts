@@ -866,7 +866,13 @@ describe("runMain", () => {
         argv: ["--count", "invalid"],
         output: "pretty",
         env: { HACKSH_OUTPUT: "json" },
-        stdin: { isTTY: true },
+        stdin: {
+          isTTY: true,
+          on: () => undefined,
+          removeListener: () => undefined,
+          resume: () => undefined,
+          pause: () => undefined,
+        },
         stdout: {
           isTTY: false,
           write: (value) => void stdout.push(value),
@@ -887,6 +893,40 @@ describe("runMain", () => {
         issues: [{ arg: "--count", code: "invalid_type" }],
       },
     });
+  });
+
+  it("resolves output mode only once per invocation", async () => {
+    const reads = new Map<PropertyKey, number>();
+    const env = new Proxy<Record<string, string | undefined>>(
+      {},
+      {
+        get(_target, key) {
+          reads.set(key, (reads.get(key) ?? 0) + 1);
+          return undefined;
+        },
+      },
+    );
+
+    await runCommand(defineCommand({ run: () => undefined }), [], {
+      env,
+      stdin: {
+        isTTY: true,
+        on: () => undefined,
+        removeListener: () => undefined,
+        resume: () => undefined,
+        pause: () => undefined,
+      },
+      stdout: { isTTY: true, write: () => undefined },
+      printer: { print: () => undefined },
+    });
+
+    expect(reads).toEqual(
+      new Map<PropertyKey, number>([
+        ["HACKSH_OUTPUT", 1],
+        ["CI", 1],
+        ["NO_COLOR", 1],
+      ]),
+    );
   });
 
   it("routes usage errors through one printer and drains it before exit", async () => {

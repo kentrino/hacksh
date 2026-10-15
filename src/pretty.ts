@@ -117,7 +117,7 @@ function eventMark(event: PrintEvent): PrettyMark {
   if (event.type === "usage") return "usage";
   if (event.type === "version") return "version";
   if (event.type === "error") return "errorEvent";
-  if (event.type === "prompt") return "prompt";
+  if (event.type === "prompt") return event.prompt.status === "submitted" ? "success" : "prompt";
   return event.record.kind === "message" ? event.record.level : event.record.kind;
 }
 
@@ -133,16 +133,27 @@ function eventLines(event: PrintEvent): string[] {
       return logLines(event.record);
     case "prompt": {
       const { prompt } = event;
+      if (prompt.status === "submitted") {
+        const result =
+          prompt.kind === "select"
+            ? (prompt.choices.find(({ value }) => value === prompt.value)?.label ?? prompt.value)
+            : prompt.kind === "confirm"
+              ? prompt.value
+                ? "Yes"
+                : "No"
+              : prompt.value;
+        return [`${prompt.message}: ${result}`];
+      }
       const lines = [prompt.message];
       if (prompt.kind === "select") {
-        for (const choice of prompt.choices ?? []) {
+        for (const choice of prompt.choices) {
           lines.push(
             `${choice.selected ? ">" : " "} ${choice.label}${choice.hint ? ` — ${choice.hint}` : ""}`,
           );
         }
       } else if (prompt.kind === "confirm") {
         lines.push(
-          `${prompt.value === "yes" ? "Yes" : "No"}${prompt.defaultValue ? ` (default: ${prompt.defaultValue})` : ""}`,
+          `${prompt.value ? "Yes" : "No"}${prompt.defaultValue === undefined ? "" : ` (default: ${prompt.defaultValue ? "yes" : "no"})`}`,
         );
       } else {
         lines.push(prompt.value || (prompt.placeholder ? `(${prompt.placeholder})` : ""));
@@ -162,17 +173,43 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
   const symbols = options.unicode ? unicodeSymbols : asciiSymbols;
+  let activePrompt: { rendered: string; lines: number } | undefined;
+
+  function render(event: PrintEvent): string {
+    const mark = eventMark(event);
+    const lines = eventLines(event);
+    const firstPrefix = colorize(options.color, markStyles[mark], symbols.marks[mark]);
+    const barPrefix = colorize(options.color, "gray", symbols.bar);
+    return lines
+      .map((line, index) => `${index === 0 ? firstPrefix : barPrefix}${line ? `  ${line}` : ""}`)
+      .join("\n");
+  }
+
+  function eraseActivePrompt(): string {
+    return activePrompt ? "\u001b[1A\u001b[2K".repeat(activePrompt.lines) : "";
+  }
 
   return {
     print(event) {
-      const mark = eventMark(event);
-      const lines = eventLines(event);
-      const firstPrefix = colorize(options.color, markStyles[mark], symbols.marks[mark]);
-      const barPrefix = colorize(options.color, "gray", symbols.bar);
-      const rendered = lines
-        .map((line, index) => `${index === 0 ? firstPrefix : barPrefix}${line ? `  ${line}` : ""}`)
-        .join("\n");
+      const rendered = render(event);
+      if (event.type === "prompt") {
+        const erase = eraseActivePrompt();
+        if (event.prompt.status === "submitted") activePrompt = undefined;
+        else activePrompt = { rendered, lines: eventLines(event).length };
+        stdout.write(`${erase}${rendered}\n`);
+        return;
+      }
+
+      const erase = eraseActivePrompt();
+      if (!activePrompt) {
+        (eventStream(event) === "stdout" ? stdout : stderr).write(`${rendered}\n`);
+        return;
+      }
+
+      stdout.write(erase);
+      if (event.type === "error") activePrompt = undefined;
       (eventStream(event) === "stdout" ? stdout : stderr).write(`${rendered}\n`);
+      if (activePrompt) stdout.write(`${activePrompt.rendered}\n`);
     },
   };
 }

@@ -247,7 +247,9 @@ const deploy = defineCommand({
 Select values retain their literal union type. Arrow keys change the selected choice, Enter accepts
 it, and `initialValue` controls the initial selection. Confirm accepts `y`, `n`, or Enter; Enter
 uses `initialValue` when supplied and otherwise means no. Text displays its placeholder without
-using it as input, supports editing, and repeats the prompt when `validate` returns a message.
+using it as input, supports editing, and repeats the prompt only when `validate` returns a nonempty
+message; `""` means valid. Backspace removes one Unicode code point. Input pasted after a selection
+or confirmation is retained for the next sequential prompt instead of being discarded.
 
 Prompts are allowed only when the resolved mode is interactive: pretty output outside CI with TTY
 stdin and stdout. JSON, CI, and non-TTY invocations throw `HackshPromptError` immediately even if a
@@ -256,6 +258,10 @@ default is available. Its `reason` and `prompt` fields identify why input failed
 `overlapping`, `invalid-options`, `input-error`, and `printer-error`. Ctrl-C and Escape cancel;
 `runMain` reports cancellation and exits with status 130. Only one prompt may be active in an
 invocation. Input listeners and raw terminal mode are restored after every outcome.
+
+Active pretty prompts redraw in place rather than appending a block for every key. A completed
+prompt collapses to one result line. If a logger event arrives while a prompt is active, the
+printer removes the prompt, renders the event, and then redraws the current prompt state.
 
 ## Output formats
 
@@ -278,6 +284,10 @@ only for pretty output outside CI when both stdin and stdout are TTYs. Color is 
 pretty output to a stdout TTY when `NO_COLOR` is empty or absent. These decisions are independent: an
 explicit pretty format in CI can use color, but remains noninteractive. `env`, `stdin`, `stdout`,
 and `stderr` can be supplied in execution options for embedded or tested invocations.
+Custom `stdin` values implement the readable-stream operations `on`, `removeListener`, `resume`,
+and `pause`; `isTTY`, `isRaw`, `readableFlowing`, and `setRawMode` describe optional terminal
+capabilities. A stream without those readable operations fails with an `input-error` if prompting
+is attempted.
 
 JSON output contains exactly one `PrintEvent` object per line. Help and version events and
 trace/debug/info logs go to stdout; errors and warning/error/fatal logs go to stderr. Usage attached

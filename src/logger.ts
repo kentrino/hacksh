@@ -1,4 +1,4 @@
-import type { Printer } from "./printer.ts";
+import type { Printer, TerminalInput } from "./printer.ts";
 import { summarizeErrors } from "./errors.ts";
 import type { Prompter } from "./prompts.ts";
 import { PromptController } from "./prompts.ts";
@@ -96,25 +96,21 @@ function createBoundLogger(
 }
 
 export interface CreateLoggerOptions {
-  interactive?: boolean;
-  input?: unknown;
-  printPrompt?: (event: Parameters<Printer["print"]>[0]) => Promise<void>;
+  interactive: boolean;
+  input: TerminalInput;
+  printPrompt(event: Parameters<Printer["print"]>[0]): Promise<void>;
 }
 
 /** Create the logger for one command invocation. */
 export function createLogger(
   printer: Printer,
   category: readonly string[],
-  options: CreateLoggerOptions = {},
+  options: CreateLoggerOptions,
 ): Logger {
   const prompts = new PromptController({
-    interactive: options.interactive ?? false,
+    interactive: options.interactive,
     input: options.input,
-    print:
-      options.printPrompt ??
-      (async (event) => {
-        await printer.print(event);
-      }),
+    print: (event) => options.printPrompt(event),
   });
   return createBoundLogger(printer, [...category], {}, prompts);
 }

@@ -108,6 +108,68 @@ describe("interactive prompts", () => {
     expect(input.listenerCount("keypress")).toBe(0);
   });
 
+  it("accepts f/F, ignores function keys, and removes a full Unicode code point", async () => {
+    const input = new TestInput();
+    const command = defineCommand({
+      async run({ logger }) {
+        const letters = await logger.text({ message: "Letters" });
+        const unicode = await logger.text({ message: "Unicode" });
+        return { letters, unicode };
+      },
+    });
+    const result = runCommand(command, [], {
+      stdin: input,
+      stdout: terminalOutput,
+      printer: { print: () => undefined },
+      env: {},
+    });
+    await turn();
+    input.write("fF\u001bOP\rA😀\u007f\r");
+
+    await expect(result).resolves.toEqual({ letters: "fF", unicode: "A" });
+  });
+
+  it("preserves pasted type-ahead for the next prompt", async () => {
+    const input = new TestInput();
+    const command = defineCommand({
+      async run({ logger }) {
+        const confirmed = await logger.confirm({ message: "Continue?" });
+        const name = await logger.text({ message: "Name" });
+        return { confirmed, name };
+      },
+    });
+    const result = runCommand(command, [], {
+      stdin: input,
+      stdout: terminalOutput,
+      printer: { print: () => undefined },
+      env: {},
+    });
+    await turn();
+    input.write("yname\r");
+
+    await expect(result).resolves.toEqual({ confirmed: true, name: "name" });
+  });
+
+  it("treats an empty validation message as valid", async () => {
+    const input = new TestInput();
+    const result = runCommand(
+      defineCommand({
+        run: ({ logger }) => logger.text({ message: "Value", validate: () => "" }),
+      }),
+      [],
+      {
+        stdin: input,
+        stdout: terminalOutput,
+        printer: { print: () => undefined },
+        env: {},
+      },
+    );
+    await turn();
+    input.write("accepted\r");
+
+    await expect(result).resolves.toBe("accepted");
+  });
+
   it("always rejects noninteractive prompts, including prompts with defaults", async () => {
     const input = new TestInput();
     const command = defineCommand({
@@ -206,6 +268,18 @@ describe("interactive prompts", () => {
       cause: expect.objectContaining({ message: "read failed" }),
     });
     expect(input.isRaw).toBe(false);
+  });
+
+  it("rejects a stdin value without readable-stream operations", async () => {
+    const logger = createLogger({ print: () => undefined }, [], {
+      interactive: true,
+      input: { isTTY: true } as TestInput,
+      printPrompt: async () => undefined,
+    });
+    await expect(logger.text({ message: "Value" })).rejects.toMatchObject({
+      reason: "input-error",
+      message: "Interactive input is not a readable stream",
+    });
   });
 
   it("propagates a submitted-state printer failure after cleaning up", async () => {

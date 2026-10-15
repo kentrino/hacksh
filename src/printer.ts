@@ -93,16 +93,33 @@ export interface PromptChoiceState {
   selected: boolean;
 }
 
-export interface PromptState {
-  kind: "select" | "confirm" | "text";
+export type PromptStatus = "active" | "error" | "submitted";
+
+interface PromptStateBase {
   message: string;
-  status: "active" | "error" | "submitted";
-  choices?: readonly PromptChoiceState[];
-  value?: string;
-  defaultValue?: string;
-  placeholder?: string;
+  status: PromptStatus;
   error?: string;
 }
+
+export interface SelectPromptState extends PromptStateBase {
+  kind: "select";
+  choices: readonly PromptChoiceState[];
+  value: string;
+}
+
+export interface ConfirmPromptState extends PromptStateBase {
+  kind: "confirm";
+  value: boolean;
+  defaultValue?: boolean;
+}
+
+export interface TextPromptState extends PromptStateBase {
+  kind: "text";
+  value: string;
+  placeholder?: string;
+}
+
+export type PromptState = SelectPromptState | ConfirmPromptState | TextPromptState;
 
 export interface PromptPrintEvent {
   type: "prompt";
@@ -164,6 +181,13 @@ export interface OutputWriter {
 
 export interface TerminalInput {
   readonly isTTY?: boolean;
+  readonly isRaw?: boolean;
+  readonly readableFlowing?: boolean | null;
+  setRawMode?(mode: boolean): unknown;
+  resume(): unknown;
+  pause(): unknown;
+  on(event: string, listener: (...args: never[]) => void): unknown;
+  removeListener(event: string, listener: (...args: never[]) => void): unknown;
 }
 
 export interface TerminalOutput extends OutputWriter {
@@ -228,55 +252,43 @@ export function createPrintQueue(target: Printer): PrintQueue {
     failed = true;
   }
 
-  function track(execution: Promise<void>): Promise<void> {
-    const tracked = execution.catch(recordFailure);
-    pending = tracked;
-    void tracked.then(() => {
-      if (pending === tracked) pending = undefined;
+  function track(execution: Promise<void>, retainFailure: boolean): Promise<void> {
+    const barrier = execution.catch((error: unknown) => {
+      if (retainFailure) recordFailure(error);
     });
-    return tracked;
+    pending = barrier;
+    void barrier.then(() => {
+      if (pending === barrier) pending = undefined;
+    });
+    return retainFailure ? barrier : execution;
   }
 
-  function enqueueChecked(event: PrintEvent): Promise<void> {
-    if (pending) {
-      const execution = pending.then(() => target.print(event));
-      const barrier = execution.catch(() => undefined);
-      pending = barrier;
-      void barrier.then(() => {
-        if (pending === barrier) pending = undefined;
-      });
-      return execution;
-    }
+  function enqueue(event: PrintEvent, retainFailure: boolean): void | Promise<void> {
+    if (pending)
+      return track(
+        pending.then(() => target.print(event)),
+        retainFailure,
+      );
     try {
       const result = target.print(event);
-      if (!result) return Promise.resolve();
-      const execution = Promise.resolve(result);
-      const barrier = execution.catch(() => undefined);
-      pending = barrier;
-      void barrier.then(() => {
-        if (pending === barrier) pending = undefined;
-      });
-      return execution;
+      if (result) return track(Promise.resolve(result), retainFailure);
     } catch (error) {
-      return Promise.reject(error);
+      if (retainFailure) recordFailure(error);
+      else return Promise.reject(error);
     }
   }
 
   const printer: Printer = {
     print(event) {
-      if (pending) return track(pending.then(() => target.print(event)));
-      try {
-        const result = target.print(event);
-        if (result) return track(Promise.resolve(result));
-      } catch (error) {
-        recordFailure(error);
-      }
+      return enqueue(event, true);
     },
   };
 
   return {
     printer,
-    printChecked: enqueueChecked,
+    async printChecked(event) {
+      await enqueue(event, false);
+    },
     async drain() {
       await pending;
       if (failed) throw failure;

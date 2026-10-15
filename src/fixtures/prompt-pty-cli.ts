@@ -36,5 +36,5 @@ await runMain(
       );
     },
   }),
-  { output: "pretty", env: {} },
+  { output: "pretty", env: { NO_COLOR: "1" } },
 );

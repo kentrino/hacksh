@@ -2,6 +2,7 @@ import { createPrettyPrinter } from "./pretty.ts";
 import {
   createJsonPrinter,
   resolveOutputMode,
+  type OutputMode,
   type OutputPreference,
   type OutputWriter,
   type Printer,
@@ -28,16 +29,22 @@ function consoleWriter(method: "log" | "error"): OutputWriter {
 }
 
 /** Resolve the automatic output policy and select its printer for one operation. */
-export function selectOutputPrinter(options: OutputOptions, override?: Printer): Printer {
+export function selectOutputPrinter(
+  options: OutputOptions,
+  override?: Printer,
+  resolvedMode?: OutputMode,
+): Printer {
   const stdin = options.stdin ?? process.stdin;
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
-  const mode = resolveOutputMode({
-    output: options.output,
-    env: options.env,
-    inputIsTTY: stdin.isTTY,
-    outputIsTTY: stdout.isTTY,
-  });
+  const mode =
+    resolvedMode ??
+    resolveOutputMode({
+      output: options.output,
+      env: options.env,
+      inputIsTTY: stdin.isTTY,
+      outputIsTTY: stdout.isTTY,
+    });
   if (override) return override;
   if (mode.format === "json") return createJsonPrinter({ stdout, stderr });
 
