@@ -185,7 +185,8 @@ their own `--help` output remains available. If every subcommand is hidden, help
 Every `run` context has a `logger`. Its `trace`, `debug`, `info`, `warn`, `error`, and `fatal`
 methods emit structured records through the invocation's printer. `step` and `success` are
 info-level records with a distinct semantic kind for presentation. Placeholders in braces use the
-record's properties:
+record's properties. Every level is emitted and displayed by the default printer; there is no
+built-in severity threshold or verbose flag.
 
 ```ts
 const deploy = defineCommand({
@@ -201,8 +202,9 @@ const deploy = defineCommand({
 
 Properties passed to an individual call override properties bound by `with`. `getChild` appends a
 category segment; hacksh automatically starts the category with the named root and each resolved
-subcommand. Missing placeholders remain unchanged. Passing an `Error` to `error` or `fatal` uses
-its message and retains the original error as `properties.error` for structured printers.
+subcommand. Missing placeholders, and placeholders whose values cannot be converted to text,
+remain unchanged without discarding their properties. Passing an `Error` to `error` or `fatal`
+uses its message and retains the original error as `properties.error` for structured printers.
 
 Each `log` print event contains a `record` with `level`, `kind`, `category`, interpolated `message`,
 template `rawMessage`, merged `properties`, and a numeric `timestamp`. Logger calls do not need to

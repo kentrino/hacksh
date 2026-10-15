@@ -198,6 +198,45 @@ describe("run logger", () => {
     });
   });
 
+  it("keeps records and the run result when placeholder values cannot be converted", async () => {
+    const records: LogRecord[] = [];
+    const nullPrototypeValue = Object.create(null) as object;
+    const nullPrototypeProperties = Object.assign(Object.create(null), {
+      value: nullPrototypeValue,
+    }) as Record<string, unknown>;
+    const throwingValue = {
+      toString(): string {
+        throw new Error("cannot format");
+      },
+    };
+    const result = { unchanged: true };
+    const command = defineCommand({
+      run({ logger }) {
+        logger.info("Null prototype: {value}", nullPrototypeProperties);
+        logger.info("Throwing conversion: {value}", { value: throwingValue });
+        return result;
+      },
+    });
+
+    await expect(
+      runCommand(command, [], {
+        printer: {
+          print(event) {
+            if (event.type === "log") records.push(event.record);
+          },
+        },
+      }),
+    ).resolves.toBe(result);
+
+    expect(records).toHaveLength(2);
+    expect(records.map(({ message }) => message)).toEqual([
+      "Null prototype: {value}",
+      "Throwing conversion: {value}",
+    ]);
+    expect(records[0]?.properties.value).toBe(nullPrototypeValue);
+    expect(records[1]?.properties.value).toBe(throwingValue);
+  });
+
   it("retains Error inputs as structured properties", async () => {
     const records: LogRecord[] = [];
     const failure = new Error("connection lost", { cause: new Error("socket closed") });

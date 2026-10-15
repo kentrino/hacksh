@@ -32,9 +32,14 @@ export interface Logger {
 }
 
 function interpolate(message: string, properties: LogProperties): string {
-  return message.replace(/\{([^{}]+)\}/g, (placeholder, key: string) =>
-    Object.hasOwn(properties, key) ? String(properties[key]) : placeholder,
-  );
+  return message.replace(/\{([^{}]+)\}/g, (placeholder, key: string) => {
+    if (!Object.hasOwn(properties, key)) return placeholder;
+    try {
+      return String(properties[key]);
+    } catch {
+      return placeholder;
+    }
+  });
 }
 
 function createBoundLogger(
