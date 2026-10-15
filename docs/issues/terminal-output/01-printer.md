@@ -1,7 +1,7 @@
 ---
 id: terminal-output-01-printer
 phase: 1
-status: working
+status: done
 depends_on: []
 ---
 
@@ -9,7 +9,7 @@ depends_on: []
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `0022-single-printer` issue and designs.
 
-Current state: worker `s-terminal-output-01`, pane `w2P:pJ`; session `01a13efe-12bd-7343-922c-b371c60c69e4`; round 1 corrections complete. Reviewer `c-review-terminal-output-01`, pane `w2P:pK`; next action: re-review. Blockers: none.
+Current state: implementation and review accepted at `46b7574`; next action: issue 02. Blockers: none. Worker `s-terminal-output-01` (session `01a13efe-12bd-7343-922c-b371c60c69e4`) and reviewer `c-review-terminal-output-01` (session `20039c18-da41-4a43-9baa-a68a81ce665a`) completed.
 
 ## Scope and decisions
 
@@ -19,10 +19,10 @@ Ownership: related source modules, tests and public documentation for this respo
 
 ## Acceptance criteria
 
-- [ ] AC1: All library output paths use the invocation printer, including help/version/errors and direct showUsage; verify event capture and error-path tests. (plan: layers / `0022-single-printer`).
-- [ ] AC2: Async printer events preserve order and are drained before invocation completion/exit; verify delayed printer and rejection tests. (plan: layers / `0022-single-printer`).
-- [ ] AC3: Existing APIs remain compatible through documented adapters; verify behavior and public type tests. (plan: layers / `0022-single-printer`).
-- [ ] Review: correctness and quality review accepted; corrections verified.
+- [x] AC1: All library output paths use the invocation printer, including help/version/errors and direct showUsage; verify event capture and error-path tests. (plan: layers / `0022-single-printer`).
+- [x] AC2: Async printer events preserve order and are drained before invocation completion/exit; verify delayed printer and rejection tests. (plan: layers / `0022-single-printer`).
+- [x] AC3: Existing APIs remain compatible through documented adapters; verify behavior and public type tests. (plan: layers / `0022-single-printer`).
+- [x] Review: correctness and quality review accepted; corrections verified.
 
 ## Evidence
 
@@ -53,3 +53,7 @@ Correction commit: `8444ab21e9c432af10d7efc203d5ce8696130ac2`.
 - `pnpm build`: passed; `vp pack` emitted ESM JavaScript, source map, and bundled declarations for target Node 22.18.0.
 - `git diff --check`: passed on committed correction tree `5d8c14c3b22016d802d96c5de03c46db24305fd4` with empty diff object `e69de29bb2d1d6434b8b29ae775ad8c2e48c5391`.
 - R3 documentation correction makes the standalone `showUsage` snippet import and use `consolePrinter` directly. R4 required no source or public-contract expansion in this issue.
+
+## Acceptance
+
+Parent inspected the implementation artifacts, issue evidence, and committed runtime/type regression coverage for AC1–AC3. Reviewer accepted full `d0126c0..46b7574` scope after correction review, with no remaining findings. Independent Node v24.15.0 probes verified immediate legacy callback order, async serialization and return to immediate writes after drain, synchronous printer failure propagation, successful onError exit despite drain failure, and onError rejection compatibility. These are repeatable through the regression tests in `src/run.test.ts` and public API tests; 96 tests, check and build passed for the accepted source. Review R4 is explicitly owned by issue 03, not silently discarded.
