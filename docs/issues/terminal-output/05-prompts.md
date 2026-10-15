@@ -9,7 +9,7 @@ depends_on: ["terminal-output-04-pretty"]
 
 Plan: `docs/themes/terminal-output.md`, Layers/Rules/Criteria; reference: `0021-run-prompts` issue and designs.
 
-Current state: worker implementation complete at `7a9c73c`; next action: parent review and acceptance checks. Blockers: none.
+Current state: worker correction round 1 complete at `2668e94`; next action: parent re-review and acceptance checks. Blockers: none.
 
 ## Scope and decisions
 
@@ -34,3 +34,20 @@ Implementation commits: `2e4a5cd946f88a0a9fe5610f7c42efc07f2b34a7` (`feat: add i
 - `pnpm build` — macOS arm64, Node `v24.15.0`, pnpm `11.20.0`: passed; target `node22.18.0`, ESM and declarations emitted.
 - `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm test:packed` — macOS arm64, pnpm host Node `v24.15.0`; packed consumers used Node `v22.18.0` and Deno `2.7.14`: passed.
 - Noninteractive subprocess coverage in `src/prompts.test.ts` uses a 2-second timeout for JSON, CI, and non-TTY modes and verifies structured required-input identification. Deterministic stream tests cover defaults, typed selection, placeholder/validation retry, EOF, cancellation, overlap, invalid options, input failure, printer failure, and cleanup.
+
+## Review round 1
+
+Reviewer `c-review-terminal-output-05`, session `1eb5f30a-3738-49b3-a2b4-a8c823bd02a5`, reviewed `6087242..9dea2ce` with independent stream and PTY probes. Required corrections: R1 f/F filtering bug; R2 in-place pretty prompt redraw and collapsed submitted state with log interleaving support; R3 explicit safe type-ahead/empty-validation/Unicode backspace behavior; R4 discriminated PromptState and honest input stream types; R5 remove duplicate mode resolution/queue logic/dead branches and simplify internal option contracts. Existing noninteractive failure, cancellation/EOF, overlap and terminal cleanup behavior passed probes; corrections must preserve them.
+
+R3 decisions for implementation: retain trailing input for sequential prompts rather than silently dropping a pasted chunk; an empty validation message means no error (only a non-empty string rejects); backspace must remove a full Unicode character without leaving an unpaired surrogate. Document and test these semantics.
+
+Correction commit: `2668e9425ee777df8010cd847e9a63b7601636ea` (`fix: refine interactive prompt lifecycle`). R1–R5 addressed: printable `f/F` and function keys are distinguished; active pretty prompts redraw in place, collapse on submission, and survive interleaved logs; prompt-to-prompt type-ahead is buffered; empty validation messages succeed; Unicode backspace removes a code point; prompt states and terminal input are accurately typed; mode resolution, queue tracking, confirm handling, logger dependencies, and cancellation exit selection are simplified.
+
+Final correction validation used HEAD tree `525aa9cc1dfe4834b93cc4c52dee79947f0e14bf` plus uncommitted diff hash `473e47fddeadda6559838baff86f89d8f3706d86`. Committing the identical non-evidence files produced implementation tree `b099d8db38ce55bb137f4f2682ea003eae21b734`.
+
+- `pnpm check` — macOS arm64, Node `v24.15.0`, pnpm `11.20.0`: passed; all 88 files formatted, with no warnings, lint errors, or type errors.
+- `pnpm test` — macOS arm64, Node `v24.15.0`, pnpm `11.20.0`: passed; 9 files and 161 tests.
+- `pnpm test:prompt-pty` — macOS arm64, Node `v24.15.0`, `/usr/bin/expect`: passed; effective terminal-state checks cover in-place redraw/collapse, select, confirm-to-text type-ahead, `f/F`, validation retry, cancellation, and restoration.
+- `pnpm build` — macOS arm64, Node `v24.15.0`, pnpm `11.20.0`: passed; target `node22.18.0`, ESM and declarations emitted.
+- `ZITTY_MINIMUM_NODE=/Users/kento/.local/share/mise/installs/node/22.18.0/bin/node pnpm test:packed` — macOS arm64, pnpm host Node `v24.15.0`; packed consumers used Node `v22.18.0` and Deno `2.7.14`: passed.
+- `git diff --check` — same tree/diff and environment: passed.
