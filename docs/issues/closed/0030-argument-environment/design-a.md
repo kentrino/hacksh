@@ -28,15 +28,15 @@ const main = defineCommand({
 await runMain(main);
 ```
 
-| 入力 | 結果 |
-| --- | --- |
-| `MY_CLI_DEPLOY_TARGET=prod GITHUB_TOKEN=t my-cli deploy` | `target: "prod"`, `token: "t"` |
-| `MY_CLI_DEPLOY_TARGET=prod GITHUB_TOKEN=t my-cli deploy --target=stg` | CLI 引数が優先され `target: "stg"` |
-| `MY_CLI_DEPLOY_DRY_RUN=true ... my-cli deploy --no-dry-run` | `dryRun: false` |
-| `MY_CLI_DEPLOY_DRY_RUN=yes ... my-cli deploy` | `MY_CLI_DEPLOY_DRY_RUN: expects true or false` で終了し、`run` は呼ばれない |
-| `MY_CLI_DEPLOY_TOKEN=t ...` | 読まれない。`token` の変数名は `GITHUB_TOKEN` に差し替えられている |
-| `MY_CLI_DEPLOY_DEBUG=true ...` | 読まれない。`debug` は無効化されている |
-| `MY_CLI_VERBOSE=true my-cli deploy ...` | ルートの `verbose` が `true` として検証される |
+| 入力                                                                  | 結果                                                                        |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `MY_CLI_DEPLOY_TARGET=prod GITHUB_TOKEN=t my-cli deploy`              | `target: "prod"`, `token: "t"`                                              |
+| `MY_CLI_DEPLOY_TARGET=prod GITHUB_TOKEN=t my-cli deploy --target=stg` | CLI 引数が優先され `target: "stg"`                                          |
+| `MY_CLI_DEPLOY_DRY_RUN=true ... my-cli deploy --no-dry-run`           | `dryRun: false`                                                             |
+| `MY_CLI_DEPLOY_DRY_RUN=yes ... my-cli deploy`                         | `MY_CLI_DEPLOY_DRY_RUN: expects true or false` で終了し、`run` は呼ばれない |
+| `MY_CLI_DEPLOY_TOKEN=t ...`                                           | 読まれない。`token` の変数名は `GITHUB_TOKEN` に差し替えられている          |
+| `MY_CLI_DEPLOY_DEBUG=true ...`                                        | 読まれない。`debug` は無効化されている                                      |
+| `MY_CLI_VERBOSE=true my-cli deploy ...`                               | ルートの `verbose` が `true` として検証される                               |
 
 ヘルプは既存の `(Required)`・`(Default: ...)` と同じ形で変数名を示す。
 
@@ -111,11 +111,12 @@ Design A でも `env: false` と名前の差し替えにより、この案と同
 - 並行する `runCommand` に異なる `env` を渡し、結果が混ざらないことを確かめる。
 - verify-hacksh の手順で利用側の CLI を作り、実際のプロセスに環境変数を与えて、終了コード・標準出力・標準エラーを確かめる。
 
-## 未確定事項
+## 決定事項
 
-- 経路をヘルプまで運ぶ方法（内部の WeakMap か、`summarizeUsage` の引数か）。0008 の機械可読定義でツリー全体を出すときにも同じ経路が必要になるので、0008 と合わせて決める。
-- 衝突を呼び出し時の経路だけで検査するか、`defineCommand` で部分木全体を検査するか。前者は 0004 の遅延定義と両立し、後者は呼ばれない経路の衝突も早く見つける。
-- boolean で `1` と `0` を受け付けるか。環境変数では一般的だが、CLI の `--flag=1` は現在エラーになる。
-- 変数名のプレフィックスを `name` 以外から設定する手段（`envPrefix` など）が必要か。`name` は表示にも使うので、表示名を変えると変数名も変わる。
-- 先頭が数字になる名前（ルート名 `7zip` など）はシェルで `export` できない。定義エラーにするか、そのまま読むか。
-- 1つのオプションに複数の変数名（`GH_TOKEN` と `GITHUB_TOKEN` など）を認めるか。
+- 経路は内部の WeakMap でコマンド定義に結び付ける。`resolveCommand` は子の定義を呼び出しごとに複製して経路を登録するので、同じ子を複数の親で使っても、並行する呼び出しでも混ざらない。`summarizeUsage` などの公開シグネチャは変えない。0008 でツリー全体を出すときは、同じ経路の計算を使う。
+- 衝突は呼び出し時に、解決した経路の全セグメントについて検査する。0004 の遅延定義と両立させるためである。呼ばれない経路の衝突は、その経路を呼ぶまで見つからない。
+- boolean は `true` と `false` だけを受け付ける。CLI の `--flag=true|false` と同じ規則にするためである。
+- `envPrefix` は作らない。ルートの `name` を変えると変数名も変わる。
+- 先頭が数字になる名前もそのまま読む。シェルで `export` できない名前になる場合は、`argOptions.env` で差し替える。
+- 1つのオプションに対応する変数名は1つに限る。
+- `parseArgs` は第3引数の `env` を渡したときだけ環境変数を読み、ルート名に `command.name` を使う。
