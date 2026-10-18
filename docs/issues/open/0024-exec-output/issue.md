@@ -38,4 +38,4 @@ chezmoi の execa ラッパーは実行内容を console.log または commandPr
 - `src/printer.ts` — PrintEvent と printer
 - `src/logger.ts` — 構造化ログ
 - `docs/themes/terminal-output.md`
-- `docs/issues/0023-context-exec/issue.md`
+- `docs/issues/open/0023-context-exec/issue.md`

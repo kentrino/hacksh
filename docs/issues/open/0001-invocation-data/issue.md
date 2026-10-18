@@ -26,4 +26,4 @@ theme: citty-parity
 - `src/command.ts` — `CommandContext`
 
 - `docs/themes/reliable-invocation.md`
-- `docs/issues/0028-invocation-cancellation/issue.md`
+- `docs/issues/open/0028-invocation-cancellation/issue.md`

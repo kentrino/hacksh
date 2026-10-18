@@ -32,4 +32,4 @@ theme: ai-native
 
 - `src/usage.ts`
 - `src/schema.ts`
-- `docs/issues/0008-machine-readable-definition/issue.md`
+- `docs/issues/open/0008-machine-readable-definition/issue.md`

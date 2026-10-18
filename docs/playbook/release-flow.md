@@ -21,8 +21,8 @@ npm のトークン（`NPM_TOKEN`）は使わない。リリース PR は GitHub
 | `.github/workflows/pinact.yml`      | Actions を SHA に固定する                                                              |
 | `.github/renovate.json`             | 依存の更新 PR                                                                          |
 | `.github/CODEOWNERS`                | `* @kentrino`                                                                          |
-| `LICENSE`                           | MIT License の本文（`docs/issues/0011-license-file`）                                  |
-| `package.json` の `repository` ほか | Trusted Publishing の照合に使う（`docs/issues/0012-package-metadata`）                 |
+| `LICENSE`                           | MIT License の本文（`docs/issues/closed/0011-license-file`）                           |
+| `package.json` の `repository` ほか | Trusted Publishing の照合に使う（`docs/issues/closed/0012-package-metadata`）          |
 
 `publish` ジョブは `.github/actions/setup` に `registry-url: https://registry.npmjs.org` を渡し、`vp run ready` のあとで `vp pm publish --access public --no-git-checks --provenance` を実行する。権限は `contents: read` と `id-token: write` にする。
 

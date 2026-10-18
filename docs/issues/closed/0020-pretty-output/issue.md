@@ -39,4 +39,4 @@ hacksh が人間向けに書く出力は、`console.log`・`console.error` に�
 
 - `src/run.ts` — `console.log`・`console.error` による出力
 - `src/usage.ts` — ヘルプの表示
-- `docs/issues/0022-single-printer/issue.md` — すべての出力が通る printer
+- `docs/issues/closed/0022-single-printer/issue.md` — すべての出力が通る printer

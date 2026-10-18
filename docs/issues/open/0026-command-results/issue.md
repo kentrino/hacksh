@@ -34,4 +34,4 @@ runCommand は run の戻り値を返すが、runMain はその値を出力し�
 - `src/run.ts`
 - `src/printer.ts`
 - `docs/themes/terminal-output.md`
-- `docs/issues/0033-public-compatibility/issue.md`
+- `docs/issues/open/0033-public-compatibility/issue.md`

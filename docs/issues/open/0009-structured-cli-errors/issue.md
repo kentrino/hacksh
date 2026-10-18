@@ -36,6 +36,6 @@ Unknown command と No command specified はどちらも usage に分類され�
 
 - `src/errors.ts` — エラー型と summarizeError
 - `src/run.ts` — ルーティングとエラー表示
-- `docs/issues/0027-unknown-arguments/issue.md`
-- `docs/issues/0028-invocation-cancellation/issue.md`
-- `docs/issues/0033-public-compatibility/issue.md`
+- `docs/issues/open/0027-unknown-arguments/issue.md`
+- `docs/issues/open/0028-invocation-cancellation/issue.md`
+- `docs/issues/open/0033-public-compatibility/issue.md`

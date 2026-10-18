@@ -33,4 +33,4 @@ theme: reliable-invocation
 - `src/command.ts`
 - `src/parser.ts`
 - `src/usage.ts`
-- `docs/issues/0008-machine-readable-definition/issue.md`
+- `docs/issues/open/0008-machine-readable-definition/issue.md`

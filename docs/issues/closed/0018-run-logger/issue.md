@@ -27,5 +27,5 @@ theme: terminal-output
 
 - `src/command.ts` — `CommandContext`
 - `src/run.ts` — `run` の呼び出し
-- `docs/issues/0001-invocation-data/issue.md` — 呼び出しごとの値を `run` に渡す仕組み
-- `docs/issues/0022-single-printer/issue.md` — すべての出力が通る printer
+- `docs/issues/open/0001-invocation-data/issue.md` — 呼び出しごとの値を `run` に渡す仕組み
+- `docs/issues/closed/0022-single-printer/issue.md` — すべての出力が通る printer

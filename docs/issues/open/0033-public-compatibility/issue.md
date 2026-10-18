@@ -32,5 +32,5 @@ theme: oss-readiness
 
 - `package.json`
 - `src/index.ts`
-- `docs/issues/0013-release-workflow/issue.md`
-- `docs/issues/0014-ci-packed-consumers/issue.md`
+- `docs/issues/closed/0013-release-workflow/issue.md`
+- `docs/issues/open/0014-ci-packed-consumers/issue.md`

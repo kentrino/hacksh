@@ -32,4 +32,4 @@ theme: reliable-invocation
 
 - `src/parser.ts`
 - `src/run.ts`
-- `docs/issues/0009-structured-cli-errors/issue.md`
+- `docs/issues/open/0009-structured-cli-errors/issue.md`

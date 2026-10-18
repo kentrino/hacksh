@@ -28,6 +28,6 @@ hacksh が書く出力（ヘルプ、バージョン、エラー）は、端末�
 
 - `src/run.ts` — `runMain` とヘルプ・バージョン・エラーの出力
 - `src/parser.ts` — `--help`・`--version` の予約
-- `docs/issues/0008-machine-readable-definition/issue.md` — コマンド定義の機械可読な形
-- `docs/issues/0009-structured-cli-errors/issue.md` — CLI 実行時のエラーの構造化
-- `docs/issues/0022-single-printer/issue.md` — すべての出力が通る printer
+- `docs/issues/open/0008-machine-readable-definition/issue.md` — コマンド定義の機械可読な形
+- `docs/issues/open/0009-structured-cli-errors/issue.md` — CLI 実行時のエラーの構造化
+- `docs/issues/closed/0022-single-printer/issue.md` — すべての出力が通る printer
