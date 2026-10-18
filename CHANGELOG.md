@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/kentrino/hacksh/compare/v0.4.1...v0.4.2) (2026-10-18)
+
+
+### Miscellaneous
+
+* **skills:** add verify-hacksh skill for consumer CLI proofs ([#17](https://github.com/kentrino/hacksh/issues/17)) ([dc454f9](https://github.com/kentrino/hacksh/commit/dc454f9728bcea356ce8c7e3844e4e0c5295eda5))
+
 ## [0.4.1](https://github.com/kentrino/hacksh/compare/v0.4.0...v0.4.1) (2026-10-18)
 
 
