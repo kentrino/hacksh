@@ -121,6 +121,11 @@ export function isArrayInput(schema: $ZodType): boolean {
   return definition(unwrapInput(schema)).type === "array";
 }
 
+/** Whether the schema accepts an object after removing supported input wrappers. */
+export function isObjectInput(schema: $ZodType): boolean {
+  return definition(unwrapInput(schema)).type === "object";
+}
+
 function unwrapInput(schema: $ZodType): $ZodType {
   let current = schema;
   for (;;) {

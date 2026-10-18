@@ -28,7 +28,9 @@ import {
   type RunMainOptions,
   type TerminalInput,
   type TerminalOutput,
+  type ArgOptions,
   type ShowUsageOptions,
+  type UsageOptionSummary,
 } from "./index.ts";
 
 describe("public parsing API", () => {
@@ -112,6 +114,14 @@ describe("public parsing API", () => {
     await expect(parseArgs(command, ["--", "--value", "after"])).rejects.toBeInstanceOf(
       HackshValidationError,
     );
+  });
+
+  it("types an optional environment bag on parseArgs", () => {
+    expectTypeOf<Parameters<typeof parseArgs>[2]>().toEqualTypeOf<
+      { readonly env?: Readonly<Record<string, string | undefined>> } | undefined
+    >();
+    expectTypeOf<ArgOptions["env"]>().toEqualTypeOf<string | false | undefined>();
+    expectTypeOf<UsageOptionSummary["env"]>().toEqualTypeOf<string | undefined>();
   });
 });
 

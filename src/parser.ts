@@ -1,6 +1,7 @@
 import { parseArgs as parseNodeArgs } from "node:util";
 import { safeParseAsync, type $ZodIssue, type output } from "zod/v4/core";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
+import { assertUniqueEnvNames, optionEnvNames, readEnvValue } from "./environment.ts";
 import { HackshValidationError, type HackshIssue } from "./errors.ts";
 import { aliasList, kebabCase } from "./options.ts";
 import {
@@ -249,18 +250,28 @@ export function tokenizedBefore(
   };
 }
 
-function zodIssues(command: AnyCommandDef, issues: readonly $ZodIssue[]): HackshIssue[] {
-  return issues.map((issue) => ({
-    arg: displayName(command, issue.path),
-    message: issue.message,
-    issue,
-  }));
+function zodIssues(
+  command: AnyCommandDef,
+  issues: readonly $ZodIssue[],
+  envSources: ReadonlyMap<string, string>,
+): HackshIssue[] {
+  return issues.map((issue) => {
+    const key = issue.path[0];
+    const envName = typeof key === "string" ? envSources.get(key) : undefined;
+    return {
+      arg: envName ?? displayName(command, issue.path),
+      message: issue.message,
+      issue,
+    };
+  });
 }
 
 export async function parseCommandArgs<S extends ArgsSchema>(
   command: CommandDef<S>,
   rawArgs: string[],
   tokenized: TokenizedCommandArgs = tokenizeCommandArgs(command, rawArgs),
+  env?: Readonly<Record<string, string | undefined>>,
+  envPath?: readonly string[],
 ): Promise<ParsedCommand<S>> {
   if (tokenized.issues.length > 0) {
     throw new HackshValidationError(
@@ -285,20 +296,48 @@ export async function parseCommandArgs<S extends ArgsSchema>(
     } else extraArgs.push(token.value);
   }
 
+  const envSources = new Map<string, string>();
+  if (env && command.args) {
+    const shape = schemaShape(command.args);
+    const envIssues: HackshIssue[] = [];
+    for (const [key, envName] of optionEnvNames(command, envPath)) {
+      if (input[key] !== undefined) continue;
+      const value = readEnvValue(env, envName);
+      if (value === undefined) continue;
+      if (readArgInfo(shape[key]!).takesValue) {
+        input[key] = value;
+      } else if (value === "true" || value === "false") {
+        input[key] = value === "true";
+      } else {
+        envIssues.push({ arg: envName, message: "expects true or false" });
+        continue;
+      }
+      envSources.set(key, envName);
+    }
+    if (envIssues.length > 0) throw new HackshValidationError(command, envIssues);
+  }
+
   if (!command.args)
     return { args: input as output<S>, passthrough: tokenized.passthrough, extraArgs };
   const result = await safeParseAsync(command.args, input);
-  if (!result.success)
-    throw new HackshValidationError(command, zodIssues(command, result.error.issues));
+  if (!result.success) {
+    throw new HackshValidationError(command, zodIssues(command, result.error.issues, envSources));
+  }
   return { args: result.data, passthrough: tokenized.passthrough, extraArgs };
 }
 
 /**
  * Parse and validate one command segment without routing, builtin handling, or output.
+ * Environment variables are read only when `options.env` is provided.
  */
 export async function parseArgs<S extends ArgsSchema>(
   command: CommandDef<S>,
   argv: string[],
+  options?: { readonly env?: Readonly<Record<string, string | undefined>> },
 ): Promise<output<S>> {
-  return (await parseCommandArgs(command, argv)).args;
+  const envPath = command.name ? [command.name] : undefined;
+  if (options?.env !== undefined) assertUniqueEnvNames([{ command, path: envPath }]);
+  return (
+    await parseCommandArgs(command, argv, tokenizeCommandArgs(command, argv), options?.env, envPath)
+  ).args;
 }

@@ -3,6 +3,7 @@ import type { Logger } from "./logger.ts";
 import { aliasList } from "./options.ts";
 import {
   isArrayInput,
+  isObjectInput,
   POSITIONALS_KEY,
   readArgInfo,
   readPositionals,
@@ -15,6 +16,7 @@ import {
 export interface ArgOptions {
   alias?: string | readonly string[];
   valueName?: string;
+  env?: string | false;
 }
 
 export type ArgOptionsMap<S extends ArgsSchema> = Partial<Record<OptionKey<S>, ArgOptions>>;
@@ -74,7 +76,23 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
     if (key === POSITIONALS_KEY) {
       throw new TypeError("Positional arguments cannot have argument options");
     }
-    if (!shape[key]) throw new TypeError(`Unknown argument options key \`${key}\``);
+    const schema = shape[key];
+    if (!schema) throw new TypeError(`Unknown argument options key \`${key}\``);
+    if (options?.env !== undefined) {
+      if (options.env === "") {
+        throw new TypeError(`Environment variable name for \`${key}\` cannot be empty`);
+      }
+      if (isArrayInput(schema)) {
+        throw new TypeError(
+          `Option \`${key}\` cannot use an environment variable because it accepts an array`,
+        );
+      }
+      if (isObjectInput(schema)) {
+        throw new TypeError(
+          `Option \`${key}\` cannot use an environment variable because it accepts an object`,
+        );
+      }
+    }
     if (options?.alias === undefined) continue;
     for (const alias of aliasList(options.alias)) {
       if (alias.length !== 1)

@@ -1,5 +1,6 @@
 import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
+import { assertUniqueEnvNames, commandEnvPath, registerCommandPath } from "./environment.ts";
 import { HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
 import { createLogger } from "./logger.ts";
 import {
@@ -33,10 +34,6 @@ interface ResolvedCommand extends CommandSegment {
   segments: CommandSegment[];
 }
 
-function namedChild(child: AnyCommandDef, name: string): AnyCommandDef {
-  return child.name ? child : { ...child, name };
-}
-
 function resolveCommand(root: AnyCommandDef, rawArgs: string[]): ResolvedCommand {
   let command = root;
   let remaining = rawArgs;
@@ -51,16 +48,21 @@ function resolveCommand(root: AnyCommandDef, rawArgs: string[]): ResolvedCommand
     if (index === undefined) {
       const segment = { command, rawArgs: remaining, tokenized };
       segments.push(segment);
+      assertUniqueEnvNames(
+        segments.map(({ command }) => ({ command, path: commandEnvPath(command) })),
+      );
       return { ...segment, parents, segments };
     }
-    const name = remaining[index]!;
-    const child = command.subCommands?.[name];
-    if (!child) throw new HackshUsageError(`Unknown command \`${name}\``, command);
+    const key = remaining[index]!;
+    const child = command.subCommands?.[key];
+    if (!child) throw new HackshUsageError(`Unknown command \`${key}\``, command);
     const prefix = remaining.slice(0, index);
     const segment = { command, rawArgs: prefix, tokenized: tokenizedBefore(tokenized, index) };
     parents.push(segment);
     segments.push(segment);
-    command = namedChild(child, name);
+    const parentPath = commandEnvPath(command);
+    command = { ...child, name: child.name ?? key };
+    registerCommandPath(command, parentPath === undefined ? undefined : [...parentPath, key]);
     remaining = remaining.slice(index + 1);
   }
 }
@@ -71,6 +73,7 @@ async function executeCommand<S extends ArgsSchema>(
   displayUsage: ShowUsageCallback,
   printer: Printer,
   loggerOptions: Parameters<typeof createLogger>[2],
+  env: Readonly<Record<string, string | undefined>>,
 ): Promise<unknown> {
   const resolved = resolveCommand(root, argv);
   if (resolved.segments[0]?.tokenized.version) {
@@ -83,9 +86,21 @@ async function executeCommand<S extends ArgsSchema>(
   }
 
   for (const parent of resolved.parents) {
-    await parseCommandArgs(parent.command, parent.rawArgs, parent.tokenized);
+    await parseCommandArgs(
+      parent.command,
+      parent.rawArgs,
+      parent.tokenized,
+      env,
+      commandEnvPath(parent.command),
+    );
   }
-  const parsed = await parseCommandArgs(resolved.command, resolved.rawArgs, resolved.tokenized);
+  const parsed = await parseCommandArgs(
+    resolved.command,
+    resolved.rawArgs,
+    resolved.tokenized,
+    env,
+    commandEnvPath(resolved.command),
+  );
   if (!resolved.command.run) {
     throw new HackshUsageError("No command specified", resolved.command);
   }
@@ -121,11 +136,14 @@ interface PreparedOutput extends PrintQueue {
   input: TerminalInput;
 }
 
-function prepareOutput(options: RunCommandOptions): PreparedOutput {
+function prepareOutput(
+  options: RunCommandOptions,
+  env: Readonly<Record<string, string | undefined>>,
+): PreparedOutput {
   const input = options.stdin ?? process.stdin;
   const mode = resolveOutputMode({
     output: options.output,
-    env: options.env,
+    env,
     inputIsTTY: input.isTTY,
     outputIsTTY: (options.stdout ?? process.stdout).isTTY,
   });
@@ -141,13 +159,21 @@ export async function runCommand<S extends ArgsSchema>(
   argv: string[],
   options: RunCommandOptions = {},
 ): Promise<unknown> {
-  const output = prepareOutput(options);
+  const env = options.env ?? process.env;
+  const output = prepareOutput(options, env);
   try {
-    return await executeCommand(root, argv, options.showUsage ?? showUsage, output.printer, {
-      interactive: output.interactive,
-      input: output.input,
-      printPrompt: (event) => output.printChecked(event),
-    });
+    return await executeCommand(
+      root,
+      argv,
+      options.showUsage ?? showUsage,
+      output.printer,
+      {
+        interactive: output.interactive,
+        input: output.input,
+        printPrompt: (event) => output.printChecked(event),
+      },
+      env,
+    );
   } finally {
     await output.drain();
   }
@@ -194,9 +220,10 @@ export async function runMain<S extends ArgsSchema>(
   options: RunMainOptions = {},
 ): Promise<void> {
   const displayUsage = options.showUsage ?? showUsage;
+  const env = options.env ?? process.env;
   let output: PreparedOutput;
   try {
-    output = prepareOutput(options);
+    output = prepareOutput(options, env);
   } catch (error) {
     return reportOutputSetupError(error, options);
   }
@@ -211,6 +238,7 @@ export async function runMain<S extends ArgsSchema>(
         input: output.input,
         printPrompt: (event) => output.printChecked(event),
       },
+      env,
     );
   } catch (error) {
     if (options.onError) {

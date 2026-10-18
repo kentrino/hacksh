@@ -106,7 +106,10 @@ describe("command routing", () => {
 
     const namedLeaf = defineCommand({ name: "custom", run: ({ cmd }) => cmd });
     const namedRoot = defineCommand({ subCommands: { alias: namedLeaf } });
-    await expect(runCommand(namedRoot, ["alias"])).resolves.toBe(namedLeaf);
+    const resolved = await runCommand(namedRoot, ["alias"]);
+    expect(resolved).toMatchObject({ name: "custom" });
+    expect(resolved).not.toBe(namedLeaf);
+    expect(namedLeaf).toMatchObject({ name: "custom" });
   });
 });
 
