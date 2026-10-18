@@ -1,0 +1,34 @@
+#!/usr/bin/expect -f
+# usage: pty.exp <columns> <steps-file> <node> <consumer.ts> [args...]
+# Steps file: one step per line. `expect TEXT` waits for TEXT; `send TEXT` types TEXT after
+# Tcl backslash substitution (\r Enter, \003 Ctrl-C, \033\[B Down arrow). `#` lines are ignored.
+
+set timeout 5
+set columns [lindex $argv 0]
+set steps [lindex $argv 1]
+set command [lrange $argv 2 end]
+
+spawn -noecho /bin/sh -c {stty columns "$0"; exec "$@"} $columns {*}$command
+set handle [open $steps r]
+while {[gets $handle line] >= 0} {
+  if {$line eq "" || [string index $line 0] eq "#"} continue
+  set verb [lindex [split $line " "] 0]
+  set text [string range $line [expr {[string length $verb] + 1}] end]
+  if {$verb eq "expect"} {
+    expect {
+      -exact $text {}
+      timeout { puts stderr "PTY_STEP_TIMEOUT expect $text"; exit 124 }
+      eof { puts stderr "PTY_STEP_EOF expect $text"; break }
+    }
+  } elseif {$verb eq "send"} {
+    send -- [subst -nocommands -novariables $text]
+  } else {
+    puts stderr "PTY_STEP_INVALID $line"
+    exit 2
+  }
+}
+close $handle
+expect eof
+catch wait status
+puts "PTY_CHILD_STATUS $status"
+exit 0
