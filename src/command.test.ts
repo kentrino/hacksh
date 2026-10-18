@@ -54,6 +54,25 @@ describe("defineCommand", () => {
     ["value-option negation collision", { args: z.object({ "no-focus": z.string() }) }],
     ["unknown argument options", { args: z.object({ x: z.string() }), argOptions: { y: {} } }],
     [
+      "empty environment name",
+      { args: z.object({ x: z.string() }), argOptions: { x: { env: "" } } },
+    ],
+    [
+      "array environment name",
+      { args: z.object({ x: z.array(z.string()) }), argOptions: { x: { env: "TAGS" } } },
+    ],
+    [
+      "array environment disable",
+      { args: z.object({ x: z.array(z.string()) }), argOptions: { x: { env: false } } },
+    ],
+    [
+      "object environment name",
+      {
+        args: z.object({ x: z.object({ a: z.string() }) }),
+        argOptions: { x: { env: "META" } },
+      },
+    ],
+    [
       "positional and subcommands",
       { args: z.object({ _: z.tuple([z.string()]) }), subCommands: { sub: {} } },
     ],
@@ -92,4 +111,6 @@ if (process.env.HACKSH_TYPE_TESTS) {
   defineCommand({ args: typedSchema, argOptions: { missing: { alias: "m" } } });
   // @ts-expect-error positional arguments cannot have argument options
   defineCommand({ args: typedSchema, argOptions: { _: { alias: "r" } } });
+  // @ts-expect-error env must be a string or false
+  defineCommand({ args: typedSchema, argOptions: { verbose: { env: 1 } } });
 }

@@ -1,4 +1,5 @@
 import type { AnyCommandDef } from "./command.ts";
+import { commandEnvPath, optionEnvNames } from "./environment.ts";
 import { summarizeErrors } from "./errors.ts";
 import { aliasList, kebabCase } from "./options.ts";
 import { selectOutputPrinter, type OutputOptions } from "./output.ts";
@@ -10,11 +11,13 @@ function details(
   required: boolean,
   defaultValue: unknown,
   choices: readonly string[] | undefined,
+  envName?: string,
 ): string {
   const parts = [description];
   if (choices) parts.push(`(Choices: ${choices.join(", ")})`);
   if (required) parts.push("(Required)");
   if (defaultValue !== undefined) parts.push(`(Default: ${formatDefault(defaultValue)})`);
+  if (envName !== undefined) parts.push(`(Env: ${envName})`);
   return parts.filter(Boolean).join(" ");
 }
 
@@ -51,6 +54,7 @@ export interface UsageOptionSummary {
   description?: string;
   choices?: readonly string[];
   defaultValue?: unknown;
+  env?: string;
 }
 
 export interface UsageCommandSummary {
@@ -115,6 +119,7 @@ export function summarizeUsage(command: AnyCommandDef): UsageSummary {
     });
   }
 
+  const envNames = optionEnvNames(command, commandEnvPath(command));
   const options = Object.entries(shape)
     .filter(([key]) => key !== POSITIONALS_KEY)
     .map(([key, schema]): UsageOptionSummary => {
@@ -125,6 +130,7 @@ export function summarizeUsage(command: AnyCommandDef): UsageSummary {
         : [];
       const name = kebabCase(key);
       const valueName = argOptions?.valueName ?? name;
+      const envName = envNames.get(key);
       return {
         name,
         flags: [...aliases, `--${name}`],
@@ -137,6 +143,7 @@ export function summarizeUsage(command: AnyCommandDef): UsageSummary {
         ...(info.defaultValue === undefined
           ? {}
           : { defaultValue: summarizeErrors(info.defaultValue) }),
+        ...(envName === undefined ? {} : { env: envName }),
       };
     });
 
@@ -184,7 +191,7 @@ function formatUsage(summary: UsageSummary): string {
         return flag;
       });
       lines.push(
-        `  ${flags.join(", ")}  ${details(option.description, option.required, option.defaultValue, option.choices)}`.trimEnd(),
+        `  ${flags.join(", ")}  ${details(option.description, option.required, option.defaultValue, option.choices, option.env)}`.trimEnd(),
       );
     }
   }
