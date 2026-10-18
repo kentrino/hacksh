@@ -1,6 +1,6 @@
 {
   "name": "hacksh",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Type-safe command-line interfaces powered by Zod 4 schemas.",
   "keywords": [
     "cli",

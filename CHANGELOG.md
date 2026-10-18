@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/kentrino/hacksh/compare/v0.4.2...v0.5.0) (2026-10-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **args:** read named options from command-path environment variables ([#19](https://github.com/kentrino/hacksh/issues/19))
+
+### Features
+
+* **args:** read named options from command-path environment variables ([#19](https://github.com/kentrino/hacksh/issues/19)) ([35908d1](https://github.com/kentrino/hacksh/commit/35908d1f2e63512bc8b1d15e256bdbccd86daaac))
+
 ## [0.4.2](https://github.com/kentrino/hacksh/compare/v0.4.1...v0.4.2) (2026-10-18)
 
 
