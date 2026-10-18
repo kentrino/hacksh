@@ -156,6 +156,39 @@ above sets `verbose`; `--help` and `--version` remain available. Output selectio
 any additional command-line flags, so names such as `--json`, `--output`, and `--log-format` remain
 available to application schemas.
 
+### Environment variables
+
+Every named option of a command tree whose root has a `name` can also be set from an environment
+variable. The name joins the root name, the subcommand keys on the route, and the option key in
+upper snake case.
+
+```ts
+const deploy = defineCommand({
+  args: z.object({ target: z.string(), dryRun: z.boolean().default(false), token: z.string() }),
+  argOptions: { token: { env: "GITHUB_TOKEN" } },
+  run: ({ args }) => args,
+});
+const main = defineCommand({ name: "my-cli", subCommands: { deploy } });
+```
+
+```sh
+MY_CLI_DEPLOY_TARGET=prod MY_CLI_DEPLOY_DRY_RUN=true GITHUB_TOKEN=t my-cli deploy
+# { target: "prod", dryRun: true, token: "t" }
+```
+
+- A command-line argument wins over the environment, and the environment wins over the schema
+  default. `--no-dry-run` overrides `MY_CLI_DEPLOY_DRY_RUN=true`.
+- Values go through the same schema as command-line values. Boolean options accept only `true`
+  and `false`. An empty value is a value, not an unset variable.
+- `env: "NAME"` replaces the derived name and `env: false` turns it off. Array and object options,
+  positional arguments, and commands under an unnamed root get no derived name.
+- Help shows the name as `(Env: MY_CLI_DEPLOY_TARGET)`, and `UsageOptionSummary.env` carries it.
+  Errors name the variable but never include its value.
+- `runCommand`, `runMain`, and `createMain` read the `env` option, defaulting to `process.env`.
+  `parseArgs(command, argv, { env })` reads the environment only when `env` is given.
+- Two options that resolve to the same name on one route, such as a root `deployTarget` and a
+  `deploy` subcommand's `target`, make the invocation throw a `TypeError`.
+
 ## Subcommands
 
 ```ts

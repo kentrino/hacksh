@@ -11,6 +11,7 @@ A hacksh CLI parses argv against its Zod object schema: named options (with keba
 - `help` renders synopsis, arguments, options, choices, and defaults.
 - `version` prints the version.
 - `validation-error` reports issues by CLI name (`<TARGET>`, `--env`) and appends usage.
+- `args-environment` fills named options from `<ROOT>_<SUBCOMMAND...>_<OPTION>` variables (`DEMO_DEPLOY_ENV`, `DEMO_DEPLOY_DRY_RUN`); CLI arguments win, and help shows `(Env: NAME)`.
 
 ## How to get to it (user POV)
 
@@ -27,7 +28,8 @@ Preconditions:
 
 - **Full parse.** Run `D --label deploy --env NO_COLOR=1 --expect-code 0 -- CLI deploy api a.txt -e production --dry-run --unknown=1 -- --help`. stdout ends with `RESULT {"args":{"_":["api","a.txt"],"env":"production","dryRun":true},"extraArgs":["--unknown=1"],"passthrough":["--help"]}`.
 - **Boolean forms.** Run with `--dryRun`, `--dry-run=false`, and `--no-dry-run` under separate labels. `RESULT` shows `dryRun` `true`, `false`, `false`. Run with `--no-dry-run=false` and `--expect-code 1`; stderr names `--no-dry-run`.
-- **Help.** Run `D --label deploy-help --env NO_COLOR=1 --expect-code 0 -- CLI deploy --help`. stdout contains `USAGE deploy [OPTIONS] <TARGET> [FILES...]`, `TARGET  Target (Choices: web, api) (Required)`, `-e, --env=<ENV>  Environment (Choices: staging, production) (Default: staging)`, and `--[no-]dry-run  Skip side effects (Default: false)`. stderr is empty.
+- **Help.** Run `D --label deploy-help --env NO_COLOR=1 --expect-code 0 -- CLI deploy --help`. stdout contains `USAGE deploy [OPTIONS] <TARGET> [FILES...]`, `TARGET  Target (Choices: web, api) (Required)`, `-e, --env=<ENV>  Environment (Choices: staging, production) (Default: staging) (Env: DEMO_DEPLOY_ENV)`, and `--[no-]dry-run  Skip side effects (Default: false) (Env: DEMO_DEPLOY_DRY_RUN)`. stderr is empty.
+- **Environment.** Run `D --label env-sets --env NO_COLOR=1 --env DEMO_DEPLOY_ENV=production --env DEMO_DEPLOY_DRY_RUN=true --expect-code 0 -- CLI deploy api`. `RESULT` shows `"env":"production","dryRun":true`. Add `-e staging --no-dry-run` and `RESULT` shows `"env":"staging","dryRun":false`. With `--env DEMO_DEPLOY_DRY_RUN=yes` and `--expect-code 1`, stderr shows `DEMO_DEPLOY_DRY_RUN: expects true or false` and never the value.
 - **Version.** Run `D --label version --env NO_COLOR=1 --expect-code 0 -- CLI --version`. stdout is `●  1.0.0`.
 - **Validation error.** Run `D --label deploy-bad-enum --env NO_COLOR=1 --expect-code 1 -- CLI deploy cli`. stdout is empty; stderr starts with `■  Invalid arguments:` and `<TARGET>: Invalid option: expected one of "web"|"api"`, followed by the `deploy` usage.
 
