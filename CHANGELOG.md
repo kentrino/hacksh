@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/kentrino/hacksh/compare/v0.4.0...v0.4.1) (2026-10-18)
+
+
+### Documentation
+
+* **issues:** split issues into open and closed directories ([#15](https://github.com/kentrino/hacksh/issues/15)) ([48b28d0](https://github.com/kentrino/hacksh/commit/48b28d043fed10974def5fe40b4d27238125c818))
+
 ## [0.4.0](https://github.com/kentrino/hacksh/compare/v0.3.0...v0.4.0) (2026-10-15)
 
 
