@@ -41,7 +41,7 @@ pnpm pack --dry-run
 - `src`、テスト、`docs` が含まれない。
 - パッケージ名が `hacksh` である。
 
-`LICENSE` が含まれない場合は、公開しない（`docs/issues/0011-license-file`）。
+`LICENSE` が含まれない場合は、公開しない（`docs/issues/closed/0011-license-file`）。
 
 # 3. （人）公開する
 
