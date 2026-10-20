@@ -123,7 +123,8 @@ class HackshExecError extends Error {
 
 - 子の環境変数の基底は invocation の環境とする。`runCommand`・`runMain` の `env` オプションを指定した場合はその値、未指定の場合は `process.env` を使う。同時に動く invocation の設定は混ざらない。
 - `env` オプションは基底に重ねる。文字列の値は設定し、`undefined` の値はその変数を削除する。
-- invocation の `env` と `env` オプションのどちらも指定しない場合、hacksh は `process.env` を列挙せず、子は親の環境を継承する。Deno で環境変数の権限を限定していても実行できる。
+- invocation の `env` と `env` オプションのどちらも指定しない場合、hacksh は `process.env` を列挙せず、子は親の環境を継承する。
+- Deno では `--allow-run` と範囲を限定しない `--allow-env` が必要とする。Deno の `node:child_process` は起動のたびに環境全体を読むため、`--allow-env` を変数名で限定すると子を起動する前に権限エラーになる。この権限エラーは `spawn` の失敗結果にせず、そのまま reject する。
 - `cwd` 未指定時は親の作業ディレクトリを使う。
 
 ### 終了と後始末
@@ -135,4 +136,4 @@ class HackshExecError extends Error {
 ### テストでの差し替え
 
 - 実行本体は context から独立したモジュールとし、hacksh の単体テストは実行本体を直接呼ぶ。
-- コマンド作者は `Exec` 型を満たす関数を context に入れて `run` を呼ぶことで、外部コマンドを差し替えられる。`runCommand` に差し替え用のオプションは追加しない。
+- コマンド作者は `Exec` 型の関数を context に入れて `run` を呼ぶことで、外部コマンドを差し替えられる。戻り値型が options に依存するため、差し替え関数の戻り値は型アサーションで `Exec` に合わせる。`runCommand` に差し替え用のオプションは追加しない。
