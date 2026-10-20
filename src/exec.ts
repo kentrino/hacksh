@@ -473,7 +473,7 @@ function formatArgument(value: string): string {
   return value === "" || /[\s"'\\$`;|&<>*?()[\]{}~#!]/.test(value) ? JSON.stringify(value) : value;
 }
 
-export function formatExecCommand(command: ExecCommand): string {
+export function formatExecCommand(command: Pick<ExecCommand, "file" | "args">): string {
   return [command.file, ...command.args].map(formatArgument).join(" ");
 }
 
@@ -547,10 +547,11 @@ async function execute(
   }
   try {
     if (plan.display) {
+      const { file, args, cwd } = plan.reported;
       await context.print({
         type: "exec",
         phase: "start",
-        command: plan.reported,
+        command: cwd === undefined ? { file, args } : { file, args, cwd },
         stdio,
         interactive: plan.interactive,
       });

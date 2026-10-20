@@ -130,7 +130,7 @@ export interface PromptPrintEvent {
 export interface ExecPrintEvent {
   type: "exec";
   phase: "start";
-  command: ExecCommand;
+  command: Omit<ExecCommand, "cwd"> & { cwd?: string };
   stdio: {
     stdin: "ignore" | "input" | "inherit";
     stdout: "pipe" | "inherit";

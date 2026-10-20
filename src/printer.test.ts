@@ -667,7 +667,7 @@ describe("exec events", () => {
     const colored = memoryWriters();
     void createPrettyPrinter({ color: true, unicode: true, ...colored.writers }).print({
       ...event,
-      command: { file: "git", args: ["status"], cwd: undefined },
+      command: { file: "git", args: ["status"] },
     });
     expect(colored.stderr).toEqual(["\u001b[90m$\u001b[39m  git status\n"]);
   });
@@ -676,7 +676,7 @@ describe("exec events", () => {
     const output = memoryWriters();
     void createPrettyPrinter({ color: false, unicode: false, ...output.writers }).print({
       ...event,
-      command: { file: "git", args: ["status"], cwd: undefined },
+      command: { file: "git", args: ["status"] },
     });
 
     expect(output.stderr).toEqual(["$  git status\n"]);

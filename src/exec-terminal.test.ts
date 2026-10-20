@@ -165,12 +165,12 @@ describe("exec display", () => {
         stderr: { write: (text: string) => void stderr.push(text) },
       }),
     ).resolves.toBe("child-marker");
-    expect(stdout.join("")).not.toContain("child-marker");
+    expect(stdout).toEqual([]);
     expect(stderr).toHaveLength(1);
-    expect(JSON.parse(stderr[0]!)).toMatchObject({
+    expect(JSON.parse(stderr[0]!)).toEqual({
       type: "exec",
       phase: "start",
-      command: { file: node, args, cwd: "[undefined]" },
+      command: { file: node, args },
       stdio: { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
       interactive: false,
     });
