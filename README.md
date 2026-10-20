@@ -357,6 +357,42 @@ set to `undefined`. Concurrent invocations with different `env` options do not s
 `HackshExecError` messages include the command and the reason but never the child's output; read
 `error.result` for the full failure, which error summaries and JSON error events omit.
 
+Before starting a child, `exec` prints an `exec` event through the invocation's printer, on stderr
+in both formats. Pretty output shows `$` followed by the command line and, when set, its `cwd`. The
+JSON event has `phase: "start"`, `command` (`file`, `args`, and `cwd` when set), `stdio`, and
+`interactive`; it never includes `env` or `input`. Pass `display: false` to hide one call. Pass
+`redact` with secret values to replace every occurrence in the file, arguments, and cwd with `***`
+in the event, the result's `command`, the `HackshExecError` message, and a `spawn` failure's
+`error`. The child still receives the real values, and its captured output is returned unchanged.
+
+```ts
+await exec("git", ["worktree", "add", path, branch], { cwd: repository });
+await exec("gh", ["auth", "login", "--with-token"], { input: token, display: false });
+await exec("curl", ["-H", `Authorization: Bearer ${token}`, url], { redact: [token] });
+```
+
+Child output is captured by default and never written to the terminal by hacksh. Set `stdin`,
+`stdout`, or `stderr` to `"inherit"` to hand that stream of the parent process to the child; an
+inherited stream bypasses the printer and any `stdout`/`stderr` writers given to `runMain` or
+`runCommand`, and its result field is `""`. `input` cannot be combined with `stdin: "inherit"`.
+Set `interactive: true` when the child talks to the user through the terminal, including tools
+that open `/dev/tty` themselves; hacksh cannot detect that, and it does not create a PTY.
+
+```ts
+// Select a row: the table goes to stdin, the selection comes back on stdout.
+const { stdout: picked } = await exec("fzf", [], { input: table, interactive: true });
+// Hand the whole terminal to a long-running command.
+await exec("gh", ["run", "watch", id], { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+```
+
+These calls fail before starting the child, without an `exec` event, and follow `reject` like any
+other failure: `json-output` when a stream is inherited in JSON mode, `non-interactive` when
+`interactive: true` is used outside an interactive mode (the same rule as prompts), and
+`overlapping` when a call that uses the terminal (interactive or inheriting a stream) starts while
+a prompt or another such call is active. A prompt started during such a call fails with
+`HackshPromptError` reason `overlapping`. Captured calls can run alongside prompts. Signals such
+as Ctrl-C reach the whole foreground process group; hacksh does not forward them or manage jobs.
+
 On Deno, `exec` needs `--allow-run` and unscoped `--allow-env`, because Deno's `node:child_process`
 reads the whole environment to start a process.
 
@@ -390,7 +426,8 @@ capabilities. A stream without those readable operations fails with an `input-er
 is attempted.
 
 JSON output contains exactly one `PrintEvent` object per line. Help and version events and
-trace/debug/info logs go to stdout; errors and warning/error/fatal logs go to stderr. Usage attached
+trace/debug/info logs go to stdout; errors, warning/error/fatal logs, and `exec` events go to
+stderr. Usage attached
 to an error retains its `stderr` stream. Every log level is emitted by default. JSON strings have
 terminal control sequences removed, and the printer never serializes executable command or Zod
 schema objects.

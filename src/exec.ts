@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable } from "node:stream";
 import { HackshExecError } from "./errors.ts";
+import type { ExecPrintEvent, OutputFormat } from "./printer.ts";
+import { TerminalLock } from "./terminal.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -13,6 +15,12 @@ export interface ExecOptions {
   signal?: AbortSignal;
   maxBuffer?: number;
   forceKillAfterDelay?: number;
+  stdin?: "pipe" | "inherit";
+  stdout?: "pipe" | "inherit";
+  stderr?: "pipe" | "inherit";
+  interactive?: boolean;
+  display?: boolean;
+  redact?: readonly string[];
 }
 
 export interface ExecCommand {
@@ -39,6 +47,7 @@ export type ExecFailure = {
   | { reason: "signal"; signal: string }
   | { reason: "spawn"; error: Error }
   | { reason: "timeout" | "aborted" | "output-limit" }
+  | { reason: "json-output" | "non-interactive" | "overlapping" }
 );
 
 export type ExecFailureReason = ExecFailure["reason"];
@@ -51,11 +60,20 @@ export type ExecReturn<O extends ExecOptions> = "reject" extends keyof O
     : ExecSuccess
   : ExecSuccess;
 
+type RejectInheritedInput<O> = O extends { input: string; stdin: "inherit" } ? never : unknown;
+
 export type Exec = <const O extends ExecOptions = {}>(
   file: string,
   args?: readonly string[],
-  options?: O & { [K in Exclude<keyof O, keyof ExecOptions>]: never },
+  options?: O & { [K in Exclude<keyof O, keyof ExecOptions>]: never } & RejectInheritedInput<O>,
 ) => Promise<ExecReturn<O>>;
+
+export interface ExecContext {
+  env: Environment | undefined;
+  mode: { format: OutputFormat; interactive: boolean };
+  print(event: ExecPrintEvent): void | Promise<void>;
+  terminal: TerminalLock;
+}
 
 const OPTION_KEYS: ReadonlySet<string> = new Set([
   "cwd",
@@ -66,12 +84,26 @@ const OPTION_KEYS: ReadonlySet<string> = new Set([
   "signal",
   "maxBuffer",
   "forceKillAfterDelay",
+  "stdin",
+  "stdout",
+  "stderr",
+  "interactive",
+  "display",
+  "redact",
 ] satisfies (keyof ExecOptions)[]);
 
 type TerminationCause = "timeout" | "aborted" | "output-limit";
+type StreamMode = "pipe" | "inherit";
+type ExecStdio = ExecPrintEvent["stdio"];
+type RefusalReason = "aborted" | "json-output" | "non-interactive" | "overlapping";
+
+interface SpawnError extends NodeJS.ErrnoException {
+  spawnargs?: readonly string[];
+}
 
 interface ExecPlan {
   command: ExecCommand;
+  reported: ExecCommand;
   env: NodeJS.ProcessEnv | undefined;
   input: string | undefined;
   reject: boolean;
@@ -79,6 +111,12 @@ interface ExecPlan {
   signal: AbortSignal | undefined;
   maxBuffer: number;
   forceKillAfterDelay: number;
+  stdin: StreamMode;
+  stdout: StreamMode;
+  stderr: StreamMode;
+  interactive: boolean;
+  display: boolean;
+  redact: readonly string[];
 }
 
 interface Outcome {
@@ -88,6 +126,11 @@ interface Outcome {
 }
 
 const MAX_DELAY = 2_147_483_647;
+const REFUSAL_MESSAGE = {
+  "json-output": "Command cannot use the terminal in JSON output mode",
+  "non-interactive": "Command requires an interactive terminal",
+  overlapping: "Command cannot use the terminal while it is in use",
+} as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -102,6 +145,30 @@ function readInteger(value: unknown, label: string, minimum: number, maximum: nu
     throw new TypeError(`${label} must be an integer from ${minimum} to ${maximum}`);
   }
   return value;
+}
+
+function readEnum<const T extends string>(value: unknown, label: string, allowed: readonly T[]): T {
+  if (typeof value === "string" && (allowed as readonly string[]).includes(value))
+    return value as T;
+  throw new TypeError(
+    `Exec option \`${label}\` must be ${allowed.map((item) => JSON.stringify(item)).join(" or ")}`,
+  );
+}
+
+function readBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw new TypeError(`Exec option \`${label}\` must be a boolean`);
+  return value;
+}
+
+function readRedact(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) throw new TypeError("Exec option `redact` must be an array");
+  for (const item of value) {
+    if (typeof item !== "string" || item === "") {
+      throw new TypeError("Exec option `redact` must contain only non-empty strings");
+    }
+    assertNoNul(item, "Exec option `redact`");
+  }
+  return value as readonly string[];
 }
 
 function mergeEnvironment(
@@ -131,6 +198,43 @@ function mergeEnvironment(
     merged[key] = value;
   }
   return merged;
+}
+
+function redactValue(value: string, secrets: readonly string[]): string {
+  let redacted = value;
+  for (const secret of [...secrets].sort((left, right) => right.length - left.length)) {
+    redacted = redacted.split(secret).join("***");
+  }
+  return redacted;
+}
+
+function redactCommand(command: ExecCommand, secrets: readonly string[]): ExecCommand {
+  if (secrets.length === 0) return command;
+  return {
+    file: redactValue(command.file, secrets),
+    args: command.args.map((arg) => redactValue(arg, secrets)),
+    cwd: command.cwd === undefined ? undefined : redactValue(command.cwd, secrets),
+  };
+}
+
+function redactError(error: Error, secrets: readonly string[]): Error {
+  const source = error as SpawnError;
+  const redacted = new Error(redactValue(error.message, secrets)) as SpawnError;
+  if (typeof error.stack === "string") redacted.stack = redactValue(error.stack, secrets);
+  if (source.code !== undefined) redacted.code = source.code;
+  if (source.errno !== undefined) redacted.errno = source.errno;
+  if (typeof source.syscall === "string") redacted.syscall = redactValue(source.syscall, secrets);
+  if (typeof source.path === "string") redacted.path = redactValue(source.path, secrets);
+  if (Array.isArray(source.spawnargs)) {
+    redacted.spawnargs = source.spawnargs.map((arg) =>
+      typeof arg === "string" ? redactValue(arg, secrets) : arg,
+    );
+  }
+  return redacted;
+}
+
+function observedError(plan: ExecPlan, error: Error): Error {
+  return plan.redact.length === 0 ? error : redactError(error, plan.redact);
 }
 
 function parsePlan(
@@ -170,8 +274,20 @@ function parsePlan(
   if (signal !== undefined && !(signal instanceof AbortSignal)) {
     throw new TypeError("Exec option `signal` must be an AbortSignal");
   }
+  const stdin =
+    raw.stdin === undefined ? "pipe" : readEnum(raw.stdin, "stdin", ["pipe", "inherit"]);
+  const stdout =
+    raw.stdout === undefined ? "pipe" : readEnum(raw.stdout, "stdout", ["pipe", "inherit"]);
+  const stderr =
+    raw.stderr === undefined ? "pipe" : readEnum(raw.stderr, "stderr", ["pipe", "inherit"]);
+  if (input !== undefined && stdin === "inherit") {
+    throw new TypeError("Exec option `input` cannot be combined with stdin inherit");
+  }
+  const command = { file, args: [...argv], cwd };
+  const redact = raw.redact === undefined ? [] : readRedact(raw.redact);
   return {
-    command: { file, args: [...argv], cwd },
+    command,
+    reported: redactCommand(command, redact),
     env: mergeEnvironment(baseEnv, raw.env),
     input,
     reject: reject ?? true,
@@ -188,6 +304,13 @@ function parsePlan(
       forceKillAfterDelay === undefined
         ? 5_000
         : readInteger(forceKillAfterDelay, "Exec option `forceKillAfterDelay`", 0, MAX_DELAY),
+    stdin,
+    stdout,
+    stderr,
+    interactive:
+      raw.interactive === undefined ? false : readBoolean(raw.interactive, "interactive"),
+    display: raw.display === undefined ? true : readBoolean(raw.display, "display"),
+    redact,
   };
 }
 
@@ -236,14 +359,36 @@ function isSpawnErrno(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "syscall" in error;
 }
 
+function commandStdio(plan: ExecPlan): ExecStdio {
+  return {
+    stdin: plan.stdin === "inherit" ? "inherit" : plan.input === undefined ? "ignore" : "input",
+    stdout: plan.stdout,
+    stderr: plan.stderr,
+  };
+}
+
+function usesTerminal(plan: ExecPlan, stdio: ExecStdio): boolean {
+  return (
+    plan.interactive ||
+    stdio.stdin === "inherit" ||
+    stdio.stdout === "inherit" ||
+    stdio.stderr === "inherit"
+  );
+}
+
 function startChild(plan: ExecPlan): ChildProcess | Error {
+  const stdio = commandStdio(plan);
   try {
     return spawn(plan.command.file, plan.command.args, {
       cwd: plan.command.cwd,
       env: plan.env,
       shell: false,
       windowsHide: true,
-      stdio: [plan.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+      stdio: [
+        stdio.stdin === "inherit" ? "inherit" : stdio.stdin === "input" ? "pipe" : "ignore",
+        stdio.stdout,
+        stdio.stderr,
+      ],
     });
   } catch (error) {
     if (isSpawnErrno(error)) return error;
@@ -255,17 +400,17 @@ function runPlan(plan: ExecPlan): Promise<ExecResult> {
   const outcome: Outcome = { cause: undefined, spawnError: undefined, exit: undefined };
   if (plan.signal?.aborted) {
     outcome.cause = "aborted";
-    return Promise.resolve(toResult(plan.command, outcome, "", ""));
+    return Promise.resolve(toResult(plan.reported, outcome, "", ""));
   }
   const child = startChild(plan);
   if (child instanceof Error) {
-    outcome.spawnError = child;
-    return Promise.resolve(toResult(plan.command, outcome, "", ""));
+    outcome.spawnError = observedError(plan, child);
+    return Promise.resolve(toResult(plan.reported, outcome, "", ""));
   }
 
   return new Promise((resolve) => {
-    const stdout = child.stdout!;
-    const stderr = child.stderr!;
+    const stdout = child.stdout;
+    const stderr = child.stderr;
     let settled = false;
     let killTimer: NodeJS.Timeout | undefined;
 
@@ -275,11 +420,11 @@ function runPlan(plan: ExecPlan): Promise<ExecResult> {
       clearTimeout(timeoutTimer);
       clearTimeout(killTimer);
       plan.signal?.removeEventListener("abort", onAbort);
-      resolve(toResult(plan.command, outcome, readStdout(), readStderr()));
+      resolve(toResult(plan.reported, outcome, readStdout(), readStderr()));
     };
     const release = () => {
-      stdout.destroy();
-      stderr.destroy();
+      stdout?.destroy();
+      stderr?.destroy();
       settle();
     };
     const terminate = (cause: TerminationCause) => {
@@ -294,15 +439,19 @@ function runPlan(plan: ExecPlan): Promise<ExecResult> {
     };
     const onAbort = () => terminate("aborted");
 
-    const readStdout = collect(stdout, plan.maxBuffer, () => terminate("output-limit"));
-    const readStderr = collect(stderr, plan.maxBuffer, () => terminate("output-limit"));
+    const readStdout = stdout
+      ? collect(stdout, plan.maxBuffer, () => terminate("output-limit"))
+      : () => "";
+    const readStderr = stderr
+      ? collect(stderr, plan.maxBuffer, () => terminate("output-limit"))
+      : () => "";
     const timeoutTimer =
       plan.timeout === undefined ? undefined : setTimeout(() => terminate("timeout"), plan.timeout);
     plan.signal?.addEventListener("abort", onAbort, { once: true });
 
     child.on("error", (error) => {
       if (child.pid !== undefined) return;
-      outcome.spawnError = error;
+      outcome.spawnError = observedError(plan, error);
       release();
     });
     child.on("exit", (code, signal) => {
@@ -324,8 +473,12 @@ function formatArgument(value: string): string {
   return value === "" || /[\s"'\\$`;|&<>*?()[\]{}~#!]/.test(value) ? JSON.stringify(value) : value;
 }
 
+export function formatExecCommand(command: Pick<ExecCommand, "file" | "args">): string {
+  return [command.file, ...command.args].map(formatArgument).join(" ");
+}
+
 function failureMessage(plan: ExecPlan, result: ExecFailure): string {
-  const display = [plan.command.file, ...plan.command.args].map(formatArgument).join(" ");
+  const display = formatExecCommand(plan.reported);
   switch (result.reason) {
     case "exit-code":
       return `Command failed with exit code ${result.exitCode}: ${display}`;
@@ -341,17 +494,18 @@ function failureMessage(plan: ExecPlan, result: ExecFailure): string {
       return `Command was aborted: ${display}`;
     case "output-limit":
       return `Command output exceeded ${plan.maxBuffer} bytes: ${display}`;
+    case "json-output":
+    case "non-interactive":
+    case "overlapping":
+      return `${REFUSAL_MESSAGE[result.reason]}: ${display}`;
   }
 }
 
-async function execute(
-  file: unknown,
-  args: unknown,
-  options: unknown,
-  baseEnv: Environment | undefined,
-): Promise<ExecResult> {
-  const plan = parsePlan(file, args, options, baseEnv);
-  const result = await runPlan(plan);
+function emptyFailure(plan: ExecPlan, reason: RefusalReason): ExecFailure {
+  return { status: "failed", command: plan.reported, stdout: "", stderr: "", reason };
+}
+
+function complete(plan: ExecPlan, result: ExecResult): ExecResult {
   if (result.status === "failed" && plan.reject) {
     throw new HackshExecError(
       failureMessage(plan, result),
@@ -362,7 +516,52 @@ async function execute(
   return result;
 }
 
-/** Bind exec to an invocation environment; `undefined` lets children inherit `process.env`. */
-export function createExec(baseEnv: Environment | undefined): Exec {
-  return ((file, args, options) => execute(file, args, options, baseEnv)) as Exec;
+function blockedReason(
+  plan: ExecPlan,
+  context: ExecContext,
+  stdio: ExecStdio,
+): "json-output" | "non-interactive" | undefined {
+  const inherited =
+    stdio.stdin === "inherit" || stdio.stdout === "inherit" || stdio.stderr === "inherit";
+  if (context.mode.format === "json" && inherited) return "json-output";
+  if (plan.interactive && !context.mode.interactive) return "non-interactive";
+  return undefined;
+}
+
+async function execute(
+  file: unknown,
+  args: unknown,
+  options: unknown,
+  context: ExecContext,
+): Promise<ExecResult> {
+  const plan = parsePlan(file, args, options, context.env);
+  if (plan.signal?.aborted) return complete(plan, emptyFailure(plan, "aborted"));
+
+  const stdio = commandStdio(plan);
+  const blocked = blockedReason(plan, context, stdio);
+  if (blocked) return complete(plan, emptyFailure(plan, blocked));
+
+  const holdTerminal = usesTerminal(plan, stdio);
+  if (holdTerminal && !context.terminal.acquire("exec")) {
+    return complete(plan, emptyFailure(plan, "overlapping"));
+  }
+  try {
+    if (plan.display) {
+      const { file, args, cwd } = plan.reported;
+      await context.print({
+        type: "exec",
+        phase: "start",
+        command: cwd === undefined ? { file, args } : { file, args, cwd },
+        stdio,
+        interactive: plan.interactive,
+      });
+    }
+    return complete(plan, await runPlan(plan));
+  } finally {
+    if (holdTerminal) context.terminal.release();
+  }
+}
+
+export function createExec(context: ExecContext): Exec {
+  return ((file, args, options) => execute(file, args, options, context)) as Exec;
 }

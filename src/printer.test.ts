@@ -647,3 +647,59 @@ describe("JSON printer", () => {
     });
   });
 });
+
+describe("exec events", () => {
+  const event: PrintEvent = {
+    type: "exec",
+    phase: "start",
+    command: { file: "git", args: ["commit", "-m", "hello world"], cwd: "/repo" },
+    stdio: { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+    interactive: false,
+  };
+
+  it("renders the command and cwd on stderr", () => {
+    const output = memoryWriters();
+    void createPrettyPrinter({ color: false, unicode: true, ...output.writers }).print(event);
+
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toEqual(['$  git commit -m "hello world"\n│    cwd: /repo\n']);
+
+    const colored = memoryWriters();
+    void createPrettyPrinter({ color: true, unicode: true, ...colored.writers }).print({
+      ...event,
+      command: { file: "git", args: ["status"] },
+    });
+    expect(colored.stderr).toEqual(["\u001b[90m$\u001b[39m  git status\n"]);
+  });
+
+  it("uses a dollar mark without a cwd line in ascii", () => {
+    const output = memoryWriters();
+    void createPrettyPrinter({ color: false, unicode: false, ...output.writers }).print({
+      ...event,
+      command: { file: "git", args: ["status"] },
+    });
+
+    expect(output.stderr).toEqual(["$  git status\n"]);
+  });
+
+  it("writes an undecorated dollar line through the stream printer", () => {
+    const output = memoryWriters();
+    void createStreamPrinter(output.writers).print(event);
+
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toEqual(['$ git commit -m "hello world"\n']);
+  });
+
+  it("writes one JSON event line to stderr", () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    void createJsonPrinter({
+      stdout: { write: (value) => void stdout.push(value) },
+      stderr: { write: (value) => void stderr.push(value) },
+    }).print(event);
+
+    expect(stdout).toEqual([]);
+    expect(stderr).toHaveLength(1);
+    expect(JSON.parse(stderr[0]!)).toEqual(event);
+  });
+});

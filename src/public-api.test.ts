@@ -13,6 +13,7 @@ import {
   type HackshExecError,
   type Exec,
   type ExecCommand,
+  type ExecPrintEvent,
   type ExecFailure,
   type ExecFailureReason,
   type ExecOptions,
@@ -165,6 +166,7 @@ describe("public logger API", () => {
     >();
     expectTypeOf<LogPrintEvent["record"]>().toEqualTypeOf<LogRecord>();
     expectTypeOf<PromptPrintEvent>().toMatchTypeOf<PrintEvent>();
+    expectTypeOf<ExecPrintEvent>().toMatchTypeOf<PrintEvent>();
     expectTypeOf<RunCommandOptions["stdin"]>().toEqualTypeOf<TerminalInput | undefined>();
     const inspectPrompt = (state: PromptState): void => {
       if (state.kind === "select") expectTypeOf(state.value).toEqualTypeOf<string>();
@@ -193,6 +195,21 @@ describe("public exec API", () => {
         expectTypeOf(exec("git", [], { reject })).toEqualTypeOf<Promise<ExecResult>>();
         const options: ExecOptions = {};
         expectTypeOf(exec("git", [], options)).toEqualTypeOf<Promise<ExecResult>>();
+        expectTypeOf(
+          exec("git", [], {
+            input: "data",
+            stdin: "pipe",
+            stdout: "inherit",
+            stderr: "pipe",
+            interactive: true,
+            display: false,
+            redact: ["token"],
+          }),
+        ).toEqualTypeOf<Promise<ExecSuccess>>();
+        // @ts-expect-error input cannot be combined with inherited stdin
+        void exec("git", [], { input: "data", stdin: "inherit" });
+        const inheritedInput: ExecOptions = { input: "data", stdin: "inherit" };
+        expectTypeOf(exec("git", [], inheritedInput)).toEqualTypeOf<Promise<ExecResult>>();
         // @ts-expect-error env values must be strings or undefined
         void exec("git", [], { env: { A: 1 } });
         // @ts-expect-error a misspelled option is rejected next to a valid one
@@ -222,11 +239,28 @@ describe("public exec API", () => {
           // @ts-expect-error hacksh-initiated terminations carry no exit details
           void result.exitCode;
         }
+        if (
+          result.reason === "json-output" ||
+          result.reason === "non-interactive" ||
+          result.reason === "overlapping"
+        ) {
+          expectTypeOf(result.stdout).toEqualTypeOf<string>();
+          // @ts-expect-error terminal refusals carry no exit details
+          void result.exitCode;
+        }
       },
     });
 
     expectTypeOf<ExecFailureReason>().toEqualTypeOf<
-      "exit-code" | "signal" | "spawn" | "timeout" | "aborted" | "output-limit"
+      | "exit-code"
+      | "signal"
+      | "spawn"
+      | "timeout"
+      | "aborted"
+      | "output-limit"
+      | "json-output"
+      | "non-interactive"
+      | "overlapping"
     >();
     expectTypeOf<ExecResult>().toEqualTypeOf<ExecSuccess | ExecFailure>();
     expectTypeOf<ExecReturn<{ readonly reject: false }>>().toEqualTypeOf<ExecResult>();

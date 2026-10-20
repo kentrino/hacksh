@@ -44,6 +44,7 @@ export { createPrettyPrinter } from "./pretty.ts";
 export type { PrettyPrinterOptions } from "./pretty.ts";
 export type {
   ErrorPrintEvent,
+  ExecPrintEvent,
   JsonPrinterOptions,
   LogPrintEvent,
   OutputFormat,
