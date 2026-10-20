@@ -111,6 +111,8 @@ class HackshExecError extends Error {
   - `cwd` が空文字列・文字列以外、`input` が文字列以外、`reject` が boolean 以外。
   - `env` がオブジェクト以外、env の値が文字列・undefined 以外、env のキーが空・`=` か NUL を含む。
   - `timeout`・`maxBuffer` が正の整数以外、`forceKillAfterDelay` が0以上の整数以外、`signal` が AbortSignal 以外。
+  - options に `ExecOptions` にないキーがある。
+- options のリテラルに `ExecOptions` にないキーを書くと型エラーにする。有効なオプションと並べた場合も同じとする。`ExecOptions` 型の変数を渡す場合は従来どおり受け付ける。
 
 ### 入出力
 
