@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/kentrino/hacksh/compare/v0.5.0...v0.5.1) (2026-10-20)
+
+
+### Documentation
+
+* **agents:** replace plan execution skills with complete-theme ([#21](https://github.com/kentrino/hacksh/issues/21)) ([d446c34](https://github.com/kentrino/hacksh/commit/d446c342bbc5e3b7dc9ad60025aaa66f7afdd89c))
+
 ## [0.5.0](https://github.com/kentrino/hacksh/compare/v0.4.2...v0.5.0) (2026-10-18)
 
 
