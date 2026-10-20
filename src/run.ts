@@ -2,7 +2,7 @@ import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { assertUniqueEnvNames, commandEnvPath, registerCommandPath } from "./environment.ts";
 import { HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
-import { createExec } from "./exec.ts";
+import { createExec, type ExecContext } from "./exec.ts";
 import { createLogger } from "./logger.ts";
 import {
   parseCommandArgs,
@@ -14,11 +14,13 @@ import {
   createJsonPrinter,
   createPrintQueue,
   resolveOutputMode,
+  type OutputFormat,
   type Printer,
   type PrintQueue,
   type PrintStream,
   type TerminalInput,
 } from "./printer.ts";
+import { TerminalLock } from "./terminal.ts";
 import { selectOutputPrinter, type OutputOptions } from "./output.ts";
 import { showUsage, summarizeUsage, type ShowUsageCallback } from "./usage.ts";
 
@@ -74,9 +76,9 @@ async function executeCommand<S extends ArgsSchema>(
   displayUsage: ShowUsageCallback,
   printer: Printer,
   loggerOptions: Parameters<typeof createLogger>[2],
-  invocationEnv: Readonly<Record<string, string | undefined>> | undefined,
+  execContext: ExecContext,
 ): Promise<unknown> {
-  const env = invocationEnv ?? process.env;
+  const env = execContext.env ?? process.env;
   const resolved = resolveCommand(root, argv);
   if (resolved.segments[0]?.tokenized.version) {
     await printer.print({ type: "version", version: root.version ?? "" });
@@ -114,7 +116,7 @@ async function executeCommand<S extends ArgsSchema>(
     cmd: resolved.command,
     rawArgs: resolved.rawArgs,
     logger: createLogger(printer, category, loggerOptions),
-    exec: createExec(invocationEnv),
+    exec: createExec(execContext),
   });
 }
 
@@ -135,8 +137,10 @@ export interface RunCommandOptions extends OutputOptions {
 }
 
 interface PreparedOutput extends PrintQueue {
+  format: OutputFormat;
   interactive: boolean;
   input: TerminalInput;
+  terminal: TerminalLock;
 }
 
 function prepareOutput(
@@ -152,8 +156,19 @@ function prepareOutput(
   });
   return {
     ...createPrintQueue(selectOutputPrinter(options, options.printer, mode)),
+    format: mode.format,
     interactive: mode.interactive,
     input,
+    terminal: new TerminalLock(),
+  };
+}
+
+function invocationExec(output: PreparedOutput, env: ExecContext["env"]): ExecContext {
+  return {
+    env,
+    mode: { format: output.format, interactive: output.interactive },
+    print: (event) => output.printer.print(event),
+    terminal: output.terminal,
   };
 }
 
@@ -173,8 +188,9 @@ export async function runCommand<S extends ArgsSchema>(
         interactive: output.interactive,
         input: output.input,
         printPrompt: (event) => output.printChecked(event),
+        terminal: output.terminal,
       },
-      options.env,
+      invocationExec(output, options.env),
     );
   } finally {
     await output.drain();
@@ -238,8 +254,9 @@ export async function runMain<S extends ArgsSchema>(
         interactive: output.interactive,
         input: output.input,
         printPrompt: (event) => output.printChecked(event),
+        terminal: output.terminal,
       },
-      options.env,
+      invocationExec(output, options.env),
     );
   } catch (error) {
     if (options.onError) {

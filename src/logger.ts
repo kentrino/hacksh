@@ -2,6 +2,7 @@ import type { Printer, TerminalInput } from "./printer.ts";
 import { summarizeErrors } from "./errors.ts";
 import type { Prompter } from "./prompts.ts";
 import { PromptController } from "./prompts.ts";
+import type { TerminalLock } from "./terminal.ts";
 
 export type LogLevel = "trace" | "debug" | "info" | "warning" | "error" | "fatal";
 
@@ -99,6 +100,7 @@ export interface CreateLoggerOptions {
   interactive: boolean;
   input: TerminalInput;
   printPrompt(event: Parameters<Printer["print"]>[0]): Promise<void>;
+  terminal: TerminalLock;
 }
 
 /** Create the logger for one command invocation. */
@@ -111,6 +113,7 @@ export function createLogger(
     interactive: options.interactive,
     input: options.input,
     print: (event) => options.printPrompt(event),
+    terminal: options.terminal,
   });
   return createBoundLogger(printer, [...category], {}, prompts);
 }

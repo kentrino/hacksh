@@ -11,6 +11,7 @@ import type {
   TerminalInput,
   TextPromptState,
 } from "./printer.ts";
+import { TerminalLock } from "./terminal.ts";
 
 export interface SelectOption<T extends string> {
   value: T;
@@ -52,6 +53,7 @@ interface PromptControllerOptions {
   interactive: boolean;
   input: TerminalInput;
   print(event: Parameters<Printer["print"]>[0]): Promise<void>;
+  terminal: TerminalLock;
 }
 
 interface BufferedKeypress {
@@ -120,12 +122,13 @@ export class PromptController implements Prompter {
   readonly #inputValue: TerminalInput;
   readonly #printEvent: PromptControllerOptions["print"];
   readonly #bufferedKeys: BufferedKeypress[] = [];
-  #active = false;
+  readonly #terminal: TerminalLock;
 
   constructor(options: PromptControllerOptions) {
     this.#interactive = options.interactive;
     this.#inputValue = options.input;
     this.#printEvent = (event) => options.print(event);
+    this.#terminal = options.terminal;
   }
 
   async #print(state: PromptState, prompt: PromptErrorDetails): Promise<void> {
@@ -151,12 +154,16 @@ export class PromptController implements Prompter {
         `Cannot request ${prompt.kind} input in non-interactive mode: ${prompt.message}`,
       );
     }
-    if (this.#active) {
-      throw promptError("overlapping", prompt, "Another prompt is already active");
-    }
-
     const input = asInput(this.#inputValue, prompt);
-    this.#active = true;
+    if (!this.#terminal.acquire("prompt")) {
+      throw promptError(
+        "overlapping",
+        prompt,
+        this.#terminal.owner === "exec"
+          ? "A command is using the terminal"
+          : "Another prompt is already active",
+      );
+    }
     let originallyFlowing = false;
     let rawChanged = false;
     let outcome: { ok: true; value: T } | { ok: false; error: unknown };
@@ -293,7 +300,7 @@ export class PromptController implements Prompter {
       } catch {
         // Preserve the error that terminated the prompt, including an earlier printer failure.
       } finally {
-        this.#active = false;
+        this.#terminal.release();
       }
       throw failure;
     };
@@ -310,7 +317,7 @@ export class PromptController implements Prompter {
       }
       throw error;
     } finally {
-      this.#active = false;
+      this.#terminal.release();
     }
   }
 

@@ -1,4 +1,5 @@
 import type { HackshErrorSummary } from "./errors.ts";
+import { formatExecCommand, type ExecCommand } from "./exec.ts";
 import type { LogRecord } from "./logger.ts";
 import { normalizeJson } from "./serialization.ts";
 import type { UsageSummary } from "./usage.ts";
@@ -126,13 +127,26 @@ export interface PromptPrintEvent {
   prompt: PromptState;
 }
 
+export interface ExecPrintEvent {
+  type: "exec";
+  phase: "start";
+  command: ExecCommand;
+  stdio: {
+    stdin: "ignore" | "input" | "inherit";
+    stdout: "pipe" | "inherit";
+    stderr: "pipe" | "inherit";
+  };
+  interactive: boolean;
+}
+
 /** A semantic, command- and schema-free output value emitted by hacksh. */
 export type PrintEvent =
   | UsagePrintEvent
   | VersionPrintEvent
   | ErrorPrintEvent
   | LogPrintEvent
-  | PromptPrintEvent;
+  | PromptPrintEvent
+  | ExecPrintEvent;
 
 /** Receives every output event produced by one command invocation. */
 export interface Printer {
@@ -144,7 +158,7 @@ function isErrorLevel(level: LogRecord["level"]): boolean {
 }
 
 export function eventStream(event: PrintEvent): PrintStream {
-  if (event.type === "error") return "stderr";
+  if (event.type === "error" || event.type === "exec") return "stderr";
   if (event.type === "usage") return event.stream;
   if (event.type === "log" && isErrorLevel(event.record.level)) return "stderr";
   return "stdout";
@@ -164,6 +178,8 @@ function formatTextEvent(event: PrintEvent): string {
       return event.record.message;
     case "prompt":
       return event.prompt.message;
+    case "exec":
+      return `$ ${formatExecCommand(event.command)}`;
   }
 }
 

@@ -5,6 +5,7 @@ import { describe, expect, expectTypeOf, it } from "vite-plus/test";
 import { HackshPromptError } from "./errors.ts";
 import { createLogger } from "./logger.ts";
 import { createPrintQueue, type PrintEvent, type Printer } from "./printer.ts";
+import { TerminalLock } from "./terminal.ts";
 import { defineCommand } from "./command.ts";
 import { runCommand } from "./run.ts";
 
@@ -248,6 +249,7 @@ describe("interactive prompts", () => {
       interactive: true,
       input,
       printPrompt: (event) => queue.printChecked(event),
+      terminal: new TerminalLock(),
     });
     const first = logger.with({ request: 1 }).text({ message: "First" });
     await expect(logger.getChild("child").confirm({ message: "Second" })).rejects.toMatchObject({
@@ -269,6 +271,7 @@ describe("interactive prompts", () => {
       printPrompt: async (event) => {
         if (event.type === "prompt") states.push(event.prompt.status);
       },
+      terminal: new TerminalLock(),
     });
     await expect(logger.select({ message: "Empty", options: [] })).rejects.toMatchObject({
       reason: "invalid-options",
@@ -284,6 +287,7 @@ describe("interactive prompts", () => {
       interactive: true,
       input,
       printPrompt: async () => Promise.reject(new Error("write failed")),
+      terminal: new TerminalLock(),
     });
     await expect(brokenPrinter.text({ message: "Value" })).rejects.toMatchObject({
       reason: "printer-error",
@@ -307,6 +311,7 @@ describe("interactive prompts", () => {
       interactive: true,
       input: { isTTY: true } as TestInput,
       printPrompt: async () => undefined,
+      terminal: new TerminalLock(),
     });
     await expect(logger.text({ message: "Value" })).rejects.toMatchObject({
       reason: "input-error",
@@ -324,6 +329,7 @@ describe("interactive prompts", () => {
         calls += 1;
         if (calls === 2) throw new Error("final write failed");
       },
+      terminal: new TerminalLock(),
     });
     const result = logger.confirm({ message: "Continue?" });
     await turn();
@@ -362,6 +368,7 @@ describe("interactive prompts", () => {
         states.push(event.prompt.status);
         if (states.length === 2) throw failure;
       },
+      terminal: new TerminalLock(),
     });
     const result = logger.text({ message: "Value" });
     await turn();

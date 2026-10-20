@@ -5,11 +5,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { summarizeError } from "./errors.ts";
-import { createExec } from "./exec.ts";
+import { createExec, type ExecContext } from "./exec.ts";
 import { defineCommand, HackshExecError, runCommand, type ExecResult } from "./index.ts";
+import { TerminalLock } from "./terminal.ts";
 
 const node = process.execPath;
-const exec = createExec(undefined);
+
+function createTestExec(env?: ExecContext["env"]): ReturnType<typeof createExec> {
+  return createExec({
+    env,
+    mode: { format: "pretty", interactive: false },
+    print: () => undefined,
+    terminal: new TerminalLock(),
+  });
+}
+
+const exec = createTestExec();
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -73,7 +84,7 @@ describe("exec arguments and environment", () => {
 
   it("sets, overrides, and deletes variables on top of the invocation environment", async () => {
     vi.stubEnv("INHERITED", "from-process");
-    const bound = createExec({ BASE: "base", DROPPED: "present", ADDED: undefined });
+    const bound = createTestExec({ BASE: "base", DROPPED: "present", ADDED: undefined });
     const result = await bound(node, printEnv, {
       env: { BASE: "override", ADDED: "added", DROPPED: undefined },
     });
@@ -223,6 +234,16 @@ describe("exec programming errors", () => {
     ["non-AbortSignal signal", node, [], { signal: {} }],
     ["unknown option", node, [], { rejct: false }],
     ["unknown option next to a valid one", node, [], { cwd: ".", dryRun: true }],
+    ["stdin is not pipe or inherit", node, [], { stdin: "input" }],
+    ["stdout is not pipe or inherit", node, [], { stdout: "ignore" }],
+    ["stderr is not pipe or inherit", node, [], { stderr: true }],
+    ["interactive is not a boolean", node, [], { interactive: "yes" }],
+    ["display is not a boolean", node, [], { display: 0 }],
+    ["redact is not an array", node, [], { redact: "secret" }],
+    ["redact contains an empty string", node, [], { redact: [""] }],
+    ["redact contains a non-string", node, [], { redact: [1] }],
+    ["redact contains NUL", node, [], { redact: ["a\0"] }],
+    ["input combined with inherited stdin", node, [], { input: "x", stdin: "inherit" }],
   ];
 
   it.each(cases)(
@@ -233,7 +254,7 @@ describe("exec programming errors", () => {
         Array.isArray(args) && args.length === 0
           ? script(`require('node:fs').writeFileSync(${JSON.stringify(marker)}, '')`)
           : args;
-      const call = createExec(undefined) as (...input: unknown[]) => Promise<ExecResult>;
+      const call = createTestExec() as (...input: unknown[]) => Promise<ExecResult>;
       const effective =
         typeof options === "object" && options !== null ? { reject: false, ...options } : options;
       await expect(call(file, spawnArgs, effective)).rejects.toBeInstanceOf(TypeError);
@@ -353,7 +374,9 @@ describe("context exec", () => {
         return stdout;
       },
     });
-    await expect(runCommand(command, [], { output: "json" })).resolves.toBe("from child");
+    await expect(
+      runCommand(command, [], { output: "json", stderr: { write: () => undefined } }),
+    ).resolves.toBe("from child");
   });
 
   it("binds each invocation to its own env option", async () => {
@@ -367,8 +390,16 @@ describe("context exec", () => {
       },
     });
     const results = await Promise.all([
-      runCommand(command, [], { output: "json", env: { INVOCATION: "first" } }),
-      runCommand(command, [], { output: "json", env: { INVOCATION: "second" } }),
+      runCommand(command, [], {
+        output: "json",
+        env: { INVOCATION: "first" },
+        stderr: { write: () => undefined },
+      }),
+      runCommand(command, [], {
+        output: "json",
+        env: { INVOCATION: "second" },
+        stderr: { write: () => undefined },
+      }),
     ]);
     expect(results).toEqual(["first", "second"]);
   });
@@ -379,7 +410,9 @@ describe("context exec", () => {
         await exec(node, script("process.exit(7)"));
       },
     });
-    const error = await rejection(runCommand(command, [], { output: "json" }));
+    const error = await rejection(
+      runCommand(command, [], { output: "json", stderr: { write: () => undefined } }),
+    );
     expect(error.result).toMatchObject({ reason: "exit-code", exitCode: 7 });
   });
 });

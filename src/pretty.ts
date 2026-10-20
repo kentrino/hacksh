@@ -1,5 +1,6 @@
 import { inspect, stripVTControlCharacters, styleText } from "node:util";
 import type { HackshErrorSummary } from "./errors.ts";
+import { formatExecCommand } from "./exec.ts";
 import type { LogLevel, LogRecord } from "./logger.ts";
 import {
   eventStream,
@@ -9,7 +10,15 @@ import {
   type TerminalOutput,
 } from "./printer.ts";
 
-type PrettyMark = LogLevel | "step" | "success" | "usage" | "version" | "errorEvent" | "prompt";
+type PrettyMark =
+  | LogLevel
+  | "step"
+  | "success"
+  | "usage"
+  | "version"
+  | "errorEvent"
+  | "prompt"
+  | "exec";
 type TextStyle = Parameters<typeof styleText>[0];
 
 interface PrettySymbols {
@@ -32,6 +41,7 @@ const unicodeSymbols: PrettySymbols = {
     version: "●",
     errorEvent: "■",
     prompt: "?",
+    exec: "$",
   },
 };
 
@@ -50,6 +60,7 @@ const asciiSymbols: PrettySymbols = {
     version: "i",
     errorEvent: "x",
     prompt: "?",
+    exec: "$",
   },
 };
 
@@ -66,6 +77,7 @@ const markStyles: Record<PrettyMark, TextStyle> = {
   version: "blue",
   errorEvent: "red",
   prompt: "cyan",
+  exec: "gray",
 };
 
 export interface PrettyPrinterOptions {
@@ -124,6 +136,7 @@ function eventMark(event: PrintEvent): PrettyMark {
   if (event.type === "version") return "version";
   if (event.type === "error") return "errorEvent";
   if (event.type === "prompt") return event.prompt.status === "submitted" ? "success" : "prompt";
+  if (event.type === "exec") return "exec";
   return event.record.kind === "message" ? event.record.level : event.record.kind;
 }
 
@@ -165,6 +178,11 @@ function eventLines(event: PrintEvent): string[] {
         lines.push(prompt.value || (prompt.placeholder ? `(${prompt.placeholder})` : ""));
       }
       if (prompt.error) lines.push(prompt.error);
+      return lines;
+    }
+    case "exec": {
+      const lines = [formatExecCommand(event.command)];
+      if (event.command.cwd !== undefined) lines.push(...propertyLines({ cwd: event.command.cwd }));
       return lines;
     }
   }
