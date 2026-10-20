@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/kentrino/hacksh/compare/v0.5.1...v0.5.2) (2026-10-20)
+
+
+### Documentation
+
+* **issues:** park deferred issues with triage reasons ([#23](https://github.com/kentrino/hacksh/issues/23)) ([866b0a0](https://github.com/kentrino/hacksh/commit/866b0a05b56bce22915919560ce764eb9fd68a08))
+
 ## [0.5.1](https://github.com/kentrino/hacksh/compare/v0.5.0...v0.5.1) (2026-10-20)
 
 
