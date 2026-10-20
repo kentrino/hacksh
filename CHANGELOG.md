@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/kentrino/hacksh/compare/v0.5.3...v0.5.4) (2026-10-20)
+
+
+### Miscellaneous
+
+* **skills:** move verify-hacksh to .agents/skills and symlink .cursor/skills ([#27](https://github.com/kentrino/hacksh/issues/27)) ([836fbf6](https://github.com/kentrino/hacksh/commit/836fbf632fe51ee34b270abfbbff31df8b3116bd))
+
 ## [0.5.3](https://github.com/kentrino/hacksh/compare/v0.5.2...v0.5.3) (2026-10-20)
 
 
