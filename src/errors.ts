@@ -81,6 +81,20 @@ export class HackshExecError extends Error {
   }
 }
 
+/** A requested process exit status; `runMain` exits with it and reports only a non-empty message. */
+export class HackshExitError extends Error {
+  readonly exitCode: number;
+
+  constructor(exitCode: number, message?: string, options?: ErrorOptions) {
+    if (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255) {
+      throw new TypeError("Exit code must be an integer from 0 to 255");
+    }
+    super(message, options);
+    this.name = "HackshExitError";
+    this.exitCode = exitCode;
+  }
+}
+
 export type HackshErrorKind = "error" | "prompt" | "usage" | "validation" | "thrown";
 
 export interface ValidationIssueSummary {

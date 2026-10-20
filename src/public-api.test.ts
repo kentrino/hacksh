@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as mini from "zod/mini";
 import {
   defineCommand,
+  HackshExitError,
   HackshPromptError,
   createPrettyPrinter,
   parseArgs,
@@ -168,6 +169,7 @@ describe("public logger API", () => {
     expectTypeOf<PromptPrintEvent>().toMatchTypeOf<PrintEvent>();
     expectTypeOf<ExecPrintEvent>().toMatchTypeOf<PrintEvent>();
     expectTypeOf<RunCommandOptions["stdin"]>().toEqualTypeOf<TerminalInput | undefined>();
+    expectTypeOf(new HackshExitError(2).exitCode).toEqualTypeOf<number>();
     const inspectPrompt = (state: PromptState): void => {
       if (state.kind === "select") expectTypeOf(state.value).toEqualTypeOf<string>();
       else if (state.kind === "confirm") expectTypeOf(state.value).toEqualTypeOf<boolean>();

@@ -6,6 +6,7 @@ import {
   parseArgs,
   runCommand,
   runMain,
+  HackshExitError,
   HackshUsageError,
   HackshValidationError,
   type CommandDef,
@@ -721,5 +722,61 @@ describe("runMain", () => {
       ),
     ).rejects.toThrow("stopped");
     expect(error).toHaveBeenCalledWith("■  ordinary failed");
+  });
+});
+
+describe("HackshExitError", () => {
+  it("propagates unchanged from runCommand", async () => {
+    const failure = new HackshExitError(3, "lint failed");
+    await expect(
+      runCommand(
+        defineCommand({
+          run() {
+            throw failure;
+          },
+        }),
+        [],
+      ),
+    ).rejects.toBe(failure);
+    expect(failure).toMatchObject({ name: "HackshExitError", exitCode: 3 });
+  });
+
+  it("accepts only integer exit codes from 0 to 255", () => {
+    expect(new HackshExitError(0).exitCode).toBe(0);
+    expect(new HackshExitError(255).exitCode).toBe(255);
+    for (const code of [-1, 256, 1.5, Number.NaN]) {
+      expect(() => new HackshExitError(code)).toThrow(TypeError);
+    }
+  });
+
+  it("sets the runMain exit code and reports only a non-empty message", async () => {
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const events: PrintEvent[] = [];
+    const printer: Printer = { print: (event) => void events.push(event) };
+    const exitWith = (error: HackshExitError) =>
+      defineCommand({
+        run() {
+          throw error;
+        },
+      });
+
+    await expect(runMain(exitWith(new HackshExitError(3)), { argv: [], printer })).rejects.toThrow(
+      "exit:3",
+    );
+    expect(events).toEqual([]);
+
+    await expect(
+      runMain(exitWith(new HackshExitError(4, "lint failed")), { argv: [], printer }),
+    ).rejects.toThrow("exit:4");
+    expect(events).toMatchObject([
+      { type: "error", error: { name: "HackshExitError", message: "lint failed" } },
+    ]);
+
+    const failure = new HackshExitError(5);
+    const onError = vi.fn();
+    await expect(runMain(exitWith(failure), { argv: [], onError })).rejects.toThrow("exit:5");
+    expect(onError).toHaveBeenCalledWith(failure);
   });
 });
