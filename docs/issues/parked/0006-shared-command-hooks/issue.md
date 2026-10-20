@@ -1,6 +1,7 @@
 ---
 title: 複数のコマンドに共通する前後処理を一か所で定義できない
 theme: citty-parity
+parked: needs-decision
 ---
 
 # Problem

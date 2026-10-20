@@ -1,6 +1,7 @@
 ---
 title: 外部の貢献者が報告や修正の進め方を知る手段がない
 theme: oss-readiness
+parked: needs-decision
 ---
 
 # Problem

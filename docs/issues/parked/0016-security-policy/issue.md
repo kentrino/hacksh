@@ -1,6 +1,7 @@
 ---
 title: 脆弱性を非公開で報告する窓口がない
 theme: oss-readiness
+parked: needs-decision
 ---
 
 # Problem

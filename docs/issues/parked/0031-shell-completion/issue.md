@@ -1,6 +1,7 @@
 ---
 title: コマンド定義の候補をシェル補完に利用できない
 theme: ai-native
+parked: blocked
 ---
 
 # Problem

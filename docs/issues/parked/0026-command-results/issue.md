@@ -1,6 +1,7 @@
 ---
 title: 処理結果をログと分けて出力できない
 theme: composable-output
+parked: low-priority
 ---
 
 # Problem
@@ -34,4 +35,4 @@ runCommand は run の戻り値を返すが、runMain はその値を出力し�
 - `src/run.ts`
 - `src/printer.ts`
 - `docs/themes/terminal-output.md`
-- `docs/issues/open/0033-public-compatibility/issue.md`
+- `docs/issues/parked/0033-public-compatibility/issue.md`

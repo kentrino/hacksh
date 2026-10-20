@@ -1,6 +1,7 @@
 ---
 title: CLI 作者がテストの観測と差し替えを毎回組み立てる必要がある
 theme: testable-cli
+parked: blocked
 ---
 
 # Problem
@@ -33,5 +34,5 @@ runCommand と printer の差し替えはあるが、結果・出力・エラー
 - `src/run.ts`
 - `src/public-api.test.ts`
 - `docs/issues/open/0023-context-exec/issue.md`
-- `docs/issues/open/0026-command-results/issue.md`
+- `docs/issues/parked/0026-command-results/issue.md`
 - `docs/issues/open/0028-invocation-cancellation/issue.md`
