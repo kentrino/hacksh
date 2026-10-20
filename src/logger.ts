@@ -101,6 +101,7 @@ export interface CreateLoggerOptions {
   input: TerminalInput;
   printPrompt(event: Parameters<Printer["print"]>[0]): Promise<void>;
   terminal: TerminalLock;
+  signal: AbortSignal;
 }
 
 /** Create the logger for one command invocation. */
@@ -114,6 +115,7 @@ export function createLogger(
     input: options.input,
     print: (event) => options.printPrompt(event),
     terminal: options.terminal,
+    signal: options.signal,
   });
   return createBoundLogger(printer, [...category], {}, prompts);
 }

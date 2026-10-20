@@ -30,6 +30,7 @@ export interface CommandContext<S extends ArgsSchema> {
   extraArgs: string[];
   logger: Logger;
   exec: Exec;
+  signal: AbortSignal;
 }
 
 export interface CommandDef<S extends ArgsSchema = EmptyArgs> {

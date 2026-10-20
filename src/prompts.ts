@@ -54,6 +54,7 @@ interface PromptControllerOptions {
   input: TerminalInput;
   print(event: Parameters<Printer["print"]>[0]): Promise<void>;
   terminal: TerminalLock;
+  signal: AbortSignal;
 }
 
 interface BufferedKeypress {
@@ -123,12 +124,14 @@ export class PromptController implements Prompter {
   readonly #printEvent: PromptControllerOptions["print"];
   readonly #bufferedKeys: BufferedKeypress[] = [];
   readonly #terminal: TerminalLock;
+  readonly #signal: AbortSignal;
 
   constructor(options: PromptControllerOptions) {
     this.#interactive = options.interactive;
     this.#inputValue = options.input;
     this.#printEvent = (event) => options.print(event);
     this.#terminal = options.terminal;
+    this.#signal = options.signal;
   }
 
   async #print(state: PromptState, prompt: PromptErrorDetails): Promise<void> {
@@ -153,6 +156,9 @@ export class PromptController implements Prompter {
         prompt,
         `Cannot request ${prompt.kind} input in non-interactive mode: ${prompt.message}`,
       );
+    }
+    if (this.#signal.aborted) {
+      throw promptError("aborted", prompt, "Prompt aborted", this.#signal.reason);
     }
     const input = asInput(this.#inputValue, prompt);
     if (!this.#terminal.acquire("prompt")) {
@@ -249,6 +255,7 @@ export class PromptController implements Prompter {
         };
         const onEnd = (): void => fail("eof", "Prompt input ended before a value was submitted");
         const onError = (cause: unknown): void => fail("input-error", "Prompt input failed", cause);
+        const onAbort = (): void => fail("aborted", "Prompt aborted", this.#signal.reason);
         const onData = (chunk: unknown): void => {
           if (typeof chunk === "string" || chunk instanceof Uint8Array) keypressInput.write(chunk);
           else fail("input-error", "Prompt input produced a non-byte value");
@@ -260,12 +267,15 @@ export class PromptController implements Prompter {
           input.removeListener("end", onEnd as (...args: never[]) => void);
           input.removeListener("close", onEnd as (...args: never[]) => void);
           input.removeListener("error", onError as (...args: never[]) => void);
+          this.#signal.removeEventListener("abort", onAbort);
         };
         keypressInput.on("keypress", onKeypress);
         input.on("data", onData as (...args: never[]) => void);
         input.on("end", onEnd as (...args: never[]) => void);
         input.on("close", onEnd as (...args: never[]) => void);
         input.on("error", onError as (...args: never[]) => void);
+        this.#signal.addEventListener("abort", onAbort, { once: true });
+        if (this.#signal.aborted) onAbort();
         input.resume();
         void drainKeys().catch((cause: unknown) =>
           fail("input-error", "Prompt input could not be processed", cause),

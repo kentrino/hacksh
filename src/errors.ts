@@ -36,6 +36,7 @@ export type PromptKind = "select" | "confirm" | "text";
 export type HackshPromptErrorReason =
   | "non-interactive"
   | "cancelled"
+  | "aborted"
   | "eof"
   | "overlapping"
   | "invalid-options"

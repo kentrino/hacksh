@@ -780,3 +780,173 @@ describe("HackshExitError", () => {
     expect(onError).toHaveBeenCalledWith(failure);
   });
 });
+
+describe("invocation signal", () => {
+  it("gives each invocation an unaborted signal that follows only its own external signal", async () => {
+    const controller = new AbortController();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const seen: AbortSignal[] = [];
+    const command = defineCommand({
+      async run({ signal }) {
+        expect(signal.aborted).toBe(false);
+        seen.push(signal);
+        await gate;
+        return signal.aborted;
+      },
+    });
+
+    const linked = runCommand(command, [], { signal: controller.signal });
+    const separate = runCommand(command, []);
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    controller.abort();
+    release();
+
+    await expect(linked).resolves.toBe(true);
+    await expect(separate).resolves.toBe(false);
+  });
+
+  it("rejects with the reason of an already aborted signal without running", async () => {
+    const reason = new Error("stopped before start");
+    const run = vi.fn();
+
+    await expect(
+      runCommand(defineCommand({ run }), [], { signal: AbortSignal.abort(reason) }),
+    ).rejects.toBe(reason);
+    expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("runMain signals", () => {
+  const signalListeners = () => [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
+
+  function throwingExit() {
+    return vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+  }
+
+  function waitForAbort() {
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const reasons: unknown[] = [];
+    const command = defineCommand({
+      run: ({ signal }) =>
+        new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => {
+            reasons.push(signal.reason);
+            resolve();
+          });
+          started();
+        }),
+    });
+    return { command, running, reasons };
+  }
+
+  it.each([
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ] as const)("aborts run on %s and exits %i after it settles", async (name, code) => {
+    throwingExit();
+    const baseline = signalListeners();
+    const { command, running, reasons } = waitForAbort();
+
+    const main = runMain(command, { argv: [], printer: { print: () => undefined } });
+    await running;
+    process.emit(name);
+
+    await expect(main).rejects.toThrow(`exit:${code}`);
+    expect(reasons).toEqual([
+      expect.objectContaining({ name: "AbortError", message: `Received ${name}` }),
+    ]);
+    expect(signalListeners()).toEqual(baseline);
+  });
+
+  it("forces exit on a second signal while run ignores the abort", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const baseline = signalListeners();
+    let finish!: () => void;
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const command = defineCommand({
+      run() {
+        started();
+        return new Promise<void>((resolve) => (finish = resolve));
+      },
+    });
+
+    const main = runMain(command, { argv: [], printer: { print: () => undefined } });
+    await running;
+    process.emit("SIGINT");
+    expect(exit).not.toHaveBeenCalled();
+    process.emit("SIGINT");
+    expect(exit).toHaveBeenCalledExactlyOnceWith(130);
+
+    finish();
+    await main;
+    expect(signalListeners()).toEqual(baseline);
+  });
+
+  it("exits with the signal code even when run throws and output cannot drain", async () => {
+    throwingExit();
+    const baseline = signalListeners();
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const command = defineCommand({
+      run: ({ signal }) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+          started();
+        }),
+    });
+
+    const main = runMain(command, {
+      argv: [],
+      printer: { print: async () => Promise.reject(new Error("printer failed")) },
+    });
+    await running;
+    process.emit("SIGTERM");
+
+    await expect(main).rejects.toThrow("exit:143");
+    expect(signalListeners()).toEqual(baseline);
+  });
+
+  it("removes its listeners after success, failure, and a rejected onError", async () => {
+    throwingExit();
+    const baseline = signalListeners();
+    const failing = defineCommand({
+      run() {
+        throw new Error("boom");
+      },
+    });
+
+    await runMain(defineCommand({ run: () => undefined }), { argv: [] });
+    expect(signalListeners()).toEqual(baseline);
+    await expect(
+      runMain(failing, { argv: [], printer: { print: () => undefined } }),
+    ).rejects.toThrow("exit:1");
+    expect(signalListeners()).toEqual(baseline);
+    await expect(
+      runMain(failing, {
+        argv: [],
+        onError: () => Promise.reject(new Error("reporting failed")),
+      }),
+    ).rejects.toThrow("reporting failed");
+    expect(signalListeners()).toEqual(baseline);
+  });
+
+  it("keeps a running invocation subscribed after another one finishes", async () => {
+    throwingExit();
+    const baseline = signalListeners();
+    const { command, running, reasons } = waitForAbort();
+
+    const main = runMain(command, { argv: [], printer: { print: () => undefined } });
+    await running;
+    await runMain(defineCommand({ run: () => undefined }), { argv: [] });
+    process.emit("SIGINT");
+
+    await expect(main).rejects.toThrow("exit:130");
+    expect(reasons).toHaveLength(1);
+    expect(signalListeners()).toEqual(baseline);
+  });
+});

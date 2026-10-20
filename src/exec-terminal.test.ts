@@ -100,6 +100,7 @@ describe("exec display", () => {
       env: undefined,
       mode: { format: "pretty", interactive: false },
       terminal: new TerminalLock(),
+      signal: new AbortController().signal,
       print: async (event) => {
         events.push(event);
         expect(existsSync(marker)).toBe(false);
