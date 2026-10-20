@@ -195,6 +195,12 @@ describe("public exec API", () => {
         expectTypeOf(exec("git", [], options)).toEqualTypeOf<Promise<ExecResult>>();
         // @ts-expect-error env values must be strings or undefined
         void exec("git", [], { env: { A: 1 } });
+        // @ts-expect-error a misspelled option is rejected next to a valid one
+        void exec("git", [], { cwd: ".", rejct: false });
+        // @ts-expect-error a misspelled option is rejected on its own
+        void exec("git", [], { rejct: false });
+        expectTypeOf(exec("git", [], { reject: true })).toEqualTypeOf<Promise<ExecSuccess>>();
+        expectTypeOf(exec("git", [], {})).toEqualTypeOf<Promise<ExecSuccess>>();
 
         const result = await exec("git", [], { reject: false });
         // @ts-expect-error exitCode exists only after narrowing

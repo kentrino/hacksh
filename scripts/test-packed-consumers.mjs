@@ -721,6 +721,8 @@ const execCommand = defineCommand({
     const options: ExecOptions = { reject: false, timeout: 1_000, maxBuffer: 1_024 };
     const result: ExecResult = await exec("node", ["-e", "process.exit(3)"], options);
     const returned: ExecReturn<{ reject: false }> = result;
+    // @ts-expect-error a misspelled option is rejected next to a valid one
+    void exec("node", [], { cwd: ".", rejct: false });
     if (result.status === "failed") {
       const failure: ExecFailure = result;
       const reason: ExecFailureReason = failure.reason;

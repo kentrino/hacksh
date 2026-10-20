@@ -54,8 +54,19 @@ export type ExecReturn<O extends ExecOptions> = "reject" extends keyof O
 export type Exec = <const O extends ExecOptions = {}>(
   file: string,
   args?: readonly string[],
-  options?: O,
+  options?: O & { [K in Exclude<keyof O, keyof ExecOptions>]: never },
 ) => Promise<ExecReturn<O>>;
+
+const OPTION_KEYS: ReadonlySet<string> = new Set([
+  "cwd",
+  "env",
+  "input",
+  "reject",
+  "timeout",
+  "signal",
+  "maxBuffer",
+  "forceKillAfterDelay",
+] satisfies (keyof ExecOptions)[]);
 
 type TerminationCause = "timeout" | "aborted" | "output-limit";
 
@@ -139,6 +150,9 @@ function parsePlan(
   for (const arg of argv) assertNoNul(arg, "Exec args");
   const raw = options === undefined ? {} : options;
   if (!isRecord(raw)) throw new TypeError("Exec options must be an object");
+  for (const key of Object.keys(raw)) {
+    if (!OPTION_KEYS.has(key)) throw new TypeError(`Unknown exec option \`${key}\``);
+  }
 
   const { cwd, input, reject, timeout, signal, maxBuffer, forceKillAfterDelay } = raw;
   if (cwd !== undefined) {

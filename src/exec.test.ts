@@ -221,6 +221,8 @@ describe("exec programming errors", () => {
     ["zero maxBuffer", node, [], { maxBuffer: 0 }],
     ["negative forceKillAfterDelay", node, [], { forceKillAfterDelay: -1 }],
     ["non-AbortSignal signal", node, [], { signal: {} }],
+    ["unknown option", node, [], { rejct: false }],
+    ["unknown option next to a valid one", node, [], { cwd: ".", dryRun: true }],
   ];
 
   it.each(cases)(
