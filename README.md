@@ -304,10 +304,12 @@ multiselect prompt.
 Prompts are allowed only when the resolved mode is interactive: pretty output outside CI with TTY
 stdin and stdout. JSON, CI, and non-TTY invocations throw `HackshPromptError` immediately even if a
 default is available. Its `reason` and `prompt` fields identify why input failed and the prompt's
-`kind`, `message`, and select `choices`. Reasons distinguish `non-interactive`, `cancelled`, `eof`,
-`overlapping`, `invalid-options`, `input-error`, and `printer-error`. Ctrl-C and Escape cancel;
-`runMain` reports cancellation and exits with status 130. Only one prompt may be active in an
-invocation. Input listeners and raw terminal mode are restored after every outcome.
+`kind`, `message`, and select `choices`. Reasons distinguish `non-interactive`, `cancelled`,
+`aborted`, `eof`, `overlapping`, `invalid-options`, `input-error`, and `printer-error`. Ctrl-C and
+Escape cancel; `runMain` reports cancellation and exits with status 130. A prompt that starts or is
+waiting after the invocation's `signal` aborts fails with `aborted` and the signal's reason as its
+`cause`. Only one prompt may be active in an invocation. Input listeners and raw terminal mode are
+restored after every outcome.
 Failed prompts emit a non-visible `closed` prompt state through the same printer before rejecting,
 so callers that catch cancellation, EOF, input, or printer errors do not leave stale terminal UI.
 
@@ -352,7 +354,8 @@ narrowed before reading `exitCode`.
 
 Options are `cwd`, `env`, `input`, `reject`, `timeout` (milliseconds), `signal` (an
 `AbortSignal`), `maxBuffer` (bytes per stream, default 100,000,000), and `forceKillAfterDelay`
-(milliseconds, default 5,000). `input` is written to stdin and closed; otherwise stdin is empty.
+(milliseconds, default 5,000). Every call also stops with `aborted` when the invocation's `signal`
+aborts. `input` is written to stdin and closed; otherwise stdin is empty.
 Output beyond `maxBuffer` is truncated to that many bytes. On timeout, abort, or output limit,
 hacksh sends `SIGTERM` to the child it started and `SIGKILL` after `forceKillAfterDelay`; it does
 not stop grandchildren, and it does not wait for them to close inherited pipes. Invalid arguments
@@ -571,7 +574,36 @@ Usage failures are `HackshUsageError` instances. Argument failures are
 `HackshValidationError` instances whose `issues` identify CLI names such as `--repo` or `<PR>`.
 Prompt failures are `HackshPromptError` instances with structured `reason` and `prompt` fields.
 
-## Exit status
+## Cancellation and exit status
+
+Every `run` context has a `signal`, an `AbortSignal` for that invocation. `exec` calls and prompts
+already follow it; pass it to `fetch` and other APIs that accept one. Cancellation is cooperative:
+hacksh does not stop code that ignores the signal.
+
+```ts
+import { defineCommand, HackshExitError, runCommand } from "hacksh";
+
+const check = defineCommand({
+  name: "check",
+  async run({ signal }) {
+    const response = await fetch("https://example.com/health", { signal });
+    if (!response.ok) throw new HackshExitError(2, `Health check returned ${response.status}`);
+  },
+});
+
+const controller = new AbortController();
+await runCommand(check, [], { signal: controller.signal });
+```
+
+`runCommand` accepts a `signal` option and never listens for process signals or exits. If that
+signal is already aborted, `runCommand` rejects with its reason without calling `run`; aborting it
+later aborts the context's `signal`.
+
+`runMain` listens for `SIGINT` and `SIGTERM` while it runs and removes those listeners before it
+returns or exits. The first signal aborts the invocation with an `AbortError` named after the
+signal; once `run` settles, output is drained and the process exits with 130 for `SIGINT` or 143 for
+`SIGTERM`, even if `run` threw. A second signal while `run` is still pending exits immediately with
+that signal's status.
 
 Throw `HackshExitError(exitCode, message?)` to choose the exit status, an integer from 0 to 255.
 `runMain` prints a non-empty message as an ordinary error and prints nothing when the message is

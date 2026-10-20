@@ -73,6 +73,7 @@ export interface ExecContext {
   mode: { format: OutputFormat; interactive: boolean };
   print(event: ExecPrintEvent): void | Promise<void>;
   terminal: TerminalLock;
+  signal: AbortSignal;
 }
 
 const OPTION_KEYS: ReadonlySet<string> = new Set([
@@ -108,7 +109,7 @@ interface ExecPlan {
   input: string | undefined;
   reject: boolean;
   timeout: number | undefined;
-  signal: AbortSignal | undefined;
+  signal: AbortSignal;
   maxBuffer: number;
   forceKillAfterDelay: number;
   stdin: StreamMode;
@@ -237,12 +238,7 @@ function observedError(plan: ExecPlan, error: Error): Error {
   return plan.redact.length === 0 ? error : redactError(error, plan.redact);
 }
 
-function parsePlan(
-  file: unknown,
-  args: unknown,
-  options: unknown,
-  baseEnv: Environment | undefined,
-): ExecPlan {
+function parsePlan(file: unknown, args: unknown, options: unknown, context: ExecContext): ExecPlan {
   if (typeof file !== "string" || file === "") {
     throw new TypeError("Exec file must be a non-empty string");
   }
@@ -288,14 +284,14 @@ function parsePlan(
   return {
     command,
     reported: redactCommand(command, redact),
-    env: mergeEnvironment(baseEnv, raw.env),
+    env: mergeEnvironment(context.env, raw.env),
     input,
     reject: reject ?? true,
     timeout:
       timeout === undefined
         ? undefined
         : readInteger(timeout, "Exec option `timeout`", 1, MAX_DELAY),
-    signal,
+    signal: signal === undefined ? context.signal : AbortSignal.any([context.signal, signal]),
     maxBuffer:
       maxBuffer === undefined
         ? 100_000_000
@@ -398,7 +394,7 @@ function startChild(plan: ExecPlan): ChildProcess | Error {
 
 function runPlan(plan: ExecPlan): Promise<ExecResult> {
   const outcome: Outcome = { cause: undefined, spawnError: undefined, exit: undefined };
-  if (plan.signal?.aborted) {
+  if (plan.signal.aborted) {
     outcome.cause = "aborted";
     return Promise.resolve(toResult(plan.reported, outcome, "", ""));
   }
@@ -419,7 +415,7 @@ function runPlan(plan: ExecPlan): Promise<ExecResult> {
       settled = true;
       clearTimeout(timeoutTimer);
       clearTimeout(killTimer);
-      plan.signal?.removeEventListener("abort", onAbort);
+      plan.signal.removeEventListener("abort", onAbort);
       resolve(toResult(plan.reported, outcome, readStdout(), readStderr()));
     };
     const release = () => {
@@ -447,7 +443,7 @@ function runPlan(plan: ExecPlan): Promise<ExecResult> {
       : () => "";
     const timeoutTimer =
       plan.timeout === undefined ? undefined : setTimeout(() => terminate("timeout"), plan.timeout);
-    plan.signal?.addEventListener("abort", onAbort, { once: true });
+    plan.signal.addEventListener("abort", onAbort, { once: true });
 
     child.on("error", (error) => {
       if (child.pid !== undefined) return;
@@ -534,8 +530,8 @@ async function execute(
   options: unknown,
   context: ExecContext,
 ): Promise<ExecResult> {
-  const plan = parsePlan(file, args, options, context.env);
-  if (plan.signal?.aborted) return complete(plan, emptyFailure(plan, "aborted"));
+  const plan = parsePlan(file, args, options, context);
+  if (plan.signal.aborted) return complete(plan, emptyFailure(plan, "aborted"));
 
   const stdio = commandStdio(plan);
   const blocked = blockedReason(plan, context, stdio);

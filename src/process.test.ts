@@ -1,4 +1,6 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { createInterface } from "node:readline";
 import { describe, expect, it } from "vite-plus/test";
 
 describe("real process behavior", () => {
@@ -47,5 +49,31 @@ describe("real process behavior", () => {
         message: expect.stringContaining("Invalid HACKSH_OUTPUT value JSON"),
       },
     });
+  });
+
+  async function signalFixture(args: string[], signals: NodeJS.Signals[]): Promise<number | null> {
+    const child = spawn(process.execPath, ["src/fixtures/signal-cli.ts", ...args], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const exited = once(child, "exit");
+    const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+    await lines.next();
+    for (const signal of signals) {
+      child.kill(signal);
+      await lines.next();
+    }
+    const [code] = (await exited) as [number | null];
+    return code;
+  }
+
+  it.each([
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ] as const)("exits %i after %s aborts the invocation", async (signal, code) => {
+    await expect(signalFixture([], [signal])).resolves.toBe(code);
+  });
+
+  it("exits on a second SIGINT when run ignores the abort", async () => {
+    await expect(signalFixture(["--ignore-abort"], ["SIGINT", "SIGINT"])).resolves.toBe(130);
   });
 });

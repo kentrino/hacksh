@@ -23,10 +23,12 @@ context に共通の AbortSignal がなく、prompt のキャンセル、作者�
 - 任意の終了コードを伝える公開手段を定義し、ライブラリ実行は値または型付き例外で観測できる。
 - SIGINT/SIGTERM、本体とcleanupの同時失敗、複数invocationの独立性を検証する。
 
-# Open Decisions
+# Decisions
 
-- 終了状態を戻り値・例外・専用APIのどれで伝えるか。
-- signal.reason、prompt取消、終了コードの対応と、終了猶予・二度目のシグナルの扱い。
+- context の `signal` は `runCommand` の `signal` オプションをそのまま使い、未指定なら中断されない signal を渡す。事前に中断済みなら `run` を呼ばずに `signal.reason` で reject する。
+- 終了状態は型付き例外 `HackshExitError(exitCode, message?)` で伝える。`run` の戻り値は `runCommand` の結果として残す。
+- `runMain` は SIGINT・SIGTERM を購読し、最初のシグナルで `AbortError` を reason に中断する。`run` の完了後に出力を排出し、130・143で終了する。終了猶予のタイマーは持たず、二度目のシグナルで即座に終了する。
+- 中断による prompt の失敗は `aborted` とし、Ctrl-C・Escape の `cancelled` と区別する。exec は既存の `aborted` を使う。
 
 # Related Files
 

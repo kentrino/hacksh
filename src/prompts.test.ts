@@ -1,3 +1,4 @@
+import { getEventListeners } from "node:events";
 import { PassThrough } from "node:stream";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -216,6 +217,63 @@ describe("interactive prompts", () => {
     }
   });
 
+  it("fails a waiting prompt as aborted when the invocation signal aborts", async () => {
+    const input = new TestInput();
+    const events: PrintEvent[] = [];
+    const controller = new AbortController();
+    const reason = new Error("stop");
+    const result = runCommand(
+      defineCommand({ run: ({ logger }) => logger.text({ message: "Value" }) }),
+      [],
+      {
+        stdin: input,
+        stdout: terminalOutput,
+        printer: { print: (event) => void events.push(event) },
+        env: {},
+        signal: controller.signal,
+      },
+    );
+    await turn();
+    controller.abort(reason);
+
+    await expect(result).rejects.toMatchObject({
+      name: "HackshPromptError",
+      reason: "aborted",
+      cause: reason,
+    });
+    expect(input.rawModes).toEqual([true, false]);
+    expect(input.listenerCount("data")).toBe(0);
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+    expect(events.at(-1)).toMatchObject({ type: "prompt", prompt: { status: "closed" } });
+  });
+
+  it("fails a prompt started after the invocation signal aborted without touching the terminal", async () => {
+    const input = new TestInput();
+    const events: PrintEvent[] = [];
+    const controller = new AbortController();
+    const reason = new Error("stop");
+    const result = runCommand(
+      defineCommand({
+        run: ({ logger }) => {
+          controller.abort(reason);
+          return logger.confirm({ message: "Continue?" });
+        },
+      }),
+      [],
+      {
+        stdin: input,
+        stdout: terminalOutput,
+        printer: { print: (event) => void events.push(event) },
+        env: {},
+        signal: controller.signal,
+      },
+    );
+
+    await expect(result).rejects.toMatchObject({ reason: "aborted", cause: reason });
+    expect(input.rawModes).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
   it("closes a cancelled prompt before caught-error logs", async () => {
     const input = new TestInput();
     const events: PrintEvent[] = [];
@@ -250,6 +308,7 @@ describe("interactive prompts", () => {
       input,
       printPrompt: (event) => queue.printChecked(event),
       terminal: new TerminalLock(),
+      signal: new AbortController().signal,
     });
     const first = logger.with({ request: 1 }).text({ message: "First" });
     await expect(logger.getChild("child").confirm({ message: "Second" })).rejects.toMatchObject({
@@ -272,6 +331,7 @@ describe("interactive prompts", () => {
         if (event.type === "prompt") states.push(event.prompt.status);
       },
       terminal: new TerminalLock(),
+      signal: new AbortController().signal,
     });
     await expect(logger.select({ message: "Empty", options: [] })).rejects.toMatchObject({
       reason: "invalid-options",
@@ -288,6 +348,7 @@ describe("interactive prompts", () => {
       input,
       printPrompt: async () => Promise.reject(new Error("write failed")),
       terminal: new TerminalLock(),
+      signal: new AbortController().signal,
     });
     await expect(brokenPrinter.text({ message: "Value" })).rejects.toMatchObject({
       reason: "printer-error",
@@ -312,6 +373,7 @@ describe("interactive prompts", () => {
       input: { isTTY: true } as TestInput,
       printPrompt: async () => undefined,
       terminal: new TerminalLock(),
+      signal: new AbortController().signal,
     });
     await expect(logger.text({ message: "Value" })).rejects.toMatchObject({
       reason: "input-error",
@@ -330,6 +392,7 @@ describe("interactive prompts", () => {
         if (calls === 2) throw new Error("final write failed");
       },
       terminal: new TerminalLock(),
+      signal: new AbortController().signal,
     });
     const result = logger.confirm({ message: "Continue?" });
     await turn();
@@ -369,6 +432,7 @@ describe("interactive prompts", () => {
         if (states.length === 2) throw failure;
       },
       terminal: new TerminalLock(),
+      signal: new AbortController().signal,
     });
     const result = logger.text({ message: "Value" });
     await turn();

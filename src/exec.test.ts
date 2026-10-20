@@ -17,6 +17,7 @@ function createTestExec(env?: ExecContext["env"]): ReturnType<typeof createExec>
     mode: { format: "pretty", interactive: false },
     print: () => undefined,
     terminal: new TerminalLock(),
+    signal: new AbortController().signal,
   });
 }
 
@@ -414,5 +415,24 @@ describe("context exec", () => {
       runCommand(command, [], { output: "json", stderr: { write: () => undefined } }),
     );
     expect(error.result).toMatchObject({ reason: "exit-code", exitCode: 7 });
+  });
+
+  it("terminates the child when the invocation signal aborts", async () => {
+    const invocation = new AbortController();
+    const own = new AbortController();
+    const command = defineCommand({
+      run: ({ exec }) => exec(node, script(printPidThenWait), { signal: own.signal }),
+    });
+    const pending = runCommand(command, [], {
+      output: "json",
+      stderr: { write: () => undefined },
+      signal: invocation.signal,
+    });
+    setTimeout(() => invocation.abort(), 300);
+    const error = await rejection(pending);
+    expect(error.result.reason).toBe("aborted");
+    expectGone(Number(error.result.stderr));
+    expect(getEventListeners(invocation.signal, "abort")).toHaveLength(0);
+    expect(getEventListeners(own.signal, "abort")).toHaveLength(0);
   });
 });

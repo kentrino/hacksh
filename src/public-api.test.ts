@@ -40,6 +40,7 @@ import {
   type TerminalInput,
   type TerminalOutput,
   type ArgOptions,
+  type CommandDef,
   type ShowUsageOptions,
   type UsageOptionSummary,
 } from "./index.ts";
@@ -169,6 +170,10 @@ describe("public logger API", () => {
     expectTypeOf<PromptPrintEvent>().toMatchTypeOf<PrintEvent>();
     expectTypeOf<ExecPrintEvent>().toMatchTypeOf<PrintEvent>();
     expectTypeOf<RunCommandOptions["stdin"]>().toEqualTypeOf<TerminalInput | undefined>();
+    expectTypeOf<RunCommandOptions["signal"]>().toEqualTypeOf<AbortSignal | undefined>();
+    expectTypeOf<
+      Parameters<NonNullable<CommandDef["run"]>>[0]["signal"]
+    >().toEqualTypeOf<AbortSignal>();
     expectTypeOf(new HackshExitError(2).exitCode).toEqualTypeOf<number>();
     const inspectPrompt = (state: PromptState): void => {
       if (state.kind === "select") expectTypeOf(state.value).toEqualTypeOf<string>();

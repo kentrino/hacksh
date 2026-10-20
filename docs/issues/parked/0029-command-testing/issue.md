@@ -35,4 +35,4 @@ runCommand と printer の差し替えはあるが、結果・出力・エラー
 - `src/public-api.test.ts`
 - `docs/issues/closed/0023-context-exec/issue.md`
 - `docs/issues/parked/0026-command-results/issue.md`
-- `docs/issues/open/0028-invocation-cancellation/issue.md`
+- `docs/issues/closed/0028-invocation-cancellation/issue.md`

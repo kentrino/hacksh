@@ -75,15 +75,16 @@ async function executeCommand<S extends ArgsSchema>(
   root: CommandDef<S>,
   argv: string[],
   displayUsage: ShowUsageCallback,
-  printer: Printer,
-  loggerOptions: Parameters<typeof createLogger>[2],
-  execContext: ExecContext,
+  output: PreparedOutput,
+  env: ExecContext["env"],
+  signal: AbortSignal,
   fallbackVersion: () => Promise<string | undefined> = async () => undefined,
 ): Promise<unknown> {
   if (root.args && "version" in schemaShape(root.args)) {
     throw new TypeError("Root option `version` conflicts with the builtin --version");
   }
-  const env = execContext.env ?? process.env;
+  const { printer } = output;
+  const argEnv = env ?? process.env;
   const resolved = resolveCommand(root, argv);
   if (resolved.segments[0]?.tokenized.version) {
     const version = root.version ?? (await fallbackVersion()) ?? "";
@@ -100,7 +101,7 @@ async function executeCommand<S extends ArgsSchema>(
       parent.command,
       parent.rawArgs,
       parent.tokenized,
-      env,
+      argEnv,
       commandEnvPath(parent.command),
     );
   }
@@ -108,12 +109,13 @@ async function executeCommand<S extends ArgsSchema>(
     resolved.command,
     resolved.rawArgs,
     resolved.tokenized,
-    env,
+    argEnv,
     commandEnvPath(resolved.command),
   );
   if (!resolved.command.run) {
     throw new HackshUsageError("No command specified", resolved.command);
   }
+  signal.throwIfAborted();
   const category = resolved.segments.flatMap(({ command }) =>
     command.name === undefined ? [] : [command.name],
   );
@@ -121,8 +123,21 @@ async function executeCommand<S extends ArgsSchema>(
     ...parsed,
     cmd: resolved.command,
     rawArgs: resolved.rawArgs,
-    logger: createLogger(printer, category, loggerOptions),
-    exec: createExec(execContext),
+    logger: createLogger(printer, category, {
+      interactive: output.interactive,
+      input: output.input,
+      printPrompt: (event) => output.printChecked(event),
+      terminal: output.terminal,
+      signal,
+    }),
+    exec: createExec({
+      env,
+      mode: { format: output.format, interactive: output.interactive },
+      print: (event) => printer.print(event),
+      terminal: output.terminal,
+      signal,
+    }),
+    signal,
   });
 }
 
@@ -139,6 +154,7 @@ function printUsage(
 
 export interface RunCommandOptions extends OutputOptions {
   printer?: Printer;
+  signal?: AbortSignal;
   showUsage?: ShowUsageCallback;
 }
 
@@ -169,15 +185,6 @@ function prepareOutput(
   };
 }
 
-function invocationExec(output: PreparedOutput, env: ExecContext["env"]): ExecContext {
-  return {
-    env,
-    mode: { format: output.format, interactive: output.interactive },
-    print: (event) => output.printer.print(event),
-    terminal: output.terminal,
-  };
-}
-
 export async function runCommand<S extends ArgsSchema>(
   root: CommandDef<S>,
   argv: string[],
@@ -189,14 +196,9 @@ export async function runCommand<S extends ArgsSchema>(
       root,
       argv,
       options.showUsage ?? showUsage,
-      output.printer,
-      {
-        interactive: output.interactive,
-        input: output.input,
-        printPrompt: (event) => output.printChecked(event),
-        terminal: output.terminal,
-      },
-      invocationExec(output, options.env),
+      output,
+      options.env,
+      options.signal ?? new AbortController().signal,
     );
   } finally {
     await output.drain();
@@ -221,6 +223,29 @@ async function drainAndExit(output: PrintQueue, code = 1): Promise<never> {
 function commandErrorExitCode(error: unknown): number {
   if (error instanceof HackshExitError) return error.exitCode;
   return error instanceof HackshPromptError && error.reason === "cancelled" ? 130 : 1;
+}
+
+const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 } as const;
+
+function listenForExitSignals() {
+  const controller = new AbortController();
+  let exitCode: number | undefined;
+  const listeners = Object.entries(SIGNAL_EXIT_CODES).map(([signal, code]) => {
+    const listener = (): void => {
+      if (exitCode !== undefined) process.exit(code);
+      exitCode = code;
+      controller.abort(new DOMException(`Received ${signal}`, "AbortError"));
+    };
+    process.on(signal, listener);
+    return [signal, listener] as const;
+  });
+  return {
+    signal: controller.signal,
+    exitCode: () => exitCode,
+    release(): void {
+      for (const [signal, listener] of listeners) process.removeListener(signal, listener);
+    },
+  };
 }
 
 async function reportOutputSetupError(error: unknown, options: RunMainOptions): Promise<never> {
@@ -263,32 +288,36 @@ export async function runMain<S extends ArgsSchema>(
   } catch (error) {
     return reportOutputSetupError(error, options);
   }
+  const signals = listenForExitSignals();
+  const exit = (code: number): Promise<never> => {
+    signals.release();
+    return drainAndExit(output, signals.exitCode() ?? code);
+  };
   try {
     await executeCommand(
       command,
       options.argv ?? process.argv.slice(2),
       displayUsage,
-      output.printer,
-      {
-        interactive: output.interactive,
-        input: output.input,
-        printPrompt: (event) => output.printChecked(event),
-        terminal: output.terminal,
-      },
-      invocationExec(output, options.env),
+      output,
+      options.env,
+      signals.signal,
       () => findPackageVersion(process.argv[1]),
     );
   } catch (error) {
     if (options.onError) {
       await options.onError(error);
-      return drainAndExit(output, commandErrorExitCode(error));
+      return exit(commandErrorExitCode(error));
     }
     try {
       await reportCommandError(error, output, displayUsage);
     } finally {
-      await drainAndExit(output, commandErrorExitCode(error));
+      await exit(commandErrorExitCode(error));
     }
+  } finally {
+    signals.release();
   }
+  const signalExitCode = signals.exitCode();
+  if (signalExitCode !== undefined) return drainAndExit(output, signalExitCode);
   await output.drain();
 }
 
