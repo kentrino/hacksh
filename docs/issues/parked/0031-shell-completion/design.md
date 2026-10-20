@@ -14,11 +14,11 @@ hacksh はすべてのCLIに次のサブコマンドを用意する。
 
 補完ファイルはCLIごとに分け、hacksh共通のディレクトリに置く。
 
-| シェル | 配置先 | 利用者の設定 |
-|---|---|---|
-| zsh | `${XDG_DATA_HOME:-~/.local/share}/hacksh/completions/zsh/_<cli>` | 最初の1回だけ `fpath` への追加と `compinit` |
-| bash | `${XDG_DATA_HOME:-~/.local/share}/hacksh/completions/bash/<cli>` | 最初の1回だけディレクトリ内を読み込む設定 |
-| fish | `${XDG_CONFIG_HOME:-~/.config}/fish/completions/<cli>.fish` | 不要 |
+| シェル | 配置先                                                           | 利用者の設定                                |
+| ------ | ---------------------------------------------------------------- | ------------------------------------------- |
+| zsh    | `${XDG_DATA_HOME:-~/.local/share}/hacksh/completions/zsh/_<cli>` | 最初の1回だけ `fpath` への追加と `compinit` |
+| bash   | `${XDG_DATA_HOME:-~/.local/share}/hacksh/completions/bash/<cli>` | 最初の1回だけディレクトリ内を読み込む設定   |
+| fish   | `${XDG_CONFIG_HOME:-~/.config}/fish/completions/<cli>.fish`      | 不要                                        |
 
 zsh で利用者が一度だけ追加する設定は次のとおり。
 
