@@ -1,9 +1,9 @@
 ---
-name: execute-themes
-description: Execute several themes in order under one goal. Each theme runs in a fresh Astra supervisor using execute-theme, and the goal session improves agent instructions from each retrospective. Use for `/goal execute-themes docs/themes/a.md docs/themes/b.md`.
+name: complete-themes
+description: Complete several themes in order under one goal. Each theme runs in a fresh Astra supervisor using complete-theme, and the goal session improves agent instructions from each retrospective. Use for `/goal complete-themes docs/themes/a.md docs/themes/b.md`.
 ---
 
-# Execute Themes
+# Complete Themes
 
 You own the goal across the listed themes, in the given order, in the current checkout. You do not implement, review, or read theme bodies, issue bodies, or implementation diffs. Read `supervise-agents` from the skill catalog before first use.
 

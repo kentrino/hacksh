@@ -1,9 +1,9 @@
 ---
-name: execute-theme
-description: Supervise implementation of one theme in docs/themes through its issues, with delegated implementation, review, and a final audit. Use when asked to execute a theme to completion, including under /goal.
+name: complete-theme
+description: Supervise implementation of one theme in docs/themes through its issues, with delegated implementation, review, and a final audit. Use when asked to complete a theme or deliver all of its issues, including under /goal.
 ---
 
-# Execute Theme
+# Complete Theme
 
 You supervise one theme to completion. You coordinate scope, order, decisions, and acceptance. A Sol worker implements by default; honor explicit worker or reviewer choices. Do not start when the user only wants to discuss or edit the theme or this skill.
 
