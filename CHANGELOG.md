@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/kentrino/hacksh/compare/v0.9.0...v0.10.0) (2026-10-20)
+
+
+### Features
+
+* **errors:** add HackshExitError to choose the runMain exit status ([#38](https://github.com/kentrino/hacksh/issues/38)) ([83bfa7c](https://github.com/kentrino/hacksh/commit/83bfa7c504a3e7f9e2baa57e9095f89bd3ce3ad0))
+
 ## [0.9.0](https://github.com/kentrino/hacksh/compare/v0.8.0...v0.9.0) (2026-10-20)
 
 
