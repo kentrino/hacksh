@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/kentrino/hacksh/compare/v0.5.4...v0.6.0) (2026-10-20)
+
+
+### Features
+
+* **exec:** run external commands from the command context ([#30](https://github.com/kentrino/hacksh/issues/30)) ([6709b72](https://github.com/kentrino/hacksh/commit/6709b721f18f220fd566dbcae41bb9cc50bfb538))
+
 ## [0.5.4](https://github.com/kentrino/hacksh/compare/v0.5.3...v0.5.4) (2026-10-20)
 
 
