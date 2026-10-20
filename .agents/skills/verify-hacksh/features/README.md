@@ -4,7 +4,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 
 ## Baseline preconditions
 
-- `node .cursor/skills/verify-hacksh/scripts/doctor.mjs` exits 0.
+- `node .agents/skills/verify-hacksh/scripts/doctor.mjs` exits 0.
 - `verify-hacksh.local/scratch/$RUN/cli.ts` is a fresh copy of `templates/consumer.ts` (CLI name `demo`, version `1.0.0`), edited only as the recipe says.
 - Every drive goes through `scripts/drive.mjs` with the same `--run $RUN`.
 
@@ -13,7 +13,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 - `D` and `CLI` below are shorthands. Define them as a function and a variable, not as a string variable, because zsh does not word-split `$D`:
 
   ```sh
-  D() { node .cursor/skills/verify-hacksh/scripts/drive.mjs --run "$RUN" "$@"; }
+  D() { node .agents/skills/verify-hacksh/scripts/drive.mjs --run "$RUN" "$@"; }
   CLI=verify-hacksh.local/scratch/$RUN/cli.ts
   ```
 

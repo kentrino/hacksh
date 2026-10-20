@@ -26,7 +26,7 @@ There is no server. A drive is one short-lived process.
    ```sh
    RUN=my-change
    mkdir -p verify-hacksh.local/scratch/$RUN
-   cp .cursor/skills/verify-hacksh/templates/consumer.ts verify-hacksh.local/scratch/$RUN/cli.ts
+   cp .agents/skills/verify-hacksh/templates/consumer.ts verify-hacksh.local/scratch/$RUN/cli.ts
    ```
 
    Edit `cli.ts` to exercise the exact behavior under test. Node 22.18+ runs `.ts` directly; no build is needed.
@@ -36,7 +36,7 @@ Ready means `doctor` passes.
 ## Doctor
 
 ```sh
-node .cursor/skills/verify-hacksh/scripts/doctor.mjs
+node .agents/skills/verify-hacksh/scripts/doctor.mjs
 ```
 
 Read-only. Checks Node >= 22.18, installed dependencies, that `verify-hacksh.local/` is git-ignored, that `expect` exists, that `src/index.ts` loads with its main exports, and prints the source revision (with a note if `src/` has uncommitted changes, which is expected while verifying a change). Exit 0 means the checkout is drivable. Run it first, and again whenever a drive fails unexpectedly.
@@ -46,7 +46,7 @@ Read-only. Checks Node >= 22.18, installed dependencies, that `verify-hacksh.loc
 `scripts/drive.mjs` runs one consumer invocation and writes evidence:
 
 ```sh
-node .cursor/skills/verify-hacksh/scripts/drive.mjs --run $RUN --label <label> \
+node .agents/skills/verify-hacksh/scripts/drive.mjs --run $RUN --label <label> \
   [--env KEY=VALUE]... [--unset KEY]... [--expect-code N] [--timeout MS] \
   [--pty <steps-file> [--columns N]] \
   -- verify-hacksh.local/scratch/$RUN/cli.ts [consumer args...]

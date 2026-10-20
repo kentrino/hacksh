@@ -42,7 +42,7 @@ Reconcile the run file with commits, issue locations, and live sessions. A stale
 
 - Every theme criterion has direct evidence from a closed issue. An issue left in `open/` means the theme is incomplete unless the user accepted the deferral.
 - `vp run ready` passes on the final state. Rerun checks after relevant changes rather than trusting a bare "passed".
-- Consumer-visible CLI behavior is proven with `.cursor/skills/verify-hacksh/SKILL.md`. Do not claim an environment you could not test.
+- Consumer-visible CLI behavior is proven with `.agents/skills/verify-hacksh/SKILL.md`. Do not claim an environment you could not test.
 - A review covers the full change from the base revision. If none exists, delegate an integration task in implementation-and-review mode.
 - The theme document is unchanged.
 
