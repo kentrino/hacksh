@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/kentrino/hacksh/compare/v0.6.0...v0.7.0) (2026-10-20)
+
+
+### Features
+
+* **exec:** show redacted command starts and refuse terminal conflicts ([#32](https://github.com/kentrino/hacksh/issues/32)) ([ee7ae8a](https://github.com/kentrino/hacksh/commit/ee7ae8a2cfb975845968b39dd53acbde800c2387))
+
 ## [0.6.0](https://github.com/kentrino/hacksh/compare/v0.5.4...v0.6.0) (2026-10-20)
 
 
