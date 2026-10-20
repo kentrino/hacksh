@@ -318,6 +318,22 @@ describe("help and version", () => {
     await expect(runCommand(root, ["child", "--version"])).resolves.toEqual(["--version"]);
   });
 
+  it("rejects a root version option but accepts one on a subcommand", async () => {
+    const versioned = { args: z.object({ version: z.string().optional() }) };
+    const run = vi.fn();
+    await expect(
+      runCommand(defineCommand({ ...versioned, run }), ["--version", "2.0"]),
+    ).rejects.toThrow(TypeError);
+    expect(run).not.toHaveBeenCalled();
+
+    const root = defineCommand({
+      subCommands: { child: defineCommand({ ...versioned, run: ({ args }) => args }) },
+    });
+    await expect(runCommand(root, ["child", "--version", "2.0"])).resolves.toEqual({
+      version: "2.0",
+    });
+  });
+
   it("ignores root and child builtin spellings after the passthrough separator", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const rootRun = vi.fn(({ passthrough }) => passthrough);

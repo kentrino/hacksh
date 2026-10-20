@@ -157,7 +157,9 @@ help, where `flags` keeps the literal `--name` spelling.
 when an alias is longer than one character or is used by more than one option, and when
 `argOptions` has a `_` key. Without an alias of the same letter, `-h` and `-v` are shorthands
 for `--help` and `--version`. Defining an `h` or `v` alias replaces the shorthand, so `convert -v`
-above sets `verbose`; `--help` and `--version` remain available. Output selection does not reserve
+above sets `verbose`; `--help` and `--version` remain available. A `help` option throws a
+`TypeError` from `defineCommand`. A `version` option on the root command throws a `TypeError` when
+`runMain` or `runCommand` starts; subcommands may define one. Output selection does not reserve
 any additional command-line flags, so names such as `--json`, `--output`, and `--log-format` remain
 available to application schemas.
 

@@ -105,6 +105,7 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
   }
 
   for (const key of Object.keys(shape)) {
+    if (key === "help") throw new TypeError("Option `help` conflicts with the builtin --help");
     if (key !== POSITIONALS_KEY && /^no[-A-Z]/.test(key)) {
       throw new TypeError(`Option \`${key}\` conflicts with --no- negation`);
     }
