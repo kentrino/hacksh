@@ -89,14 +89,14 @@ class HackshExecError extends Error {
 - `ExecReturn` は options の型から戻り値型を決める条件型とする。0025 の dryRun も同じ条件型に条件を加えて表す。オーバーロードの組み合わせは増やさない。
 - 失敗は `reason` で区別する。
 
-| reason | 条件 | 固有フィールド |
-| --- | --- | --- |
-| `spawn` | 子を起動できない。実行ファイルや cwd が存在しない、実行権限がない | `error`（起動時のエラー） |
-| `exit-code` | 子が非ゼロで終了した | `exitCode` |
-| `signal` | hacksh が終了させていない子がシグナルで終了した | `signal`（例: `"SIGTERM"`） |
-| `timeout` | `timeout` を超え、hacksh が子を終了させた | なし |
-| `aborted` | `signal` が中断され、hacksh が子を終了させた | なし |
-| `output-limit` | stdout か stderr が `maxBuffer` を超え、hacksh が子を終了させた | なし |
+| reason         | 条件                                                              | 固有フィールド              |
+| -------------- | ----------------------------------------------------------------- | --------------------------- |
+| `spawn`        | 子を起動できない。実行ファイルや cwd が存在しない、実行権限がない | `error`（起動時のエラー）   |
+| `exit-code`    | 子が非ゼロで終了した                                              | `exitCode`                  |
+| `signal`       | hacksh が終了させていない子がシグナルで終了した                   | `signal`（例: `"SIGTERM"`） |
+| `timeout`      | `timeout` を超え、hacksh が子を終了させた                         | なし                        |
+| `aborted`      | `signal` が中断され、hacksh が子を終了させた                      | なし                        |
+| `output-limit` | stdout か stderr が `maxBuffer` を超え、hacksh が子を終了させた   | なし                        |
 
 - 複数の条件が重なった場合は、hacksh が終了させた理由（最初に起きた `timeout`・`aborted`・`output-limit`）、`spawn`、`signal`、`exit-code` の順に採用する。
 - 呼び出し前に中断済みの `signal` を渡した場合は子を起動せず、`aborted` の失敗とする。
