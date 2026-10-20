@@ -51,6 +51,7 @@ describe("defineCommand", () => {
       },
     ],
     ["negation collision", { args: z.object({ noFocus: z.boolean() }) }],
+    ["builtin help collision", { args: z.object({ help: z.boolean() }) }],
     ["value-option negation collision", { args: z.object({ "no-focus": z.string() }) }],
     ["unknown argument options", { args: z.object({ x: z.string() }), argOptions: { y: {} } }],
     [

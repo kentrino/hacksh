@@ -1,4 +1,4 @@
-import type { ArgsSchema } from "./schema.ts";
+import { schemaShape, type ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { assertUniqueEnvNames, commandEnvPath, registerCommandPath } from "./environment.ts";
 import { HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
@@ -80,6 +80,9 @@ async function executeCommand<S extends ArgsSchema>(
   execContext: ExecContext,
   fallbackVersion: () => Promise<string | undefined> = async () => undefined,
 ): Promise<unknown> {
+  if (root.args && "version" in schemaShape(root.args)) {
+    throw new TypeError("Root option `version` conflicts with the builtin --version");
+  }
   const env = execContext.env ?? process.env;
   const resolved = resolveCommand(root, argv);
   if (resolved.segments[0]?.tokenized.version) {
