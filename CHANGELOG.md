@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/kentrino/hacksh/compare/v0.5.2...v0.5.3) (2026-10-20)
+
+
+### CI/CD
+
+* **release:** hide docs commits from release notes ([#25](https://github.com/kentrino/hacksh/issues/25)) ([3da70b2](https://github.com/kentrino/hacksh/commit/3da70b28324eb7e12f193491027ca480daa1f692))
+
 ## [0.5.2](https://github.com/kentrino/hacksh/compare/v0.5.1...v0.5.2) (2026-10-20)
 
 
