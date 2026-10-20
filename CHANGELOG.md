@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/kentrino/hacksh/compare/v0.8.0...v0.9.0) (2026-10-20)
+
+
+### Features
+
+* **command:** reject options that shadow the builtin --help and --version ([#36](https://github.com/kentrino/hacksh/issues/36)) ([0a5a957](https://github.com/kentrino/hacksh/commit/0a5a9578557e944750f9ca1317dbeb73495e0541))
+
 ## [0.8.0](https://github.com/kentrino/hacksh/compare/v0.7.0...v0.8.0) (2026-10-20)
 
 
