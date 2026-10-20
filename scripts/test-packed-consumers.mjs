@@ -340,13 +340,90 @@ async function verifyConsumer(label, execute) {
   const execFailureEvents = parseLines(execFailure.stderr);
   assert(
     execFailure.code === 1 &&
-      execFailureEvents.length === 1 &&
-      execFailureEvents[0].type === "error" &&
-      execFailureEvents[0].error.kind === "error" &&
-      execFailureEvents[0].error.name === "HackshExecError" &&
-      execFailureEvents[0].error.message.includes("exit code 3") &&
-      execFailureEvents[0].error.properties === undefined,
+      execFailureEvents.length === 2 &&
+      execFailureEvents[0].type === "exec" &&
+      execFailureEvents[0].phase === "start" &&
+      execFailureEvents[1].type === "error" &&
+      execFailureEvents[1].error.kind === "error" &&
+      execFailureEvents[1].error.name === "HackshExecError" &&
+      execFailureEvents[1].error.message.includes("exit code 3") &&
+      execFailureEvents[1].error.properties === undefined,
     `${label}: rejected exec was not reported as a JSON error: ${execFailure.stdout}${execFailure.stderr}`,
+  );
+
+  const execShow = await execute(
+    ["exec-show"],
+    { HACKSH_OUTPUT: "json" },
+    { spawnsChildren: true },
+  );
+  const execShowEvents = parseLines(execShow.stderr);
+  assert(
+    execShow.code === 0 &&
+      execShow.stdout === "" &&
+      execShowEvents.length === 1 &&
+      execShowEvents[0].type === "exec" &&
+      execShowEvents[0].phase === "start" &&
+      Array.isArray(execShowEvents[0].command.args),
+    `${label}: JSON exec did not emit a start event without child output: ${execShow.stdout}${execShow.stderr}`,
+  );
+
+  const execQuiet = await execute(
+    ["exec-quiet"],
+    { HACKSH_OUTPUT: "json" },
+    { spawnsChildren: true },
+  );
+  assert(
+    execQuiet.code === 0 && execQuiet.stdout === "" && execQuiet.stderr === "",
+    `${label}: display:false still emitted output: ${execQuiet.stdout}${execQuiet.stderr}`,
+  );
+
+  const execRedact = await execute(
+    ["exec-redact"],
+    { HACKSH_OUTPUT: "json" },
+    { spawnsChildren: true },
+  );
+  assert(
+    execRedact.code === 0 &&
+      execRedact.stderr.includes("***") &&
+      !execRedact.stdout.includes("super-secret-value") &&
+      !execRedact.stderr.includes("super-secret-value"),
+    `${label}: redact did not mask the command: ${execRedact.stdout}${execRedact.stderr}`,
+  );
+
+  const execInherit = await execute(
+    ["exec-inherit"],
+    { HACKSH_OUTPUT: "pretty", NO_COLOR: "1" },
+    { spawnsChildren: true },
+  );
+  assert(
+    execInherit.code === 0 && execInherit.stdout.includes("INHERITED-OUT"),
+    `${label}: inherited stdout did not reach the consumer: ${execInherit.stdout}${execInherit.stderr}`,
+  );
+
+  const execJsonInherit = await execute(
+    ["exec-json-inherit"],
+    { HACKSH_OUTPUT: "json" },
+    { spawnsChildren: true },
+  );
+  assert(
+    execJsonInherit.code === 1 &&
+      execJsonInherit.stderr.includes("JSON output mode") &&
+      !execJsonInherit.stdout.includes("CHILD-RAN") &&
+      !execJsonInherit.stderr.includes("CHILD-RAN"),
+    `${label}: JSON inherit was not refused before the child ran: ${execJsonInherit.stdout}${execJsonInherit.stderr}`,
+  );
+
+  const execInteractive = await execute(
+    ["exec-interactive"],
+    { HACKSH_OUTPUT: "json" },
+    { spawnsChildren: true },
+  );
+  assert(
+    execInteractive.code === 1 &&
+      execInteractive.stderr.includes("interactive terminal") &&
+      !execInteractive.stdout.includes("CHILD-RAN") &&
+      !execInteractive.stderr.includes("CHILD-RAN"),
+    `${label}: non-interactive exec was not refused before the child ran: ${execInteractive.stdout}${execInteractive.stderr}`,
   );
 
   const standalonePretty = await execute(["__standalone-help__"], {
@@ -563,6 +640,52 @@ const command = defineCommand({
         await exec(process.execPath, runtimeScript(exitThree));
       },
     }),
+    "exec-show": defineCommand({
+      hidden: true,
+      async run({ exec }) {
+        await exec(process.execPath, runtimeScript("console.log('captured-marker')"));
+      },
+    }),
+    "exec-quiet": defineCommand({
+      hidden: true,
+      async run({ exec }) {
+        await exec(process.execPath, runtimeScript("console.log('quiet-marker')"), {
+          display: false,
+        });
+      },
+    }),
+    "exec-redact": defineCommand({
+      hidden: true,
+      async run({ exec }) {
+        await exec(process.execPath, runtimeScript("void 0", "super-secret-value"), {
+          redact: ["super-secret-value"],
+        });
+      },
+    }),
+    "exec-inherit": defineCommand({
+      hidden: true,
+      async run({ exec }) {
+        await exec(process.execPath, runtimeScript("console.log('INHERITED-OUT')"), {
+          stdout: "inherit",
+        });
+      },
+    }),
+    "exec-json-inherit": defineCommand({
+      hidden: true,
+      async run({ exec }) {
+        await exec(process.execPath, runtimeScript("console.log(['CHILD','RAN'].join('-'))"), {
+          stdout: "inherit",
+        });
+      },
+    }),
+    "exec-interactive": defineCommand({
+      hidden: true,
+      async run({ exec }) {
+        await exec(process.execPath, runtimeScript("console.log(['CHILD','RAN'].join('-'))"), {
+          interactive: true,
+        });
+      },
+    }),
   },
 });
 const miniCommand = defineCommand({
@@ -612,9 +735,11 @@ import {
   type ExecFailure,
   type ExecFailureReason,
   type ExecOptions,
+  type ExecPrintEvent,
   type ExecResult,
   type ExecReturn,
   type ExecSuccess,
+  type PrintEvent,
   type HackshPromptErrorReason,
   type Printer,
   type ShowUsageCallback,
@@ -718,17 +843,48 @@ const execCommand = defineCommand({
     const typedExec: Exec = exec;
     const success: ExecSuccess = await typedExec("node", ["--version"], { cwd: "." });
     const command: ExecCommand = success.command;
-    const options: ExecOptions = { reject: false, timeout: 1_000, maxBuffer: 1_024 };
+    const options: ExecOptions = {
+      reject: false,
+      timeout: 1_000,
+      maxBuffer: 1_024,
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+      interactive: false,
+      display: false,
+      redact: ["secret"],
+      input: "data",
+    };
+    const inheritedStdout: ExecSuccess = await typedExec("node", ["--version"], {
+      stdout: "inherit",
+      stdin: "inherit",
+      stderr: "inherit",
+    });
     const result: ExecResult = await exec("node", ["-e", "process.exit(3)"], options);
     const returned: ExecReturn<{ reject: false }> = result;
+    const execEvent: ExecPrintEvent = {
+      type: "exec",
+      phase: "start",
+      command,
+      stdio: { stdin: "input", stdout: "pipe", stderr: "inherit" },
+      interactive: true,
+    };
+    const printed: PrintEvent = execEvent;
+    // @ts-expect-error input cannot be combined with inherited stdin
+    void exec("node", [], { input: "data", stdin: "inherit" });
+    const inheritedInput: ExecOptions = { input: "data", stdin: "inherit" };
+    void exec("node", [], inheritedInput);
     // @ts-expect-error a misspelled option is rejected next to a valid one
     void exec("node", [], { cwd: ".", rejct: false });
     if (result.status === "failed") {
       const failure: ExecFailure = result;
       const reason: ExecFailureReason = failure.reason;
-      if (result.reason === "exit-code") return [command, returned, reason, result.exitCode satisfies number];
+      if (result.reason === "exit-code") return [command, returned, reason, result.exitCode satisfies number, printed, inheritedStdout];
       if (result.reason === "signal") return result.signal satisfies string;
       if (result.reason === "spawn") return result.error satisfies Error;
+      if (result.reason === "json-output" || result.reason === "non-interactive" || result.reason === "overlapping") {
+        return result.stdout;
+      }
     }
     return result.stdout;
   },
