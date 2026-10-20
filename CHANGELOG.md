@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/kentrino/hacksh/compare/v0.7.0...v0.8.0) (2026-10-20)
+
+
+### Features
+
+* **run:** fall back to the executable's package.json version ([#34](https://github.com/kentrino/hacksh/issues/34)) ([d483e7c](https://github.com/kentrino/hacksh/commit/d483e7cf78f84f1e663bc793499dbc540a295815))
+
 ## [0.7.0](https://github.com/kentrino/hacksh/compare/v0.6.0...v0.7.0) (2026-10-20)
 
 
