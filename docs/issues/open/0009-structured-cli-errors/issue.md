@@ -38,4 +38,4 @@ Unknown command と No command specified はどちらも usage に分類され�
 - `src/run.ts` — ルーティングとエラー表示
 - `docs/issues/open/0027-unknown-arguments/issue.md`
 - `docs/issues/open/0028-invocation-cancellation/issue.md`
-- `docs/issues/open/0033-public-compatibility/issue.md`
+- `docs/issues/parked/0033-public-compatibility/issue.md`

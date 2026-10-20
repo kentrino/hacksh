@@ -1,6 +1,7 @@
 ---
 title: 利用者が更新時の互換性と対応環境を判断できない
 theme: oss-readiness
+parked: needs-decision
 ---
 
 # Problem

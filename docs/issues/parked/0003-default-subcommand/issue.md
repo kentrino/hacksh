@@ -1,6 +1,7 @@
 ---
 title: サブコマンド名を省略したときに既定の子を実行できない
 theme: citty-parity
+parked: needs-decision
 ---
 
 # Problem

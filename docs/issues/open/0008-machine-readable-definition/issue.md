@@ -35,5 +35,5 @@ terminal-output の実装により、`summarizeUsage` と JSON の usage イベ�
 - `src/usage.ts` — summarizeUsage と UsageSummary
 - `src/schema.ts` — 引数情報の取得
 - `docs/issues/closed/0030-argument-environment/issue.md`
-- `docs/issues/open/0031-shell-completion/issue.md`
-- `docs/issues/open/0033-public-compatibility/issue.md`
+- `docs/issues/parked/0031-shell-completion/issue.md`
+- `docs/issues/parked/0033-public-compatibility/issue.md`

@@ -1,6 +1,7 @@
 ---
 title: 導入から配布とテストまで辿れる実行可能な例がない
 theme: oss-readiness
+parked: blocked
 ---
 
 # Problem
@@ -32,5 +33,5 @@ README には API の断片があるが、CLI を配布しテストするまで�
 
 - `README.md`
 - `scripts/test-packed-consumers.mjs`
-- `docs/issues/open/0015-contribution-guide/issue.md`
-- `docs/issues/open/0029-command-testing/issue.md`
+- `docs/issues/parked/0015-contribution-guide/issue.md`
+- `docs/issues/parked/0029-command-testing/issue.md`

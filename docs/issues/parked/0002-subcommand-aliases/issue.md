@@ -1,6 +1,7 @@
 ---
 title: サブコマンドを別名で呼べない
 theme: citty-parity
+parked: needs-decision
 ---
 
 # Problem

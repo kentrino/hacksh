@@ -1,6 +1,7 @@
 ---
 title: コマンド定義を必要になるまで読み込めない
 theme: citty-parity
+parked: low-priority
 ---
 
 # Problem
