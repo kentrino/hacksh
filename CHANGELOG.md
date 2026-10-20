@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/kentrino/hacksh/compare/v0.10.0...v0.11.0) (2026-10-20)
+
+
+### Features
+
+* **run:** pass a per-invocation AbortSignal to run, exec, and prompts ([#40](https://github.com/kentrino/hacksh/issues/40)) ([0811786](https://github.com/kentrino/hacksh/commit/0811786f8db2eda1293d02614ed00cfdf61bb708))
+
 ## [0.10.0](https://github.com/kentrino/hacksh/compare/v0.9.0...v0.10.0) (2026-10-20)
 
 
