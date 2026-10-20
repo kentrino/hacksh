@@ -32,7 +32,7 @@ rebase や create-branch では状態取得を実行し、その結果で組み�
 
 # Related Files
 
-- `docs/issues/open/0023-context-exec/issue.md`
+- `docs/issues/closed/0023-context-exec/issue.md`
 - `docs/issues/open/0024-exec-output/issue.md`
 - `~/.local/share/chezmoi/dot_local/bin/lib/execa.ts`
 - `~/.local/share/chezmoi/dot_local/bin/executable_create-branch`

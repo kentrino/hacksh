@@ -10,6 +10,15 @@ import {
   showUsage,
   summarizeUsage,
   HackshValidationError,
+  type HackshExecError,
+  type Exec,
+  type ExecCommand,
+  type ExecFailure,
+  type ExecFailureReason,
+  type ExecOptions,
+  type ExecResult,
+  type ExecReturn,
+  type ExecSuccess,
   type Printer,
   type Logger,
   type HackshErrorKind,
@@ -166,6 +175,86 @@ describe("public logger API", () => {
     expectTypeOf(
       new HackshPromptError("cancelled", { kind: "text", message: "Name" }, "no"),
     ).toMatchTypeOf<Error>();
+  });
+});
+
+describe("public exec API", () => {
+  it("types context exec and narrows results by status and reason", () => {
+    defineCommand({
+      async run({ exec }) {
+        expectTypeOf(exec).toEqualTypeOf<Exec>();
+        expectTypeOf(exec("git", ["status"])).toEqualTypeOf<Promise<ExecSuccess>>();
+        expectTypeOf(exec("git", [], { cwd: "/repo", reject: true })).toEqualTypeOf<
+          Promise<ExecSuccess>
+        >();
+        expectTypeOf(exec("git", [], { reject: undefined })).toEqualTypeOf<Promise<ExecSuccess>>();
+        expectTypeOf(exec("git", [], { reject: false })).toEqualTypeOf<Promise<ExecResult>>();
+        const reject: boolean = Math.random() > 0.5;
+        expectTypeOf(exec("git", [], { reject })).toEqualTypeOf<Promise<ExecResult>>();
+        const options: ExecOptions = {};
+        expectTypeOf(exec("git", [], options)).toEqualTypeOf<Promise<ExecResult>>();
+        // @ts-expect-error env values must be strings or undefined
+        void exec("git", [], { env: { A: 1 } });
+        // @ts-expect-error a misspelled option is rejected next to a valid one
+        void exec("git", [], { cwd: ".", rejct: false });
+        // @ts-expect-error a misspelled option is rejected on its own
+        void exec("git", [], { rejct: false });
+        expectTypeOf(exec("git", [], { reject: true })).toEqualTypeOf<Promise<ExecSuccess>>();
+        expectTypeOf(exec("git", [], {})).toEqualTypeOf<Promise<ExecSuccess>>();
+
+        const result = await exec("git", [], { reject: false });
+        // @ts-expect-error exitCode exists only after narrowing
+        void result.exitCode;
+        if (result.status === "succeeded") {
+          expectTypeOf(result).toEqualTypeOf<ExecSuccess>();
+          expectTypeOf(result.exitCode).toEqualTypeOf<0>();
+          // @ts-expect-error a success has no failure reason
+          void result.reason;
+          return;
+        }
+        expectTypeOf(result.reason).toEqualTypeOf<ExecFailureReason>();
+        expectTypeOf(result.command).toEqualTypeOf<ExecCommand>();
+        expectTypeOf(result.stdout).toEqualTypeOf<string>();
+        if (result.reason === "exit-code") expectTypeOf(result.exitCode).toEqualTypeOf<number>();
+        if (result.reason === "signal") expectTypeOf(result.signal).toEqualTypeOf<string>();
+        if (result.reason === "spawn") expectTypeOf(result.error).toEqualTypeOf<Error>();
+        if (result.reason === "timeout") {
+          // @ts-expect-error hacksh-initiated terminations carry no exit details
+          void result.exitCode;
+        }
+      },
+    });
+
+    expectTypeOf<ExecFailureReason>().toEqualTypeOf<
+      "exit-code" | "signal" | "spawn" | "timeout" | "aborted" | "output-limit"
+    >();
+    expectTypeOf<ExecResult>().toEqualTypeOf<ExecSuccess | ExecFailure>();
+    expectTypeOf<ExecReturn<{ readonly reject: false }>>().toEqualTypeOf<ExecResult>();
+    expectTypeOf<ExecReturn<{}>>().toEqualTypeOf<ExecSuccess>();
+    expectTypeOf<HackshExecError["result"]>().toEqualTypeOf<ExecFailure>();
+    expectTypeOf<ExecCommand>().toEqualTypeOf<{
+      file: string;
+      args: readonly string[];
+      cwd: string | undefined;
+    }>();
+  });
+
+  it("accepts a fake exec on a directly invoked run", async () => {
+    const fake: Exec = async (file, args = []) =>
+      ({
+        status: "succeeded",
+        command: { file, args, cwd: undefined },
+        stdout: "main",
+        stderr: "",
+        exitCode: 0,
+      }) as never;
+    const command = defineCommand({
+      async run({ exec }) {
+        return (await exec("git", ["branch", "--show-current"])).stdout;
+      },
+    });
+    const context = { exec: fake } as Parameters<NonNullable<typeof command.run>>[0];
+    await expect(command.run?.(context)).resolves.toBe("main");
   });
 });
 

@@ -311,6 +311,58 @@ Physical rows are calculated from explicit newlines, ANSI-free Unicode display w
 `stdout.columns`, including terminal wrapping. When a custom output writer does not expose a
 positive `columns` value, the renderer conservatively counts explicit lines only.
 
+## External commands
+
+Every `run` context has an `exec` function that starts an executable with an argument array. It
+never uses a shell, so spaces, quotes, `$`, `;`, `|`, and `*` in arguments reach the child
+unchanged. By default it resolves with the captured output and rejects with `HackshExecError`
+when the command fails. Pass `reject: false` to receive failures as results instead.
+
+```ts
+const sync = defineCommand({
+  name: "sync",
+  async run({ exec, logger }) {
+    const { stdout: branch } = await exec("git", ["branch", "--show-current"]);
+    const upstream = await exec("git", ["rev-parse", "--abbrev-ref", "@{upstream}"], {
+      reject: false,
+    });
+    if (upstream.status === "failed") {
+      logger.warn("{branch} has no upstream", { branch });
+      return;
+    }
+    await exec("git", ["pull", "--ff-only"], { cwd: "/path/to/repo", timeout: 60_000 });
+  },
+});
+```
+
+Results have `status` `"succeeded"` or `"failed"`, the `command` (`file`, `args`, `cwd`), and
+UTF-8 `stdout` and `stderr` with one final newline removed. A failure's `reason` is `exit-code`
+(with `exitCode`), `signal` (a signal the child received from elsewhere, with `signal`), `spawn`
+(the executable or cwd could not be used, with `error`), or one of `timeout`, `aborted`, and
+`output-limit` when hacksh stopped the child. The return type follows `reject`: omitted or `true`
+gives `ExecSuccess`, while `false` or a `boolean` variable gives `ExecResult`, which must be
+narrowed before reading `exitCode`.
+
+Options are `cwd`, `env`, `input`, `reject`, `timeout` (milliseconds), `signal` (an
+`AbortSignal`), `maxBuffer` (bytes per stream, default 100,000,000), and `forceKillAfterDelay`
+(milliseconds, default 5,000). `input` is written to stdin and closed; otherwise stdin is empty.
+Output beyond `maxBuffer` is truncated to that many bytes. On timeout, abort, or output limit,
+hacksh sends `SIGTERM` to the child it started and `SIGKILL` after `forceKillAfterDelay`; it does
+not stop grandchildren, and it does not wait for them to close inherited pipes. Invalid arguments
+or options reject with `TypeError` without starting anything, even with `reject: false`.
+
+The child's environment starts from the invocation's `env` option on `runCommand` or `runMain`, or
+from `process.env` when that is absent. The `env` option on `exec` sets variables and removes those
+set to `undefined`. Concurrent invocations with different `env` options do not share settings.
+`HackshExecError` messages include the command and the reason but never the child's output; read
+`error.result` for the full failure, which error summaries and JSON error events omit.
+
+On Deno, `exec` needs `--allow-run` and unscoped `--allow-env`, because Deno's `node:child_process`
+reads the whole environment to start a process.
+
+To test a command without starting processes, call its `run` with a context whose `exec` is your own
+function of type `Exec`.
+
 ## Output formats
 
 `runMain` and `runCommand` resolve one output mode before command routing, parsing, or execution.

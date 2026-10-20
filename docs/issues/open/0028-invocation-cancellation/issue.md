@@ -34,4 +34,4 @@ context に共通の AbortSignal がなく、prompt のキャンセル、作者�
 - `src/prompts.ts`
 - `docs/issues/open/0001-invocation-data/issue.md`
 - `docs/issues/open/0005-lifecycle-hooks/issue.md`
-- `docs/issues/open/0023-context-exec/issue.md`
+- `docs/issues/closed/0023-context-exec/issue.md`

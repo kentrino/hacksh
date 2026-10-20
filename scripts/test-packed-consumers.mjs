@@ -319,6 +319,36 @@ async function verifyConsumer(label, execute) {
     `${label}: case-sensitive output setting was not rejected before execution`,
   );
 
+  const executed = await execute(["exec"], {}, { spawnsChildren: true });
+  assert(
+    executed.code === 0 &&
+      executed.stdout.trim() ===
+        JSON.stringify({
+          echoed: ["with space", "$HOME", ";|*", 'quo"te', ""],
+          status: "failed",
+          reason: "exit-code",
+          exitCode: 3,
+        }),
+    `${label}: context exec did not capture output or report the exit code: ${executed.stdout}${executed.stderr}`,
+  );
+
+  const execFailure = await execute(
+    ["exec-fail"],
+    { HACKSH_OUTPUT: "json" },
+    { spawnsChildren: true },
+  );
+  const execFailureEvents = parseLines(execFailure.stderr);
+  assert(
+    execFailure.code === 1 &&
+      execFailureEvents.length === 1 &&
+      execFailureEvents[0].type === "error" &&
+      execFailureEvents[0].error.kind === "error" &&
+      execFailureEvents[0].error.name === "HackshExecError" &&
+      execFailureEvents[0].error.message.includes("exit code 3") &&
+      execFailureEvents[0].error.properties === undefined,
+    `${label}: rejected exec was not reported as a JSON error: ${execFailure.stdout}${execFailure.stderr}`,
+  );
+
   const standalonePretty = await execute(["__standalone-help__"], {
     HACKSH_OUTPUT: "pretty",
     NO_COLOR: "0",
@@ -441,6 +471,11 @@ const miniHidden = hiddenCommand(
     enabled: mini._default(mini.boolean(), true).check(mini.describe("Enable feature")),
   }),
 );
+const runtimeScript = (code, ...args) =>
+  typeof Deno === "undefined" ? ["-e", code, ...args] : ["eval", code, ...args];
+const echoArguments =
+  "console.log(JSON.stringify(typeof Deno === 'undefined' ? process.argv.slice(1) : Deno.args))";
+const exitThree = "typeof Deno === 'undefined' ? process.exit(3) : Deno.exit(3)";
 const legacyCommand = defineCommand({
   args: z.object({
     enabled: z.boolean().default(true),
@@ -506,6 +541,28 @@ const command = defineCommand({
         });
       },
     }),
+    exec: defineCommand({
+      hidden: true,
+      async run({ exec }) {
+        const echoed = await exec(
+          process.execPath,
+          runtimeScript(echoArguments, "with space", "$HOME", ";|*", 'quo"te', ""),
+        );
+        const failed = await exec(process.execPath, runtimeScript(exitThree), { reject: false });
+        console.log(JSON.stringify({
+          echoed: JSON.parse(echoed.stdout),
+          status: failed.status,
+          reason: failed.reason,
+          exitCode: failed.exitCode,
+        }));
+      },
+    }),
+    "exec-fail": defineCommand({
+      hidden: true,
+      async run({ exec }) {
+        await exec(process.execPath, runtimeScript(exitThree));
+      },
+    }),
   },
 });
 const miniCommand = defineCommand({
@@ -542,6 +599,7 @@ import {
   createMain,
   createStreamPrinter,
   defineCommand,
+  HackshExecError,
   parseArgs,
   renderUsage,
   runCommand,
@@ -549,6 +607,14 @@ import {
   type ArgOptions,
   type ArgOptionsMap,
   type CommandDef,
+  type Exec,
+  type ExecCommand,
+  type ExecFailure,
+  type ExecFailureReason,
+  type ExecOptions,
+  type ExecResult,
+  type ExecReturn,
+  type ExecSuccess,
   type HackshPromptErrorReason,
   type Printer,
   type ShowUsageCallback,
@@ -647,6 +713,28 @@ const promptCommand = defineCommand({
   },
 });
 const promptResult: Promise<unknown> = runCommand(promptCommand, [], { output: "json" });
+const execCommand = defineCommand({
+  async run({ exec }) {
+    const typedExec: Exec = exec;
+    const success: ExecSuccess = await typedExec("node", ["--version"], { cwd: "." });
+    const command: ExecCommand = success.command;
+    const options: ExecOptions = { reject: false, timeout: 1_000, maxBuffer: 1_024 };
+    const result: ExecResult = await exec("node", ["-e", "process.exit(3)"], options);
+    const returned: ExecReturn<{ reject: false }> = result;
+    // @ts-expect-error a misspelled option is rejected next to a valid one
+    void exec("node", [], { cwd: ".", rejct: false });
+    if (result.status === "failed") {
+      const failure: ExecFailure = result;
+      const reason: ExecFailureReason = failure.reason;
+      if (result.reason === "exit-code") return [command, returned, reason, result.exitCode satisfies number];
+      if (result.reason === "signal") return result.signal satisfies string;
+      if (result.reason === "spawn") return result.error satisfies Error;
+    }
+    return result.stdout;
+  },
+});
+const execFailure = (error: unknown): ExecFailure | undefined =>
+  error instanceof HackshExecError ? error.result : undefined;
 const promptReason: HackshPromptErrorReason = "non-interactive";
 const legacyConsole: Printer = consolePrinter;
 const legacyStreams: Printer = createStreamPrinter({
@@ -665,6 +753,8 @@ void [
   hiddenMetadata,
   promptResult,
   promptReason,
+  execCommand,
+  execFailure,
   legacyConsole,
   legacyStreams,
 ];
@@ -815,7 +905,9 @@ try {
       "deno",
       [
         "run",
-        "--allow-env=CI,NO_COLOR,HACKSH_OUTPUT",
+        "--allow-run",
+        // Deno's node:child_process reads the whole environment for every spawn.
+        executionOptions.spawnsChildren ? "--allow-env" : "--allow-env=CI,NO_COLOR,HACKSH_OUTPUT",
         "--node-modules-dir=auto",
         "consumer.mjs",
         ...args,

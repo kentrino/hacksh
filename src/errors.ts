@@ -1,5 +1,6 @@
 import type { $ZodIssue } from "zod/v4/core";
 import type { AnyCommandDef } from "./command.ts";
+import type { ExecFailure } from "./exec.ts";
 
 export interface HackshIssue {
   arg: string;
@@ -62,6 +63,21 @@ export class HackshPromptError extends Error {
     this.name = "HackshPromptError";
     this.reason = reason;
     this.prompt = prompt;
+  }
+}
+
+/** An external command that did not succeed; `result` is not enumerable so error summaries omit child output. */
+export class HackshExecError extends Error {
+  readonly #result: ExecFailure;
+
+  constructor(message: string, result: ExecFailure, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "HackshExecError";
+    this.#result = result;
+  }
+
+  get result(): ExecFailure {
+    return this.#result;
   }
 }
 

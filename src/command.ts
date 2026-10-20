@@ -1,4 +1,5 @@
 import type { output } from "zod/v4/core";
+import type { Exec } from "./exec.ts";
 import type { Logger } from "./logger.ts";
 import { aliasList } from "./options.ts";
 import {
@@ -28,6 +29,7 @@ export interface CommandContext<S extends ArgsSchema> {
   passthrough: string[];
   extraArgs: string[];
   logger: Logger;
+  exec: Exec;
 }
 
 export interface CommandDef<S extends ArgsSchema = EmptyArgs> {

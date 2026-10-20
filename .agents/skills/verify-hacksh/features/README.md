@@ -39,3 +39,4 @@ Each feature file has an H1, one paragraph of user-visible behavior, then exactl
 - [Output modes](./output-modes.md) covers pretty versus JSON selection, `HACKSH_OUTPUT`, `CI`, `NO_COLOR`, and stream routing.
 - [Logging](./logging.md) covers levels, kinds, categories, bound properties, placeholders, and runtime errors.
 - [Prompts](./prompts.md) covers select, confirm, and text in a PTY, validation retry, cancellation, and the non-interactive failure.
+- [Process execution](./process-execution.md) covers `exec` argument passing, results versus `HackshExecError`, environment, and termination.
