@@ -2,6 +2,7 @@ export { defineCommand } from "./command.ts";
 export type { ArgOptions, ArgOptionsMap, CommandContext, CommandDef } from "./command.ts";
 export {
   HackshExecError,
+  HackshExitError,
   HackshPromptError,
   HackshUsageError,
   HackshValidationError,

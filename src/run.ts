@@ -1,7 +1,7 @@
 import { schemaShape, type ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { assertUniqueEnvNames, commandEnvPath, registerCommandPath } from "./environment.ts";
-import { HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
+import { HackshExitError, HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
 import { createExec, type ExecContext } from "./exec.ts";
 import { createLogger } from "./logger.ts";
 import { findPackageVersion } from "./package-version.ts";
@@ -219,6 +219,7 @@ async function drainAndExit(output: PrintQueue, code = 1): Promise<never> {
 }
 
 function commandErrorExitCode(error: unknown): number {
+  if (error instanceof HackshExitError) return error.exitCode;
   return error instanceof HackshPromptError && error.reason === "cancelled" ? 130 : 1;
 }
 
@@ -237,6 +238,18 @@ async function reportOutputSetupError(error: unknown, options: RunMainOptions): 
   );
   await output.printer.print({ type: "error", error: summarizeError(error) });
   return drainAndExit(output);
+}
+
+async function reportCommandError(
+  error: unknown,
+  output: PrintQueue,
+  displayUsage: ShowUsageCallback,
+): Promise<void> {
+  if (error instanceof HackshExitError && error.message === "") return;
+  await output.printer.print({ type: "error", error: summarizeError(error) });
+  if (error instanceof HackshUsageError) {
+    await printUsage(displayUsage, error.command, output.printer, "stderr");
+  }
 }
 
 export async function runMain<S extends ArgsSchema>(
@@ -271,15 +284,7 @@ export async function runMain<S extends ArgsSchema>(
       return drainAndExit(output, commandErrorExitCode(error));
     }
     try {
-      if (error instanceof HackshUsageError) {
-        await output.printer.print({ type: "error", error: summarizeError(error) });
-        await printUsage(displayUsage, error.command, output.printer, "stderr");
-      } else {
-        await output.printer.print({
-          type: "error",
-          error: summarizeError(error),
-        });
-      }
+      await reportCommandError(error, output, displayUsage);
     } finally {
       await drainAndExit(output, commandErrorExitCode(error));
     }

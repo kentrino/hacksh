@@ -571,6 +571,13 @@ Usage failures are `HackshUsageError` instances. Argument failures are
 `HackshValidationError` instances whose `issues` identify CLI names such as `--repo` or `<PR>`.
 Prompt failures are `HackshPromptError` instances with structured `reason` and `prompt` fields.
 
+## Exit status
+
+Throw `HackshExitError(exitCode, message?)` to choose the exit status, an integer from 0 to 255.
+`runMain` prints a non-empty message as an ordinary error and prints nothing when the message is
+omitted; `onError` still receives the error. `runCommand` rethrows it, so library callers read
+`exitCode` from the caught error. Other failures exit with 1, or 130 for a cancelled prompt.
+
 ## Development
 
 | Command                | Description                                           |
