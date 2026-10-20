@@ -4,6 +4,7 @@ import { assertUniqueEnvNames, commandEnvPath, registerCommandPath } from "./env
 import { HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
 import { createExec, type ExecContext } from "./exec.ts";
 import { createLogger } from "./logger.ts";
+import { findPackageVersion } from "./package-version.ts";
 import {
   parseCommandArgs,
   tokenizedBefore,
@@ -77,11 +78,13 @@ async function executeCommand<S extends ArgsSchema>(
   printer: Printer,
   loggerOptions: Parameters<typeof createLogger>[2],
   execContext: ExecContext,
+  fallbackVersion: () => Promise<string | undefined> = async () => undefined,
 ): Promise<unknown> {
   const env = execContext.env ?? process.env;
   const resolved = resolveCommand(root, argv);
   if (resolved.segments[0]?.tokenized.version) {
-    await printer.print({ type: "version", version: root.version ?? "" });
+    const version = root.version ?? (await fallbackVersion()) ?? "";
+    await printer.print({ type: "version", version });
     return undefined;
   }
   if (resolved.segments.some(({ tokenized }) => tokenized.help)) {
@@ -257,6 +260,7 @@ export async function runMain<S extends ArgsSchema>(
         terminal: output.terminal,
       },
       invocationExec(output, options.env),
+      () => findPackageVersion(process.argv[1]),
     );
   } catch (error) {
     if (options.onError) {

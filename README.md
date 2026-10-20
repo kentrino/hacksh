@@ -57,6 +57,11 @@ gh-pr-commits --help
 gh-pr-commits --version
 ```
 
+`--version` is a root-only builtin. It prints the root command's `version`. When the root has
+none, `runMain` resolves the executable (`process.argv[1]`) through symlinks and prints the
+`version` of the nearest ancestor `package.json` that declares one, so a published CLI reports its
+package version without repeating it in code. `runCommand` does not search the filesystem.
+
 Boolean fields are flags and other fields take a value. Both a schema key and its kebab-case form
 are accepted (`--dryRun` and `--dry-run`). Every boolean flag also accepts a `--no-` prefixed form
 that sets it to `false`, such as `--no-verbose`, which is how a default-on flag is disabled.
