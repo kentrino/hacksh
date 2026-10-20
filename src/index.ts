@@ -1,6 +1,21 @@
 export { defineCommand } from "./command.ts";
 export type { ArgOptions, ArgOptionsMap, CommandContext, CommandDef } from "./command.ts";
-export { HackshPromptError, HackshUsageError, HackshValidationError } from "./errors.ts";
+export {
+  HackshExecError,
+  HackshPromptError,
+  HackshUsageError,
+  HackshValidationError,
+} from "./errors.ts";
+export type {
+  Exec,
+  ExecCommand,
+  ExecFailure,
+  ExecFailureReason,
+  ExecOptions,
+  ExecResult,
+  ExecReturn,
+  ExecSuccess,
+} from "./exec.ts";
 export type {
   HackshErrorKind,
   HackshErrorSummary,

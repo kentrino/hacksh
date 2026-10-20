@@ -2,6 +2,7 @@ import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { assertUniqueEnvNames, commandEnvPath, registerCommandPath } from "./environment.ts";
 import { HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
+import { createExec } from "./exec.ts";
 import { createLogger } from "./logger.ts";
 import {
   parseCommandArgs,
@@ -73,8 +74,9 @@ async function executeCommand<S extends ArgsSchema>(
   displayUsage: ShowUsageCallback,
   printer: Printer,
   loggerOptions: Parameters<typeof createLogger>[2],
-  env: Readonly<Record<string, string | undefined>>,
+  invocationEnv: Readonly<Record<string, string | undefined>> | undefined,
 ): Promise<unknown> {
+  const env = invocationEnv ?? process.env;
   const resolved = resolveCommand(root, argv);
   if (resolved.segments[0]?.tokenized.version) {
     await printer.print({ type: "version", version: root.version ?? "" });
@@ -112,6 +114,7 @@ async function executeCommand<S extends ArgsSchema>(
     cmd: resolved.command,
     rawArgs: resolved.rawArgs,
     logger: createLogger(printer, category, loggerOptions),
+    exec: createExec(invocationEnv),
   });
 }
 
@@ -159,8 +162,7 @@ export async function runCommand<S extends ArgsSchema>(
   argv: string[],
   options: RunCommandOptions = {},
 ): Promise<unknown> {
-  const env = options.env ?? process.env;
-  const output = prepareOutput(options, env);
+  const output = prepareOutput(options, options.env ?? process.env);
   try {
     return await executeCommand(
       root,
@@ -172,7 +174,7 @@ export async function runCommand<S extends ArgsSchema>(
         input: output.input,
         printPrompt: (event) => output.printChecked(event),
       },
-      env,
+      options.env,
     );
   } finally {
     await output.drain();
@@ -220,10 +222,9 @@ export async function runMain<S extends ArgsSchema>(
   options: RunMainOptions = {},
 ): Promise<void> {
   const displayUsage = options.showUsage ?? showUsage;
-  const env = options.env ?? process.env;
   let output: PreparedOutput;
   try {
-    output = prepareOutput(options, env);
+    output = prepareOutput(options, options.env ?? process.env);
   } catch (error) {
     return reportOutputSetupError(error, options);
   }
@@ -238,7 +239,7 @@ export async function runMain<S extends ArgsSchema>(
         input: output.input,
         printPrompt: (event) => output.printChecked(event),
       },
-      env,
+      options.env,
     );
   } catch (error) {
     if (options.onError) {
