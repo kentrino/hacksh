@@ -25,10 +25,21 @@ rebase や create-branch では状態取得を実行し、その結果で組み�
 - pretty と JSON で実行予定と実行済みが区別でき、非対話環境でも実行予定を表示できる。
 - dry-run と reject・input・端末指定の組み合わせを定義し、同じ状態を結果と表示で示す。
 
-# Open Decisions
+# Decisions
 
-- 結果の判別子の名前と、dryRun が boolean 変数の場合の戻り値型。
-- 省略時に不要な対話条件の検証をどこまで省くか。実際に起動する場合の制限は0024に従う。
+契約の詳細は `designs.md` にある。
+
+- `dryRun` は `exec` のオプションだけである。省略と `false` は従来の成功または失敗を返す。
+- `true` は子を起動せず、`status: "skipped"` と秘匿済みの `command` を返す。`stdout`、`stderr`、`exitCode` は持たない。
+- `dryRun` の型が `boolean` のときは、省略と実行結果のユニオンを返す。
+- オプションの矛盾は `TypeError` のままである。すでに中断された signal は省略イベントより前に `aborted` で失敗する。
+- `json-output`、`non-interactive`、`overlapping` は省略時には適用しない。`display: false` は省略イベントを出さない。
+- `phase` は `"start"` または `"skip"` だけである。pretty では開始を `$`、省略を `#` で示す。
+
+# Evidence
+
+- 実装: 659798c..5fac016
+- レビュー範囲: 827ae4a..5fac016。1件の手順書の不整合を修正。
 
 # Related Files
 
