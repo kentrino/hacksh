@@ -551,3 +551,91 @@ describe("exec terminal use", () => {
     expect(events.filter((event) => event.type === "exec")).toHaveLength(4);
   });
 });
+
+describe("exec dry-run display", () => {
+  it("shows the plan in pretty output when the environment is not interactive", async () => {
+    const directory = await temporaryDirectory();
+    const marker = join(directory, "spawned");
+    const stderr: string[] = [];
+    const command = defineCommand({
+      async run({ exec }) {
+        const fetched = await exec(node, script("process.stdout.write('main'); process.exit(2)"), {
+          reject: false,
+        });
+        if (fetched.status !== "failed") return fetched;
+        return exec(node, markerScript(marker), { dryRun: true, cwd: directory });
+      },
+    });
+
+    const skipped = await run(command, {
+      stderr: { write: (text: string) => void stderr.push(text) },
+    });
+    expect(skipped).toMatchObject({ status: "skipped", command: { cwd: directory } });
+    const text = stderr.join("");
+    expect(text).toContain("$  ");
+    expect(text).toContain("#  ");
+    expect(text).toContain(directory);
+    await expectUnspawned(marker);
+  });
+
+  it("emits phase skip in JSON mode for a terminal dry-run", async () => {
+    const directory = await temporaryDirectory();
+    const marker = join(directory, "spawned");
+    const stderr: string[] = [];
+    const args = markerScript(marker);
+    const command = defineCommand({
+      async run({ exec }) {
+        return exec(node, args, {
+          dryRun: true,
+          cwd: directory,
+          stdin: "inherit",
+          stdout: "inherit",
+          stderr: "inherit",
+          interactive: true,
+        });
+      },
+    });
+
+    const skipped = await run(command, {
+      output: "json",
+      stdout: { write: () => undefined },
+      stderr: { write: (text: string) => void stderr.push(text) },
+    });
+    expect(skipped).toEqual({
+      status: "skipped",
+      command: { file: node, args, cwd: directory },
+    });
+    expect(stderr).toHaveLength(1);
+    expect(JSON.parse(stderr[0]!)).toEqual({
+      type: "exec",
+      phase: "skip",
+      command: { file: node, args, cwd: directory },
+      stdio: { stdin: "inherit", stdout: "inherit", stderr: "inherit" },
+      interactive: true,
+    });
+    await expectUnspawned(marker);
+  });
+
+  it("does not take the terminal lock for a dry-run", async () => {
+    const directory = await temporaryDirectory();
+    const marker = join(directory, "spawned");
+    const terminal = new TerminalLock();
+    expect(terminal.acquire("prompt")).toBe(true);
+    const bound = createExec({
+      env: undefined,
+      mode: { format: "pretty", interactive: true },
+      print: () => undefined,
+      terminal,
+      signal: new AbortController().signal,
+    });
+    await expect(
+      bound(node, markerScript(marker), {
+        dryRun: true,
+        interactive: true,
+        stdout: "inherit",
+      }),
+    ).resolves.toMatchObject({ status: "skipped" });
+    await expectUnspawned(marker);
+    terminal.release();
+  });
+});

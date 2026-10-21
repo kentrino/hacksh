@@ -426,6 +426,50 @@ async function verifyConsumer(label, execute) {
     `${label}: non-interactive exec was not refused before the child ran: ${execInteractive.stdout}${execInteractive.stderr}`,
   );
 
+  const execDryRun = await execute(
+    ["exec-dry-run"],
+    { HACKSH_OUTPUT: "json" },
+    { spawnsChildren: true },
+  );
+  const dryEvents = parseLines(execDryRun.stderr);
+  const dryBody = JSON.parse(execDryRun.stdout);
+  assert(
+    execDryRun.code === 0 &&
+      dryBody.branch === "skip" &&
+      dryBody.fetchReason === "exit-code" &&
+      dryBody.fetchExit === 2 &&
+      dryBody.fetchStdout === "state" &&
+      dryBody.skipped.status === "skipped" &&
+      dryBody.skipped.stdout === undefined &&
+      dryBody.skipped.stderr === undefined &&
+      dryBody.skipped.exitCode === undefined &&
+      dryBody.changed === false &&
+      dryEvents.length === 2 &&
+      dryEvents[0].type === "exec" &&
+      dryEvents[0].phase === "start" &&
+      dryEvents[1].type === "exec" &&
+      dryEvents[1].phase === "skip" &&
+      dryEvents[1].interactive === true &&
+      dryEvents[1].stdio.stdin === "inherit" &&
+      dryEvents[1].stdio.stdout === "inherit" &&
+      dryEvents[1].stdio.stderr === "inherit" &&
+      JSON.stringify(dryEvents[1].command) === JSON.stringify(dryBody.skipped.command),
+    `${label}: dry-run did not skip only the later call: ${execDryRun.stdout}${execDryRun.stderr}`,
+  );
+
+  const execDryPretty = await execute(
+    ["exec-dry-run"],
+    { HACKSH_OUTPUT: "pretty", NO_COLOR: "1" },
+    { spawnsChildren: true },
+  );
+  assert(
+    execDryPretty.code === 0 &&
+      execDryPretty.stderr.includes("$  ") &&
+      execDryPretty.stderr.includes("#  ") &&
+      !execDryPretty.stderr.includes("interactive terminal"),
+    `${label}: non-interactive pretty output did not show the plan: ${execDryPretty.stdout}${execDryPretty.stderr}`,
+  );
+
   const standalonePretty = await execute(["__standalone-help__"], {
     HACKSH_OUTPUT: "pretty",
     NO_COLOR: "0",
@@ -445,6 +489,7 @@ async function verifyConsumer(label, execute) {
 
 function consumerSource(zodSpecifier, miniSpecifier, packageSpecifier) {
   return `
+import { existsSync } from "node:fs";
 import { z } from ${JSON.stringify(zodSpecifier)};
 import * as mini from ${JSON.stringify(miniSpecifier)};
 import {
@@ -687,6 +732,36 @@ const command = defineCommand({
         });
       },
     }),
+    "exec-dry-run": defineCommand({
+      hidden: true,
+      async run({ exec }) {
+        const readState =
+          "typeof Deno === 'undefined' ? (process.stdout.write('state'), process.exit(2)) : (console.log('state'), Deno.exit(2))";
+        const writeTarget =
+          "typeof Deno === 'undefined' ? require('node:fs').writeFileSync('dry-run-target', 'changed') : Deno.writeTextFileSync('dry-run-target', 'changed')";
+        const fetched = await exec(process.execPath, runtimeScript(readState), { reject: false });
+        if (fetched.status !== "failed") {
+          console.log(JSON.stringify({ branch: "fetched", fetched }));
+          return;
+        }
+        const skipped = await exec(process.execPath, runtimeScript(writeTarget), {
+          dryRun: true,
+          stdin: "inherit",
+          stdout: "inherit",
+          stderr: "inherit",
+          interactive: true,
+        });
+        const changed = typeof Deno === "undefined" && existsSync("dry-run-target");
+        console.log(JSON.stringify({
+          branch: "skip",
+          fetchReason: fetched.reason,
+          fetchExit: fetched.reason === "exit-code" ? fetched.exitCode : null,
+          fetchStdout: fetched.stdout,
+          skipped,
+          changed,
+        }));
+      },
+    }),
   },
 });
 const miniCommand = defineCommand({
@@ -739,6 +814,7 @@ import {
   type ExecPrintEvent,
   type ExecResult,
   type ExecReturn,
+  type ExecSkipped,
   type ExecSuccess,
   type PrintEvent,
   type HackshPromptErrorReason,
@@ -861,7 +937,23 @@ const execCommand = defineCommand({
       stdin: "inherit",
       stderr: "inherit",
     });
-    const result: ExecResult = await exec("node", ["-e", "process.exit(3)"], options);
+    const skipped: ExecSkipped = await typedExec("node", [], { dryRun: true });
+    // @ts-expect-error a skipped result has no stdout
+    void skipped.stdout;
+    // @ts-expect-error a skipped result has no exit code
+    void skipped.exitCode;
+    const dryRun: boolean = Math.random() > 0.5;
+    const branched = await typedExec("node", [], { dryRun, reject: false });
+    if (branched.status === "skipped") {
+      const skippedCommand: ExecCommand = branched.command;
+      void skippedCommand;
+    }
+    const wide = await exec("node", ["-e", "process.exit(3)"], options);
+    if (wide.status === "skipped") {
+      // @ts-expect-error a skipped result has no stdout
+      return wide.stdout;
+    }
+    const result: ExecResult = wide;
     const returned: ExecReturn<{ reject: false }> = result;
     const execEvent: ExecPrintEvent = {
       type: "exec",
@@ -870,7 +962,8 @@ const execCommand = defineCommand({
       stdio: { stdin: "input", stdout: "pipe", stderr: "inherit" },
       interactive: true,
     };
-    const printed: PrintEvent = execEvent;
+    const skipEvent: ExecPrintEvent = { ...execEvent, phase: "skip" };
+    const printed: PrintEvent = skipEvent;
     // @ts-expect-error input cannot be combined with inherited stdin
     void exec("node", [], { input: "data", stdin: "inherit" });
     const inheritedInput: ExecOptions = { input: "data", stdin: "inherit" };

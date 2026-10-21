@@ -18,7 +18,8 @@ type PrettyMark =
   | "version"
   | "errorEvent"
   | "prompt"
-  | "exec";
+  | "exec"
+  | "execSkip";
 type TextStyle = Parameters<typeof styleText>[0];
 
 interface PrettySymbols {
@@ -42,6 +43,7 @@ const unicodeSymbols: PrettySymbols = {
     errorEvent: "■",
     prompt: "?",
     exec: "$",
+    execSkip: "#",
   },
 };
 
@@ -61,6 +63,7 @@ const asciiSymbols: PrettySymbols = {
     errorEvent: "x",
     prompt: "?",
     exec: "$",
+    execSkip: "#",
   },
 };
 
@@ -78,6 +81,7 @@ const markStyles: Record<PrettyMark, TextStyle> = {
   errorEvent: "red",
   prompt: "cyan",
   exec: "gray",
+  execSkip: "gray",
 };
 
 export interface PrettyPrinterOptions {
@@ -136,7 +140,7 @@ function eventMark(event: PrintEvent): PrettyMark {
   if (event.type === "version") return "version";
   if (event.type === "error") return "errorEvent";
   if (event.type === "prompt") return event.prompt.status === "submitted" ? "success" : "prompt";
-  if (event.type === "exec") return "exec";
+  if (event.type === "exec") return event.phase === "skip" ? "execSkip" : "exec";
   return event.record.kind === "message" ? event.record.level : event.record.kind;
 }
 

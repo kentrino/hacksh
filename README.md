@@ -436,9 +436,9 @@ parse Git records or infer whether stdout is text, JSON, or a list.
 ### Execution options
 
 Options are `cwd`, `env`, `input`, `reject`, `timeout` (milliseconds), `signal` (an
-`AbortSignal`), `maxBuffer` (bytes per stream, default 100,000,000), and `forceKillAfterDelay`
-(milliseconds, default 5,000). Every call also stops with `aborted` when the invocation's `signal`
-aborts. `input` is written to stdin and closed; otherwise stdin is empty.
+`AbortSignal`), `maxBuffer` (bytes per stream, default 100,000,000), `forceKillAfterDelay`
+(milliseconds, default 5,000), and `dryRun`. Every call also stops with `aborted` when the
+invocation's `signal` aborts. `input` is written to stdin and closed; otherwise stdin is empty.
 Output beyond `maxBuffer` is truncated to that many bytes. On timeout, abort, or output limit,
 hacksh sends `SIGTERM` to the child it started and `SIGKILL` after `forceKillAfterDelay`; it does
 not stop grandchildren, and it does not wait for them to close inherited pipes. Invalid arguments
@@ -457,6 +457,18 @@ JSON event has `phase: "start"`, `command` (`file`, `args`, and `cwd` when set),
 `redact` with secret values to replace every occurrence in the file, arguments, and cwd with `***`
 in the event, the result's `command`, the `HackshExecError` message, and a `spawn` failure's
 `error`. The child still receives the real values, and its captured output is returned unchanged.
+
+`dryRun: true` does not start the child and does not write `input`. The result is
+`{ status: "skipped", command }` with the redacted command and no `stdout`, `stderr`, or `exitCode`.
+The `exec` event uses `phase: "skip"` and the same command, stdio, and `interactive` flag.
+Pretty output marks that line with `#` instead of `$`. Omit `dryRun`, or pass `false`, to keep
+today's success or failure result. A boolean `dryRun` returns the union of a skip and the executed
+result, so narrow `status` before reading output. `reject` does not apply to a skip. An invocation
+signal that is already aborted still fails as `aborted` before any skip event, and `reject` applies
+to that failure. Option checks still run, including `input` together with `stdin: "inherit"`.
+JSON mode, a non-interactive environment, and a busy terminal still show the plan and return
+a skip. `display: false` hides the skip event. `dryRun` is not read from CLI flags or
+`context.args`.
 
 ```ts
 await exec("git", ["worktree", "add", path, branch], { cwd: repository });

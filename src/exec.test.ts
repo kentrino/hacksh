@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { getEventListeners } from "node:events";
 import { tmpdir } from "node:os";
@@ -6,7 +6,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { summarizeError } from "./errors.ts";
 import { createExec, type ExecContext } from "./exec.ts";
-import { defineCommand, HackshExecError, runCommand, type ExecResult } from "./index.ts";
+import {
+  defineCommand,
+  HackshExecError,
+  runCommand,
+  type ExecPrintEvent,
+  type ExecResult,
+} from "./index.ts";
 import { TerminalLock } from "./terminal.ts";
 
 const node = process.execPath;
@@ -234,7 +240,14 @@ describe("exec programming errors", () => {
     ["negative forceKillAfterDelay", node, [], { forceKillAfterDelay: -1 }],
     ["non-AbortSignal signal", node, [], { signal: {} }],
     ["unknown option", node, [], { rejct: false }],
-    ["unknown option next to a valid one", node, [], { cwd: ".", dryRun: true }],
+    ["unknown option next to a valid one", node, [], { cwd: ".", dryrun: true }],
+    ["dryRun is not a boolean", node, [], { dryRun: "yes" }],
+    [
+      "input combined with inherited stdin during dry-run",
+      node,
+      [],
+      { input: "x", stdin: "inherit", dryRun: true },
+    ],
     ["stdin is not pipe or inherit", node, [], { stdin: "input" }],
     ["stdout is not pipe or inherit", node, [], { stdout: "ignore" }],
     ["stderr is not pipe or inherit", node, [], { stderr: true }],
@@ -434,5 +447,132 @@ describe("context exec", () => {
     expectGone(Number(error.result.stderr));
     expect(getEventListeners(invocation.signal, "abort")).toHaveLength(0);
     expect(getEventListeners(own.signal, "abort")).toHaveLength(0);
+  });
+});
+
+describe("exec dry-run", () => {
+  function boundExec(options?: {
+    signal?: AbortSignal;
+    events?: ExecPrintEvent[];
+    interactive?: boolean;
+  }) {
+    return createExec({
+      env: undefined,
+      mode: { format: "pretty", interactive: options?.interactive ?? false },
+      print: (event) => void options?.events?.push(event),
+      terminal: new TerminalLock(),
+      signal: options?.signal ?? new AbortController().signal,
+    });
+  }
+
+  it("fetches state, branches on failure, and dry-runs only the later write", async () => {
+    const directory = await temporaryDirectory();
+    const target = join(directory, "target");
+    writeFileSync(target, "main\n");
+    const events: ExecPrintEvent[] = [];
+    const bound = boundExec({ events });
+    const fetched = await bound(
+      node,
+      script(
+        `process.stdout.write(require("node:fs").readFileSync(${JSON.stringify(target)}, "utf8").trim()); process.exit(1)`,
+      ),
+      { reject: false },
+    );
+    expect(fetched).toMatchObject({
+      status: "failed",
+      reason: "exit-code",
+      exitCode: 1,
+      stdout: "main",
+    });
+    if (fetched.status !== "failed") return;
+
+    const secret = "s3cret";
+    const write = `require("node:fs").writeFileSync(${JSON.stringify(target)}, "changed\\n")`;
+    const skipped = await bound(node, script(write, `--token=${secret}`), {
+      dryRun: true,
+      cwd: directory,
+      input: "not-written",
+      redact: [secret],
+      stdout: "inherit",
+      interactive: true,
+    });
+    expect(skipped).toEqual({
+      status: "skipped",
+      command: {
+        file: node,
+        args: script(write, "--token=***"),
+        cwd: directory,
+      },
+    });
+    expect(skipped).not.toHaveProperty("stdout");
+    expect(skipped).not.toHaveProperty("stderr");
+    expect(skipped).not.toHaveProperty("exitCode");
+    expect(readFileSync(target, "utf8")).toBe("main\n");
+    expect(events.map((event) => event.phase)).toEqual(["start", "skip"]);
+    expect(events[1]).toEqual({
+      type: "exec",
+      phase: "skip",
+      command: skipped.command,
+      stdio: { stdin: "input", stdout: "inherit", stderr: "pipe" },
+      interactive: true,
+    });
+  });
+
+  it("writes the target when the same call is not a dry-run", async () => {
+    const directory = await temporaryDirectory();
+    const target = join(directory, "target");
+    writeFileSync(target, "main\n");
+    const write = `require("node:fs").writeFileSync(${JSON.stringify(target)}, "changed\\n")`;
+    const ran = await boundExec()(node, script(write), { dryRun: false, cwd: directory });
+    expect(ran).toMatchObject({ status: "succeeded", stdout: "", stderr: "" });
+    expect(readFileSync(target, "utf8")).toBe("changed\n");
+  });
+
+  it("returns a skip for both reject settings and hides it when display is false", async () => {
+    const directory = await temporaryDirectory();
+    const marker = join(directory, "spawned");
+    const events: ExecPrintEvent[] = [];
+    const bound = boundExec({ events });
+    const args = script(`require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`);
+    await expect(bound(node, args, { dryRun: true, reject: true })).resolves.toMatchObject({
+      status: "skipped",
+    });
+    await expect(bound(node, args, { dryRun: true, reject: false })).resolves.toMatchObject({
+      status: "skipped",
+    });
+    events.length = 0;
+    const hidden = await bound(node, args, { dryRun: true, display: false });
+    expect(hidden.status).toBe("skipped");
+    expect(events).toEqual([]);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("fails as aborted before a skip when the signal is already aborted", async () => {
+    const directory = await temporaryDirectory();
+    const marker = join(directory, "spawned");
+    const args = script(`require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`);
+    const events: ExecPrintEvent[] = [];
+    const invocation = new AbortController();
+    invocation.abort();
+    const bound = boundExec({ events, signal: invocation.signal });
+    const thrown = await rejection(
+      bound(node, args, { dryRun: true, stdout: "inherit", interactive: true }),
+    );
+    expect(thrown.result).toMatchObject({
+      status: "failed",
+      reason: "aborted",
+      stdout: "",
+      stderr: "",
+    });
+    const returned = await bound(node, args, { dryRun: true, reject: false });
+    expect(returned).toMatchObject({ status: "failed", reason: "aborted" });
+    expect(returned).not.toMatchObject({ status: "skipped" });
+    const own = new AbortController();
+    own.abort();
+    const fresh = boundExec({ events });
+    const fromOption = await fresh(node, args, { dryRun: true, reject: false, signal: own.signal });
+    expect(fromOption).toMatchObject({ status: "failed", reason: "aborted" });
+    expect(events).toEqual([]);
+    expect(existsSync(marker)).toBe(false);
   });
 });
