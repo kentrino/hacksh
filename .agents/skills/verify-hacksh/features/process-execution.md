@@ -1,6 +1,6 @@
 # Process execution
 
-Every `run` receives `exec(file, args, options)`, which starts an executable without a shell and resolves with `status`, `command`, and newline-trimmed `stdout` and `stderr`. By default a failure rejects with `HackshExecError`, which `runMain` reports as an `error` event naming the command and reason and exits 1. `reject: false` returns the failure as a result with a `reason` (`exit-code`, `signal`, `spawn`, `timeout`, `aborted`, `output-limit`). Child output never appears in the error event.
+Every `run` receives `exec(file, args, options)`, which starts an executable without a shell and resolves with `status`, `command`, and newline-trimmed `stdout` and `stderr`. By default a failure rejects with `HackshExecError`, which `runMain` reports as an `error` event naming the command and reason and exits 1. `reject: false` returns the failure as a result with a `reason` (`exit-code`, `signal`, `spawn`, `timeout`, `aborted`, `output-limit`). Child output never appears in the error event. `dryRun: true` does not start the child. It resolves with `status: "skipped"` and the redacted `command`, and it has no `stdout`, `stderr`, or `exitCode`.
 
 ## Sub-features
 
@@ -13,12 +13,14 @@ Every `run` receives `exec(file, args, options)`, which starts an executable wit
 - `exec-interactive` (fzf-like) sends `input`, lets the child read the keyboard from `/dev/tty`, and returns the captured selection.
 - `exec-inherit` (gh-run-watch-like) gives the child the terminal's stdin, stdout, and stderr.
 - `exec-terminal-refusal` refuses inherit in JSON mode (`json-output`), `interactive: true` without a TTY or in CI (`non-interactive`), and a terminal call during a prompt (`overlapping`), without starting the child.
+- `exec-dry-run` runs one call and skips a later call in the same `run`. Pretty uses `#` for the plan and `$` for a call that started. JSON uses `phase` `skip` or `start`. A non-interactive environment and JSON mode still show the plan when `dryRun: true` is combined with inherited stdio and `interactive: true`. `input` with `stdin: "inherit"` is still a `TypeError`.
 
 ## How to get to it (user POV)
 
 - Run a command whose `run` calls `exec`: `demo exec`.
 - Run a command whose `exec` call fails without `reject: false`: `demo exec fail`.
 - Run `demo term show`, `demo term pick`, `demo term watch`, `demo term flow`, or `demo term overlap` in a terminal, piped, in CI, or with `HACKSH_OUTPUT=json`.
+- Run `demo rebase --target <file>` to read that file and skip the following write. Run `demo plan --target <file>` to show a terminal command without starting it. Run `demo conflict` to reject `input` combined with inherited stdin during a dry-run.
 
 ## Driving it with drive.mjs
 
@@ -146,6 +148,82 @@ Preconditions:
 - **Overlap (PTY).** Steps `expect Overlap`, `expect Still there?`, `send y`. The transcript has `Overlap overlapping` and then `✔  Still there?: Yes`.
 - **Refusals without a terminal.** Without `--pty`: `term watch` in pretty exits 0 and the child's lines land directly in the evidence `stdout`/`stderr` (inherit passes the pipes through). `term watch` with `--env HACKSH_OUTPUT=json --expect-code 1` has empty stdout and stderr holds exactly one line, an `error` event whose message starts `Command cannot use the terminal in JSON output mode`. No `exec` event means the child never started (the message quotes the script, so do not grep for its text). `term pick` with `--expect-code 1` (or with `--env CI=1 --env HACKSH_OUTPUT=pretty`) fails with `Command requires an interactive terminal` and no `$` line.
 
+- Dry-run. Add this command to `cli.ts` and register `rebase` and `plan` in `subCommands`. `rebase` reads a file, branches on the failed read, and dry-runs the write. `plan` dry-runs a terminal call. `conflict` keeps the invalid `input` plus `stdin: "inherit"` pair. Write `main` into the target file before either drive. `dryRun` here is an exec option, not `context.args`.
+
+  ```ts
+  const node = (code: string) => [process.execPath, ["-e", code]] as const;
+  const rebase = defineCommand({
+    description: "Read a file, then skip the write",
+    args: z.object({ target: z.string().describe("State file") }),
+    async run({ args, exec }) {
+      const { readFileSync } = await import("node:fs");
+      const fetched = await exec(
+        ...node(
+          `const fs = require('fs'); process.stdout.write(fs.readFileSync(${JSON.stringify(args.target)}, 'utf8').trim()); process.exit(1)`,
+        ),
+        { reject: false },
+      );
+      if (fetched.status !== "failed") {
+        console.log("RESULT unexpected-fetch");
+        return;
+      }
+      const skipped = await exec(
+        ...node(
+          `require('fs').writeFileSync(${JSON.stringify(args.target)}, 'changed\\n'); process.stdout.write('wrote')`,
+        ),
+        { dryRun: true, reject: false, input: "not-written" },
+      );
+      console.log(
+        `RESULT ${JSON.stringify({
+          fetch: fetched.reason,
+          exitCode: fetched.reason === "exit-code" ? fetched.exitCode : null,
+          stdout: fetched.stdout,
+          status: skipped.status,
+          hasStdout: "stdout" in skipped,
+          hasExitCode: "exitCode" in skipped,
+          file: readFileSync(args.target, "utf8"),
+        })}`,
+      );
+    },
+  });
+  const plan = defineCommand({
+    description: "Dry-run a terminal command",
+    args: z.object({ target: z.string().describe("State file") }),
+    async run({ args, exec }) {
+      const { readFileSync } = await import("node:fs");
+      const skipped = await exec(
+        ...node(`require('fs').writeFileSync(${JSON.stringify(args.target)}, 'changed\\n')`),
+        {
+          dryRun: true,
+          stdin: "inherit",
+          stdout: "inherit",
+          stderr: "inherit",
+          interactive: true,
+        },
+      );
+      console.log(
+        `RESULT ${JSON.stringify({ status: skipped.status, file: readFileSync(args.target, "utf8") })}`,
+      );
+    },
+  });
+  const conflict = defineCommand({
+    description: "Reject input with inherited stdin during dry-run",
+    args: z.object({ _: z.tuple([]) }),
+    async run({ exec }) {
+      await exec(...node("process.exit(0)"), {
+        dryRun: true,
+        reject: false,
+        input: "data",
+        stdin: "inherit",
+      });
+    },
+  });
+  ```
+
+- **Fetch, then skip the write.** Run `D --label rebase-pretty --env NO_COLOR=1 --expect-code 0 -- CLI rebase --target <target>`. stdout's `RESULT` has `fetch` `exit-code`, `exitCode` `1`, `stdout` `main`, `status` `skipped`, `hasStdout` false, `hasExitCode` false, and `file` `main\n`. `command` is the skipped result's redacted command. stderr has a `$` line for the fetch and a `#` line for the write, and no `wrote`. Repeat with `--label rebase-json --env HACKSH_OUTPUT=json`. stderr is two `exec` lines, `phase` `start` then `skip`. The skip event's `command` equals `RESULT.command`, and `stdio.stdin` is `input`. The target file is still `main\n`.
+- **Plan in a non-interactive environment.** Without `--pty`, run `D --label plan-pretty --env NO_COLOR=1 --expect-code 0 -- CLI plan --target <target>`. stderr is one `#` line and no `$` line. `RESULT` has `status` `skipped` and `file` `main\n`. There is no `Command requires an interactive terminal` error. Repeat with `--label plan-json --env HACKSH_OUTPUT=json`. stderr is one `exec` event with `phase` `skip`, `interactive` true, and `stdio` inherit on stdin, stdout, and stderr. stdout has the `RESULT` line and no child output.
+- **Invalid input during dry-run.** Run `D --label dry-run-conflict --env HACKSH_OUTPUT=json --expect-code 1 -- CLI conflict`. stderr is one `error` line whose message contains `input` and `stdin inherit`. There is no `exec` event.
+
 ## Gotchas
 
 - The command display JSON-quotes arguments with spaces or shell metacharacters, so the `-e` script appears in quotes in the error message.
@@ -153,3 +231,5 @@ Preconditions:
 - In a PTY the child's `/dev/tty` writes, inherited streams, and hacksh output share one terminal, so typed input echoes may appear before the child's menu in the transcript. Assert on result lines.
 - Inherited streams bypass the printer: in the non-PTY drive, `watch` output appears in the evidence streams without any hacksh decoration, which is the documented boundary.
 - On Deno, exec needs `--allow-run` and unscoped `--allow-env`; scoped `--allow-env` fails inside Deno's `node:child_process` before the child starts.
+- A dry-run does not check that the executable or `cwd` exists. A skip is not evidence that the command would have succeeded.
+- An already aborted invocation signal fails as `aborted` before the skip event. `reject: false` returns that failure. Otherwise `runMain` reports `HackshExecError`.
