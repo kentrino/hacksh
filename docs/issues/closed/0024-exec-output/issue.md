@@ -27,11 +27,20 @@ chezmoi の execa ラッパーは実行内容を console.log または commandPr
 - JSON・非対話環境で拒否したケースは子を起動していないことを確認する。
 - 実行情報を非表示にでき、引数中の秘匿値を表示しない手段を定義する。
 
-# Open Decisions
+# Decisions
 
-- 実行情報を専用 PrintEvent にするか、既存 logger の構造化レコードで表すか。
-- 表示する情報と既定の表示有無、秘匿指定がログ・結果・エラーへ及ぶ範囲。
-- stdio 指定と対話要求の API、および hacksh 自身の prompt との同時使用の扱い。
+契約の詳細は `designs.md` にある。
+
+- 実行情報は logger のレコードではなく、専用の `ExecPrintEvent`（`type: "exec"`、`phase: "start"`）とする。
+- 既定で表示し、`display: false` の呼び出しだけイベントを出さない。イベントは pretty と JSON のどちらも stderr に出す。
+- `redact` は表示、結果の `command`、`HackshExecError` の message、spawn 失敗の `error` を置き換える。子の stdout と stderr は置き換えない。
+- `stdin`・`stdout`・`stderr` は個別に指定する。`interactive: true` は PTY ではなく、端末で対話するという宣言である。
+- JSON での inherit は `json-output`、非対話での `interactive: true` は `non-interactive`、prompt または別の端末使用 exec との重複は `overlapping` として、子を起動する前に拒否する。捕捉モードへは切り替えない。
+
+# Evidence
+
+- 実装: ee7ae8a
+- レビュー範囲: 2718da1..15cc4f9。指摘なし。
 
 # Related Files
 
