@@ -148,7 +148,7 @@ Preconditions:
 - **Overlap (PTY).** Steps `expect Overlap`, `expect Still there?`, `send y`. The transcript has `Overlap overlapping` and then `✔  Still there?: Yes`.
 - **Refusals without a terminal.** Without `--pty`: `term watch` in pretty exits 0 and the child's lines land directly in the evidence `stdout`/`stderr` (inherit passes the pipes through). `term watch` with `--env HACKSH_OUTPUT=json --expect-code 1` has empty stdout and stderr holds exactly one line, an `error` event whose message starts `Command cannot use the terminal in JSON output mode`. No `exec` event means the child never started (the message quotes the script, so do not grep for its text). `term pick` with `--expect-code 1` (or with `--env CI=1 --env HACKSH_OUTPUT=pretty`) fails with `Command requires an interactive terminal` and no `$` line.
 
-- Dry-run. Add this command to `cli.ts` and register `rebase` and `plan` in `subCommands`. `rebase` reads a file, branches on the failed read, and dry-runs the write. `plan` dry-runs a terminal call. `conflict` keeps the invalid `input` plus `stdin: "inherit"` pair. Write `main` into the target file before either drive. `dryRun` here is an exec option, not `context.args`.
+- Dry-run. Add these commands to `cli.ts` and register `rebase`, `plan`, and `conflict` in `subCommands`. `rebase` reads a file, branches on the failed read, and dry-runs the write. `plan` dry-runs a terminal call. `conflict` keeps the invalid `input` plus `stdin: "inherit"` pair. Write `main` into the target file before the rebase and plan drives. `dryRun` here is an exec option, not `context.args`.
 
   ```ts
   const node = (code: string) => [process.execPath, ["-e", code]] as const;
@@ -179,6 +179,7 @@ Preconditions:
           exitCode: fetched.reason === "exit-code" ? fetched.exitCode : null,
           stdout: fetched.stdout,
           status: skipped.status,
+          command: skipped.command,
           hasStdout: "stdout" in skipped,
           hasExitCode: "exitCode" in skipped,
           file: readFileSync(args.target, "utf8"),
