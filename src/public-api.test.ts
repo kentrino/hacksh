@@ -91,6 +91,7 @@ describe("public parsing API", () => {
       run: childRun,
     });
     const root = defineCommand({
+      allowUnknownArgs: true,
       args: z.object({ rootValue: z.string().default("root") }),
       subCommands: { child },
     });

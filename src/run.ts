@@ -65,7 +65,11 @@ function resolveCommand(root: AnyCommandDef, rawArgs: string[]): ResolvedCommand
     parents.push(segment);
     segments.push(segment);
     const parentPath = commandEnvPath(command);
-    command = { ...child, name: child.name ?? key };
+    command = {
+      ...child,
+      name: child.name ?? key,
+      allowUnknownArgs: child.allowUnknownArgs ?? command.allowUnknownArgs,
+    };
     registerCommandPath(command, parentPath === undefined ? undefined : [...parentPath, key]);
     remaining = remaining.slice(index + 1);
   }

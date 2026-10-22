@@ -554,6 +554,7 @@ const echoArguments =
   "console.log(JSON.stringify(typeof Deno === 'undefined' ? process.argv.slice(1) : Deno.args))";
 const exitThree = "typeof Deno === 'undefined' ? process.exit(3) : Deno.exit(3)";
 const legacyCommand = defineCommand({
+  allowUnknownArgs: true,
   args: z.object({
     enabled: z.boolean().default(true),
     repo: z.string().optional(),

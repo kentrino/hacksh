@@ -296,6 +296,13 @@ export async function parseCommandArgs<S extends ArgsSchema>(
     } else extraArgs.push(token.value);
   }
 
+  if (!command.allowUnknownArgs && extraArgs.length > 0) {
+    throw new HackshValidationError(
+      command,
+      extraArgs.map((arg) => ({ arg, message: "unexpected argument" })),
+    );
+  }
+
   const envSources = new Map<string, string>();
   if (env && command.args) {
     const shape = schemaShape(command.args);
