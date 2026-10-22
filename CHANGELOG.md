@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/kentrino/hacksh/compare/v0.11.0...v0.12.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* unknown options and excess positional arguments now fail by default. Set allowUnknownArgs: true for commands that intentionally consume extraArgs.
+
+### Features
+
+* reject unknown arguments by default ([#43](https://github.com/kentrino/hacksh/issues/43)) ([a12825a](https://github.com/kentrino/hacksh/commit/a12825a314139f59b9f823a9ab9e9c1d65bb6d7e))
+
 ## [0.11.0](https://github.com/kentrino/hacksh/compare/v0.10.0...v0.11.0) (2026-10-20)
 
 
