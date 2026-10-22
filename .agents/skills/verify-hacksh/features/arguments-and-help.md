@@ -1,13 +1,13 @@
 # Arguments and help
 
-A hacksh CLI parses argv against its Zod object schema: named options (with kebab-case forms, short aliases, `--no-` negation for booleans), a `_` tuple for positional arguments, unknown options into `extraArgs`, and everything after `--` into `passthrough`. `--help`/`-h` and `--version`/`-v` print generated help and the version; invalid input prints the issues plus usage on stderr and exits 1.
+A hacksh CLI parses argv against its Zod object schema: named options (with kebab-case forms, short aliases, `--no-` negation for booleans), a `_` tuple for positional arguments, unknown options rejected by default (or retained in `extraArgs` with `allowUnknownArgs: true`), and everything after `--` into `passthrough`. `--help`/`-h` and `--version`/`-v` print generated help and the version; invalid input prints the issues plus usage on stderr and exits 1.
 
 ## Sub-features
 
 - `args-named` parses `--env production`, `--env=production`, and alias `-e production`.
 - `args-boolean` parses `--dry-run`, `--dryRun`, `--no-dry-run`, `--dry-run=true|false`; rejects `--no-dry-run=false`.
 - `args-positional` assigns tuple items in order and collects the rest (`<TARGET> [FILES...]`).
-- `args-extra` keeps unknown options in `extraArgs` and post-`--` tokens in `passthrough`.
+- `args-extra` rejects unknown options and excess positionals by default, retains them with `allowUnknownArgs: true`, and always collects post-`--` tokens in `passthrough`. The policy inherits down the route and children may override it.
 - `help` renders synopsis, arguments, options, choices, and defaults.
 - `version` prints the version.
 - `validation-error` reports issues by CLI name (`<TARGET>`, `--env`) and appends usage.
@@ -26,6 +26,7 @@ Preconditions:
 
 - Baseline from the index. The `deploy` command in the template prints `RESULT <json>` with `args`, `extraArgs`, and `passthrough`.
 
+- **Unknown policy.** Use a command with one positional and no `allowUnknownArgs`. Invoke with `one --typo` and `one extra`; each exits 1 with no handler output. Repeat in JSON mode and assert the error issue’s `arg` is the rejected token. Invoke with `one -- --typo`; it succeeds and returns the token in `passthrough`. Add `allowUnknownArgs: true` and verify `one --typo extra` preserves both extra tokens. For subcommands, verify inheritance, explicit `false` overrides, and rejection of parent extras even when a child allows extras. Help and root version bypass rejection after successful routing.
 - **Full parse.** Run `D --label deploy --env NO_COLOR=1 --expect-code 0 -- CLI deploy api a.txt -e production --dry-run --unknown=1 -- --help`. stdout ends with `RESULT {"args":{"_":["api","a.txt"],"env":"production","dryRun":true},"extraArgs":["--unknown=1"],"passthrough":["--help"]}`.
 - **Boolean forms.** Run with `--dryRun`, `--dry-run=false`, and `--no-dry-run` under separate labels. `RESULT` shows `dryRun` `true`, `false`, `false`. Run with `--no-dry-run=false` and `--expect-code 1`; stderr names `--no-dry-run`.
 - **Help.** Run `D --label deploy-help --env NO_COLOR=1 --expect-code 0 -- CLI deploy --help`. stdout contains `USAGE deploy [OPTIONS] <TARGET> [FILES...]`, `TARGET  Target (Choices: web, api) (Required)`, `-e, --env=<ENV>  Environment (Choices: staging, production) (Default: staging) (Env: DEMO_DEPLOY_ENV)`, and `--[no-]dry-run  Skip side effects (Default: false) (Env: DEMO_DEPLOY_DRY_RUN)`. stderr is empty.

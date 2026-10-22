@@ -36,7 +36,7 @@ describe("argument parsing and validation", () => {
   });
 
   it("keeps unknown options and positional overflow in original order", async () => {
-    const result = await parseCommandArgs(command, [
+    const result = await parseCommandArgs({ ...command, allowUnknownArgs: true }, [
       "--model",
       "one",
       "--repo=a/b",
@@ -53,6 +53,7 @@ describe("argument parsing and validation", () => {
 
   it("collects trailing values after fixed positionals and preserves boundaries", async () => {
     const variadic = defineCommand({
+      allowUnknownArgs: true,
       args: z.object({
         _: z.tuple(
           [z.string().optional()],
@@ -153,6 +154,7 @@ describe("argument parsing and validation", () => {
 
   it("preserves grouped unknown options once, including mixed groups", async () => {
     const grouped = defineCommand({
+      allowUnknownArgs: true,
       args: z.object({ alpha: z.boolean().default(false) }),
       argOptions: { alpha: { alias: "a" } },
     });
@@ -164,7 +166,10 @@ describe("argument parsing and validation", () => {
   });
 
   it("negates only known boolean options and preserves unknown --no-* options", async () => {
-    const negated = defineCommand({ args: z.object({ enabled: z.boolean().default(true) }) });
+    const negated = defineCommand({
+      allowUnknownArgs: true,
+      args: z.object({ enabled: z.boolean().default(true) }),
+    });
     await expect(parseCommandArgs(negated, ["--no-enabled", "--no-mystery"])).resolves.toEqual({
       args: { enabled: false },
       extraArgs: ["--no-mystery"],

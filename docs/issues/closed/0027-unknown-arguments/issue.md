@@ -23,10 +23,15 @@ theme: reliable-invocation
 - 保持モードは順序を保ち、明示的な passthrough を壊さない。
 - help/version と未知の入力が同時にある場合の優先順位を文書化する。
 
-# Open Decisions
+# Design
 
-- 方針の設定場所と親子間の継承、既存 extraArgs 利用者への移行。
-- 未知のオプションの後の値を、保持モードでどのように扱うか。
+- `CommandDef.allowUnknownArgs?: boolean` を公開し、省略時は `false` とする。
+- `true` は未知のオプションと余剰位置引数を元の順序で `extraArgs` に保持する。未知のオプションの直後の値は自動でその値と見なさず、位置引数スキーマに従う。
+- 選択されたルートで親の設定を継承し、子で明示的に上書きできる。親の引数には親自身の設定を適用する。
+- `--` 以降は設定によらず `passthrough` に保持する。
+- 拒否時はスキーマ変換と `run` の前に `HackshValidationError` を送出し、`issues[].arg` に対象トークンを保持する。
+- ルーティング成功後は help とルートの version が引数検証より優先する。未知のサブコマンドなどのルーティングエラーは引き続き失敗する。
+- 従来 `extraArgs` を利用するコマンドは `allowUnknownArgs: true` を指定して移行する。
 
 # Related Files
 

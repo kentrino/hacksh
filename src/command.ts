@@ -38,6 +38,8 @@ export interface CommandDef<S extends ArgsSchema = EmptyArgs> {
   version?: string;
   description?: string;
   hidden?: boolean;
+  /** Keep unknown options and excess positionals in extraArgs. Inherits from the parent; defaults to false. */
+  allowUnknownArgs?: boolean;
   args?: S;
   argOptions?: ArgOptionsMap<S>;
   subCommands?: Record<string, CommandDef<ArgsSchema>>;
@@ -47,6 +49,9 @@ export interface CommandDef<S extends ArgsSchema = EmptyArgs> {
 export type AnyCommandDef = CommandDef<ArgsSchema>;
 
 export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<S>): CommandDef<S> {
+  if (def.allowUnknownArgs !== undefined && typeof def.allowUnknownArgs !== "boolean") {
+    throw new TypeError("allowUnknownArgs must be a boolean");
+  }
   const shape = def.args ? schemaShape(def.args) : {};
   const positionals = readPositionals(shape);
 

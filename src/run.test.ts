@@ -223,6 +223,7 @@ describe("help and version", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const child = defineCommand({
       args: z.object({ childFlag: z.boolean().catch(false) }),
+      allowUnknownArgs: true,
       run: ({ extraArgs }) => extraArgs,
     });
     const root = defineCommand({
@@ -314,7 +315,7 @@ describe("help and version", () => {
     const childRun = vi.fn(({ extraArgs }) => extraArgs);
     const root = defineCommand({
       version: "1.0.0",
-      subCommands: { child: defineCommand({ run: childRun }) },
+      subCommands: { child: defineCommand({ allowUnknownArgs: true, run: childRun }) },
     });
     await expect(runCommand(root, ["child", "--version"])).resolves.toEqual(["--version"]);
   });
@@ -347,7 +348,7 @@ describe("help and version", () => {
     const withChild = defineCommand({
       name: "root",
       version: "1.0.0",
-      subCommands: { child: defineCommand({ run: childRun }) },
+      subCommands: { child: defineCommand({ allowUnknownArgs: true, run: childRun }) },
     });
     await expect(runCommand(withChild, ["child", "--", "--help", "-v"])).resolves.toEqual([
       "--help",
@@ -648,6 +649,7 @@ describe("runMain", () => {
     const onError = vi.fn(async () => Promise.resolve());
     const showUsage = vi.fn();
     const command = defineCommand({
+      allowUnknownArgs: true,
       run: () => {
         throw new Error("boom");
       },

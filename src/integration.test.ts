@@ -38,6 +38,7 @@ describe("consumer-equivalent commands", () => {
   it("supports cdx extras, passthrough, and a default-on focus flag", async () => {
     const command = defineCommand({
       args: z.object({ path: z.string().optional(), focus: z.boolean().default(true) }),
+      allowUnknownArgs: true,
       run: ({ args, extraArgs, passthrough }) => ({ args, extraArgs, passthrough }),
     });
     await expect(
@@ -88,6 +89,7 @@ describe("consumer-equivalent commands", () => {
   it("supports multiple positional arguments and overflow", async () => {
     const command = defineCommand({
       args: z.object({ _: z.tuple([z.string(), z.string().optional()]) }),
+      allowUnknownArgs: true,
       run: ({ args, extraArgs }) => ({ args, extraArgs }),
     });
     await expect(runCommand(command, ["a", "b", "c"])).resolves.toEqual({
@@ -110,6 +112,7 @@ describe("consumer-equivalent commands", () => {
   ])("runs fixed and variadic arguments with %s", async (_name, args) => {
     const command = defineCommand({
       args,
+      allowUnknownArgs: true,
       run: ({ args: parsed, extraArgs, passthrough }) => ({ parsed, extraArgs, passthrough }),
     });
     await expect(

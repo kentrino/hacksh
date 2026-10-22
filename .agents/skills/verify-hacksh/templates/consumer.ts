@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineCommand, runMain } from "../../../src/index.ts";
 
 const deploy = defineCommand({
+  allowUnknownArgs: true,
   description: "Deploy a target",
   args: z.object({
     _: z.tuple(

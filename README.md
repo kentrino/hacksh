@@ -1,7 +1,8 @@
 # hacksh
 
 Define a type-safe command-line interface with a Zod 4 object schema. The same schema parses and
-validates arguments, infers the value passed to `run`, and generates help.
+validates arguments, infers the value passed to `run`, and generates help. Run external commands
+with the context’s `exec`, and use its `logger` for progress and interactive prompts.
 
 The name comes from 拍手 (_hakushu_), the Japanese word for "clap", as a nod to
 [clap](https://github.com/clap-rs/clap), the command-line argument parser for Rust. It is spelled
@@ -30,21 +31,22 @@ import { z } from "zod";
 import { defineCommand, runMain } from "hacksh";
 
 const main = defineCommand({
-  name: "gh-pr-commits",
+  name: "git-summary",
   version: "0.1.0",
-  description: "List commits in a GitHub pull request",
+  description: "Show a commit summary",
   args: z.object({
-    _: z.tuple([
-      z.coerce.number().int().optional().describe("Pull request number").meta({ title: "PR" }),
-    ]),
-    repo: z.string().optional().describe("Repository in OWNER/REPO format"),
-    verbose: z.boolean().default(false).describe("Show details"),
+    _: z.tuple([z.string().default("HEAD").describe("Commit to inspect").meta({ title: "REF" })]),
+    repo: z.string().optional().describe("Repository directory"),
   }),
-  argOptions: { repo: { alias: "R" }, verbose: { alias: ["v", "V"] } },
-  async run({ args, rawArgs, extraArgs, passthrough, logger }) {
-    // args is { _: [number?]; repo?: string; verbose: boolean }
-    logger.info("Loading commits for {repo}", { repo: args.repo ?? "the current repository" });
-    logger.debug("Invocation arguments", { rawArgs, extraArgs, passthrough });
+  argOptions: { repo: { alias: "C" } },
+  async run({ args, exec }) {
+    const [ref] = args._;
+    const { stdout } = await exec(
+      "git",
+      ["show", "--no-patch", "--format=%h %s", "--end-of-options", ref],
+      { cwd: args.repo },
+    );
+    console.log(stdout);
   },
 });
 
@@ -52,10 +54,21 @@ await runMain(main);
 ```
 
 ```sh
-gh-pr-commits 42 -R owner/repo --verbose
-gh-pr-commits --help
-gh-pr-commits --version
+git-summary
+git-summary HEAD~1 -C ./my-repo
+git-summary --help
+git-summary --version
 ```
+
+Use an `async run` handler and its `exec` for external commands. It captures output, removes one
+final newline, throws on failure, and observes invocation cancellation. Pass arguments as an array;
+there is no command string to quote or split. You do not need a `node:child_process` import or a
+custom process wrapper for these behaviors. See [External commands](#external-commands) for expected
+nonzero exits, stdin, and terminal access.
+
+`console.log` above writes the command’s data to stdout. Direct stdout writes are not converted
+to JSON by hacksh’s output mode. Logger events go through the printer; their stream depends on
+the level, so informational logs also share stdout by default.
 
 `--version` is a root-only builtin. It prints the root command's `version`. When the root has
 none, `runMain` resolves the executable (`process.argv[1]`) through symlinks and prints the
@@ -67,8 +80,8 @@ are accepted (`--dryRun` and `--dry-run`). Every boolean flag also accepts a `--
 that sets it to `false`, such as `--no-verbose`, which is how a default-on flag is disabled.
 Boolean flags also accept the explicit forms `--verbose=true` and
 `--verbose=false`; other inline values and values on a negated flag (such as
-`--no-verbose=false`) are validation errors. Value options accept `--repo owner/repo` and
-`--repo=owner/repo`; values such as `false` remain strings for non-boolean fields.
+`--no-verbose=false`) are validation errors. Value options accept `--repo ./my-repo` and
+`--repo=./my-repo`; values such as `false` remain strings for non-boolean fields.
 
 ## Positional arguments
 
@@ -98,8 +111,58 @@ copy out a.txt b.txt   # { _: ["out", "a.txt", "b.txt"] }
 Help and validation errors label each item with its `.meta({ title })`, such as `<DESTINATION>` and
 `[FILES...]`. Untitled items are labeled by position (`ARG1`, `ARG2`, ...) and an untitled rest is
 labeled `ARGS`. Use `z.array` instead of a tuple to accept only variadic values. Without a rest,
-additional positional arguments are kept in `extraArgs`. Unknown options are also kept in
-`extraArgs`; arguments after `--` are kept in `passthrough`.
+additional positional arguments are rejected by default, as are unknown options.
+
+### Unknown arguments and forwarding
+
+A command rejects unknown options and excess positional arguments before its `run` handler or
+schema transforms execute. For ordinary commands, declare the accepted arguments in `args`;
+there is no need to inspect `extraArgs` manually. Errors are `HackshValidationError` instances,
+with each rejected token in `issues[].arg`.
+
+Everything after `--` is always collected unchanged in `passthrough`, independently of this policy.
+Use that explicit boundary when forwarding arguments to another executable:
+
+```ts
+const forward = defineCommand({
+  name: "git-forward",
+  async run({ exec, passthrough }) {
+    const { stdout } = await exec("git", passthrough);
+    console.log(stdout);
+  },
+});
+// git-forward -- status --short
+```
+
+For a wrapper that also accepts undeclared arguments before `--`, set `allowUnknownArgs: true`:
+
+```ts
+const wrapper = defineCommand({
+  allowUnknownArgs: true,
+  async run({ extraArgs, passthrough, exec }) {
+    await exec("some-tool", [...extraArgs, ...passthrough]);
+  },
+});
+```
+
+`extraArgs` preserves the order of unknown option tokens and excess positional values. Unknown
+options do not consume a following value: if the schema has an unfilled positional slot, that
+value fills it. Known options are still parsed and validated. Use `--` when a child's arguments
+must not be interpreted by this command. A handler that does not use `passthrough` ignores those
+arguments; commands that require rejecting them can check `passthrough.length` explicitly.
+
+`allowUnknownArgs` defaults to `false`, inherits down the selected subcommand route, and can be
+overridden by each child. A child's setting does not change validation of its parent's arguments.
+Definitions are not mutated, so reusing a child under another root does not retain inherited settings.
+Standalone `parseArgs` uses the supplied command's setting and does not resolve a parent route.
+
+Once routing succeeds, help and root version output take precedence over argument validation,
+including unknown arguments. Routing errors such as an unknown subcommand still fail. A child's
+undeclared `--version` is an unknown argument, since the version builtin belongs to the root.
+
+**Migrating from 0.11.0:** unknown input was previously accepted by default. Add
+`allowUnknownArgs: true` to commands that intentionally use `extraArgs`, or to their shared parent.
+No migration is needed for `--` forwarding.
 
 ## Argument options
 
@@ -325,21 +388,27 @@ positive `columns` value, the renderer conservatively counts explicit lines only
 Every `run` context has an `exec` function that starts an executable with an argument array. It
 never uses a shell, so spaces, quotes, `$`, `;`, `|`, and `*` in arguments reach the child
 unchanged. By default it resolves with the captured output and rejects with `HackshExecError`
-when the command fails. Pass `reject: false` to receive failures as results instead.
+when the command fails. Pass `reject: false` to receive failures as results instead. Prefer this
+context API to `spawnSync` or a custom subprocess wrapper inside a command handler so execution
+uses the invocation’s environment, cancellation, and printer.
 
 ```ts
-const sync = defineCommand({
-  name: "sync",
+const check = defineCommand({
+  name: "check-head",
   async run({ exec, logger }) {
-    const { stdout: branch } = await exec("git", ["branch", "--show-current"]);
-    const upstream = await exec("git", ["rev-parse", "--abbrev-ref", "@{upstream}"], {
+    const head = await exec("git", ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], {
       reject: false,
     });
-    if (upstream.status === "failed") {
-      logger.warn("{branch} has no upstream", { branch });
-      return;
+    if (head.status === "failed") {
+      // Only this specific exit means that the revision was not found.
+      if (head.reason === "exit-code" && head.exitCode === 1) {
+        logger.warn("The repository has no HEAD commit");
+        return;
+      }
+      // Missing executables, cancellation, and other failures must still fail the command.
+      throw new Error("Could not inspect HEAD", { cause: head });
     }
-    await exec("git", ["pull", "--ff-only"], { cwd: "/path/to/repo", timeout: 60_000 });
+    logger.info("HEAD is {commit}", { commit: head.stdout });
   },
 });
 ```
@@ -351,6 +420,20 @@ UTF-8 `stdout` and `stderr` with one final newline removed. A failure's `reason`
 `output-limit` when hacksh stopped the child. The return type follows `reject`: omitted or `true`
 gives `ExecSuccess`, while `false` or a `boolean` variable gives `ExecResult`, which must be
 narrowed before reading `exitCode`.
+
+### Working with captured output
+
+Use `stdout` directly for a single value such as a commit ID or repository path. Do not call
+`.trim()` on paths: surrounding whitespace can be part of the name. `exec` already removes one
+final LF or CRLF; it preserves other whitespace and NUL separators.
+
+Interpret structured output according to the child command’s format. If it offers JSON, request
+that format and parse it with `JSON.parse` (and a Zod schema when validation is needed). For Git’s
+`--porcelain -z` output, keep the NUL delimiters and parse the records in a named, application-specific
+helper. Splitting that format on newlines would break paths containing newlines. hacksh does not
+parse Git records or infer whether stdout is text, JSON, or a list.
+
+### Execution options
 
 Options are `cwd`, `env`, `input`, `reject`, `timeout` (milliseconds), `signal` (an
 `AbortSignal`), `maxBuffer` (bytes per stream, default 100,000,000), and `forceKillAfterDelay`
