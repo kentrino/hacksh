@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from "vite-plus/test";
 import { z } from "zod";
+import { z as zod4 } from "zod/v4";
 import * as mini from "zod/mini";
 import {
   defineCommand,
@@ -48,6 +49,40 @@ import {
   type TerminalOutput,
   type UsageOptionSummary,
 } from "./printer-api.ts";
+
+describe("argument metadata types", () => {
+  it("types alias, env, and valueName without closing other metadata keys", () => {
+    const named = z.string().meta({
+      alias: "C",
+      env: "GITHUB_TOKEN",
+      valueName: "REPO",
+      title: "REPO",
+      description: "Repository",
+    });
+    const several = z.string().meta({ alias: ["v", "V"], env: false });
+    const extra = z.string().meta({ note: { kept: true } });
+    const fromV4 = zod4.string().meta({ alias: "C", env: false, valueName: "REPO" });
+    const miniNamed = mini
+      .string()
+      .check(mini.meta({ alias: "q", env: "CUSTOM_VALUE", valueName: "VALUE" }));
+    expectTypeOf(named).toEqualTypeOf(z.string());
+    expectTypeOf(several).toEqualTypeOf(z.string());
+    expectTypeOf(extra).toEqualTypeOf(z.string());
+    expectTypeOf(fromV4).toEqualTypeOf(zod4.string());
+    expectTypeOf(miniNamed).toEqualTypeOf(mini.string());
+
+    // @ts-expect-error alias is a string or an array of strings
+    void z.string().meta({ alias: 1 });
+    // @ts-expect-error env is a string or false
+    void z.string().meta({ env: true });
+    // @ts-expect-error valueName is a string
+    void z.string().meta({ valueName: false });
+    // @ts-expect-error zod/v4 metadata uses the same fields
+    void zod4.string().meta({ alias: 1 });
+    // @ts-expect-error mini metadata uses the same fields
+    void mini.meta({ alias: 1 });
+  });
+});
 
 describe("public command execution API", () => {
   it("preserves synchronous and asynchronous handler results", async () => {

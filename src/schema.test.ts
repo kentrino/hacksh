@@ -36,7 +36,7 @@ const implementations: ReadonlyArray<[string, TestApi]> = [
       transform: (schema) => (schema as z.ZodType).transform(String),
       catch: (schema) => (schema as z.ZodType).catch("caught"),
       describe: (schema) => (schema as z.ZodType).describe("described"),
-      meta: (schema, metadata) => (schema as z.ZodType).meta(metadata),
+      meta: (schema, metadata) => (schema as z.ZodType).meta(metadata as never),
     },
   ],
   [
@@ -54,7 +54,7 @@ const implementations: ReadonlyArray<[string, TestApi]> = [
       transform: (schema) => mini.pipe(schema, mini.transform(String)),
       catch: (schema) => mini.catch(schema, "caught"),
       describe: (schema) => (schema as mini.ZodMiniType).check(mini.describe("described")),
-      meta: (schema, metadata) => (schema as mini.ZodMiniType).check(mini.meta(metadata)),
+      meta: (schema, metadata) => (schema as mini.ZodMiniType).check(mini.meta(metadata as never)),
     },
   ],
 ];
