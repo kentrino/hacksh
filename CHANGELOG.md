@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/kentrino/hacksh/compare/v0.14.0...v0.15.0) (2026-10-28)
+
+
+### Features
+
+* **args:** type alias, env, and valueName on zod metadata ([#51](https://github.com/kentrino/hacksh/issues/51)) ([c1e67bc](https://github.com/kentrino/hacksh/commit/c1e67bcaf3ad19522c7f77263e2df724bac29b89))
+
 ## [0.14.0](https://github.com/kentrino/hacksh/compare/v0.13.0...v0.14.0) (2026-10-28)
 
 
