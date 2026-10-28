@@ -168,7 +168,8 @@ No migration is needed for `--` forwarding.
 ## Argument metadata
 
 Use Zod 4 `.meta({ alias, valueName, env, title, description })` on each argument schema.
-Metadata does not change schema keys, parsed output, or validation error paths. `z.enum` choices
+Importing hacksh types `alias`, `env`, and `valueName` on Zod's global metadata; any other key stays
+allowed. Metadata does not change schema keys, parsed output, or validation error paths. `z.enum` choices
 and descriptions appear in generated help, including inside supported schema wrappers and tuple items.
 
 ```ts

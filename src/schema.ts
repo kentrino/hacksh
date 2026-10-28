@@ -1,4 +1,20 @@
-import { globalRegistry, type $ZodObject, type $ZodType } from "zod/v4/core";
+import { globalRegistry, type $ZodObject, type $ZodType, type JSONSchemaMeta } from "zod/v4/core";
+import type {} from "zod";
+import type {} from "zod/v4";
+
+interface ArgumentMeta extends JSONSchemaMeta {
+  alias?: string | readonly string[];
+  env?: string | false;
+  valueName?: string;
+}
+
+declare module "zod" {
+  interface GlobalMeta extends ArgumentMeta {}
+}
+
+declare module "zod/v4" {
+  interface GlobalMeta extends ArgumentMeta {}
+}
 
 export type ArgsSchema = $ZodObject;
 export type EmptyArgs = $ZodObject<{}>;
@@ -86,9 +102,9 @@ export function readArgInfo(schema: $ZodType): ArgInfo {
           throw new TypeError(`Argument metadata \`${key}\` must be a string`);
         }
       }
-      alias ??= metadata.alias as string | readonly string[] | undefined;
-      valueName ??= metadata.valueName as string | undefined;
-      env ??= metadata.env as string | false | undefined;
+      alias ??= metadata.alias;
+      valueName ??= metadata.valueName;
+      env ??= metadata.env;
     }
     description ??= metadata?.description;
     title ??= metadata?.title;
