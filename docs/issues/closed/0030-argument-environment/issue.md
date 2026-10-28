@@ -7,7 +7,7 @@ theme: reliable-invocation
 
 名前付きオプションは CLI 引数からしか受け取れない。CI の認証情報や接続先を環境変数で渡したい CLI は、`process.env` の読み取り、CLI 引数との優先順位、文字列からの変換、ヘルプへの記載をコマンドごとに実装している。その値は `args` の Zod スキーマを通らず、不正値のエラーも hacksh の形式にならない。
 
-解決後は、名前付きオプションを定義するだけで、コマンドの経路から決まる環境変数（`mycli deploy --dry-run` なら `MYCLI_DEPLOY_DRY_RUN`）でも指定でき、`argOptions` で変数名の変更や無効化ができる。値は CLI 引数と同じスキーマで検証され、ヘルプに変数名が示される。
+解決後は、名前付きオプションを定義するだけで、コマンドの経路から決まる環境変数（`mycli deploy --dry-run` なら `MYCLI_DEPLOY_DRY_RUN`）でも指定でき、スキーマの `.meta({ env })` で変数名の変更や無効化ができる。値は CLI 引数と同じスキーマで検証され、ヘルプに変数名が示される。
 
 [Design](./design-a.md)
 
@@ -24,13 +24,13 @@ theme: reliable-invocation
 
 - ルートとサブコマンド（入れ子を含む）のオプションが、規約どおりの変数名で指定できる。
 - CLI 引数・環境変数・既定値の優先順位、未設定と空文字の違い、boolean の変換をテストする。
-- `argOptions` の変数名の指定と無効化、名前の衝突のエラーをテストする。
+- スキーマの `.meta({ env })` の変数名の指定と無効化、名前の衝突のエラーをテストする。
 - ヘルプと `UsageSummary` が、実際に読まれる変数名を示す。
 - 親子のコマンドと並行する呼び出しで、注入した環境が混ざらない。
 
 # Related Files
 
-- `src/command.ts` — `ArgOptions` と `defineCommand` の検査
+- `src/command.ts` — 引数メタデータ と `defineCommand` の検査
 - `src/parser.ts` — CLI 引数から Zod への入力の組み立て
 - `src/run.ts` — `resolveCommand` の経路解決と `env` オプション
 - `src/printer.ts` — 既存の `HACKSH_OUTPUT` の読み取り

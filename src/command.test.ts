@@ -5,10 +5,10 @@ import { defineCommand } from "./index.ts";
 describe("defineCommand", () => {
   it("infers mutable zod output and supports omitted args", () => {
     defineCommand({
-      args: z.object({ _: z.tuple([z.coerce.number()]), label: z.string().optional() }),
+      args: z.object({ positionals: z.tuple([z.coerce.number()]), label: z.string().optional() }),
       run({ args }) {
-        expectTypeOf(args).toEqualTypeOf<{ _: [number]; label?: string }>();
-        args._[0] += 1;
+        expectTypeOf(args).toEqualTypeOf<{ positionals: [number]; label?: string }>();
+        args.positionals[0] += 1;
       },
     });
     defineCommand({ run: ({ args }) => expectTypeOf(args).toBeObject() });
@@ -31,87 +31,120 @@ describe("defineCommand", () => {
   });
 
   it.each([
-    ["non-tuple positionals", { args: z.object({ _: z.string() }) }],
+    ["non-tuple positionals", { args: z.object({ positionals: z.string() }) }],
     [
       "optional before required",
-      { args: z.object({ _: z.tuple([z.string().optional(), z.string()]) }) },
+      { args: z.object({ positionals: z.tuple([z.string().optional(), z.string()]) }) },
     ],
-    ["boolean positional", { args: z.object({ _: z.tuple([z.boolean()]) }) }],
-    ["array positional", { args: z.object({ _: z.tuple([z.array(z.string())]) }) }],
+    ["boolean positional", { args: z.object({ positionals: z.tuple([z.boolean()]) }) }],
+    ["array positional", { args: z.object({ positionals: z.tuple([z.array(z.string())]) }) }],
     [
-      "positional argument options",
-      { args: z.object({ _: z.tuple([z.string()]) }), argOptions: { _: { alias: "x" } } },
+      "positional alias metadata",
+      { args: z.object({ positionals: z.tuple([z.string()]).meta({ alias: "x" }) }) },
     ],
-    ["invalid alias", { args: z.object({ x: z.string() }), argOptions: { x: { alias: "xx" } } }],
+    ["invalid alias", { args: z.object({ x: z.string().meta({ alias: "xx" }) }) }],
     [
       "duplicate alias",
       {
-        args: z.object({ x: z.string(), y: z.string() }),
-        argOptions: { x: { alias: "a" }, y: { alias: "a" } },
+        args: z.object({ x: z.string().meta({ alias: "a" }), y: z.string().meta({ alias: "a" }) }),
       },
     ],
     ["negation collision", { args: z.object({ noFocus: z.boolean() }) }],
     ["builtin help collision", { args: z.object({ help: z.boolean() }) }],
     ["value-option negation collision", { args: z.object({ "no-focus": z.string() }) }],
-    ["unknown argument options", { args: z.object({ x: z.string() }), argOptions: { y: {} } }],
-    [
-      "empty environment name",
-      { args: z.object({ x: z.string() }), argOptions: { x: { env: "" } } },
-    ],
+    ["empty environment name", { args: z.object({ x: z.string().meta({ env: "" }) }) }],
     [
       "array environment name",
-      { args: z.object({ x: z.array(z.string()) }), argOptions: { x: { env: "TAGS" } } },
+      { args: z.object({ x: z.array(z.string()).meta({ env: "TAGS" }) }) },
     ],
     [
       "array environment disable",
-      { args: z.object({ x: z.array(z.string()) }), argOptions: { x: { env: false } } },
+      { args: z.object({ x: z.array(z.string()).meta({ env: false }) }) },
     ],
     [
       "object environment name",
       {
-        args: z.object({ x: z.object({ a: z.string() }) }),
-        argOptions: { x: { env: "META" } },
+        args: z.object({ x: z.object({ a: z.string() }).meta({ env: "META" }) }),
       },
     ],
     [
       "positional and subcommands",
-      { args: z.object({ _: z.tuple([z.string()]) }), subCommands: { sub: {} } },
+      { args: z.object({ positionals: z.tuple([z.string()]) }), subCommands: { sub: {} } },
     ],
     [
       "positional and hidden-only subcommands",
-      { args: z.object({ _: z.tuple([z.string()]) }), subCommands: { sub: { hidden: true } } },
+      {
+        args: z.object({ positionals: z.tuple([z.string()]) }),
+        subCommands: { sub: { hidden: true } },
+      },
     ],
     [
       "variadic and subcommands",
-      { args: z.object({ _: z.array(z.string()) }), subCommands: { sub: {} } },
+      { args: z.object({ positionals: z.array(z.string()) }), subCommands: { sub: {} } },
     ],
   ])("rejects invalid definitions: %s", (_name, input) => {
     expect(() => defineCommand(input as never)).toThrow();
   });
+
+  it.each([
+    { alias: 1 },
+    { alias: null },
+    { alias: {} },
+    { alias: ["a", 1] },
+    { alias: "" },
+    { alias: ["a", "a"] },
+    { env: true },
+    { env: 1 },
+    { env: null },
+    { valueName: 1 },
+    { title: false },
+    { description: [] },
+  ])("rejects malformed schema metadata %j", (metadata) => {
+    const schema = z
+      .string()
+      .meta(metadata as never)
+      .optional();
+    expect(() => defineCommand({ args: z.object({ value: schema }) })).toThrow(TypeError);
+  });
+
+  it.each([{ alias: "a" }, { env: "VALUE" }, { valueName: "VALUE" }])(
+    "rejects option metadata on positional items and rest schemas %j",
+    (metadata) => {
+      const value = z.string().meta(metadata);
+      expect(() => defineCommand({ args: z.object({ positionals: z.tuple([value]) }) })).toThrow(
+        TypeError,
+      );
+      expect(() => defineCommand({ args: z.object({ positionals: z.array(value) }) })).toThrow(
+        TypeError,
+      );
+    },
+  );
+
+  it.each(["help", "version"])("reserves the %s option on every command", (key) => {
+    expect(() => defineCommand({ args: z.object({ [key]: z.string() }) })).toThrow(TypeError);
+    expect(() =>
+      defineCommand({
+        subCommands: { child: defineCommand({ args: z.object({ [key]: z.string() }) }) },
+      }),
+    ).toThrow(TypeError);
+  });
 });
 
 const typedSchema = z.object({
-  _: z.tuple([z.string().meta({ title: "REPOSITORY" })]),
-  verbose: z.boolean(),
+  positionals: z.tuple([z.string().meta({ title: "REPOSITORY" })]),
+  verbose: z.boolean().meta({ alias: "v" }),
 });
 defineCommand({
   args: typedSchema,
-  argOptions: { verbose: { alias: "v" } },
 });
 defineCommand({
-  args: z.object({ _: z.tuple([z.string()], z.string()) }),
+  args: z.object({ positionals: z.tuple([z.string()], z.string()) }),
   run({ args }) {
-    expectTypeOf(args).toEqualTypeOf<{ _: [string, ...string[]] }>();
+    expectTypeOf(args).toEqualTypeOf<{ positionals: [string, ...string[]] }>();
   },
 });
 
 if (process.env.HACKSH_TYPE_TESTS) {
   // @ts-expect-error hidden must be boolean
   defineCommand({ hidden: "yes" });
-  // @ts-expect-error argument options keys must exist in the schema
-  defineCommand({ args: typedSchema, argOptions: { missing: { alias: "m" } } });
-  // @ts-expect-error positional arguments cannot have argument options
-  defineCommand({ args: typedSchema, argOptions: { _: { alias: "r" } } });
-  // @ts-expect-error env must be a string or false
-  defineCommand({ args: typedSchema, argOptions: { verbose: { env: 1 } } });
 }

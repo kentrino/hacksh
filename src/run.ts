@@ -1,4 +1,4 @@
-import { schemaShape, type ArgsSchema } from "./schema.ts";
+import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { assertUniqueEnvNames, commandEnvPath, registerCommandPath } from "./environment.ts";
 import { HackshExitError, HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
@@ -18,12 +18,12 @@ import {
   type OutputFormat,
   type Printer,
   type PrintQueue,
-  type PrintStream,
   type TerminalInput,
 } from "./printer.ts";
+import { PromptController } from "./prompts.ts";
 import { TerminalLock } from "./terminal.ts";
 import { selectOutputPrinter, type OutputOptions } from "./output.ts";
-import { showUsage, summarizeUsage, type ShowUsageCallback } from "./usage.ts";
+import { showUsage } from "./usage.ts";
 
 export type { OutputOptions } from "./output.ts";
 
@@ -78,15 +78,11 @@ function resolveCommand(root: AnyCommandDef, rawArgs: string[]): ResolvedCommand
 async function executeCommand<S extends ArgsSchema>(
   root: CommandDef<S>,
   argv: string[],
-  displayUsage: ShowUsageCallback,
   output: PreparedOutput,
   env: ExecContext["env"],
   signal: AbortSignal,
   fallbackVersion: () => Promise<string | undefined> = async () => undefined,
 ): Promise<unknown> {
-  if (root.args && "version" in schemaShape(root.args)) {
-    throw new TypeError("Root option `version` conflicts with the builtin --version");
-  }
   const { printer } = output;
   const argEnv = env ?? process.env;
   const resolved = resolveCommand(root, argv);
@@ -96,7 +92,7 @@ async function executeCommand<S extends ArgsSchema>(
     return undefined;
   }
   if (resolved.segments.some(({ tokenized }) => tokenized.help)) {
-    await printUsage(displayUsage, resolved.command, printer, "stdout");
+    await showUsage(resolved.command, { printer });
     return undefined;
   }
 
@@ -124,13 +120,18 @@ async function executeCommand<S extends ArgsSchema>(
     command.name === undefined ? [] : [command.name],
   );
   return resolved.command.run({
-    ...parsed,
-    cmd: resolved.command,
-    rawArgs: resolved.rawArgs,
-    logger: createLogger(printer, category, {
+    command: resolved.command,
+    args: parsed.args,
+    input: {
+      argv: resolved.rawArgs,
+      unknown: parsed.extraArgs,
+      passthrough: parsed.passthrough,
+    },
+    logger: createLogger(printer, category),
+    prompt: new PromptController({
       interactive: output.interactive,
       input: output.input,
-      printPrompt: (event) => output.printChecked(event),
+      print: (event) => output.printChecked(event),
       terminal: output.terminal,
       signal,
     }),
@@ -145,21 +146,9 @@ async function executeCommand<S extends ArgsSchema>(
   });
 }
 
-function printUsage(
-  displayUsage: ShowUsageCallback,
-  command: AnyCommandDef,
-  printer: Printer,
-  stream: PrintStream,
-): void | Promise<void> {
-  return displayUsage(command, {
-    write: (text) => printer.print({ type: "usage", usage: summarizeUsage(command), text, stream }),
-  });
-}
-
 export interface RunCommandOptions extends OutputOptions {
   printer?: Printer;
   signal?: AbortSignal;
-  showUsage?: ShowUsageCallback;
 }
 
 interface PreparedOutput extends PrintQueue {
@@ -189,8 +178,29 @@ function prepareOutput(
   };
 }
 
-export async function runCommand<S extends ArgsSchema>(
-  root: CommandDef<S>,
+type HandlerResult<C> = C extends { run?: infer Handler }
+  ? Handler extends (...args: never[]) => infer R
+    ? Awaited<R>
+    : never
+  : never;
+
+type CommandResult<C> =
+  | HandlerResult<C>
+  | (C extends { subCommands?: infer Children }
+      ? Children extends Record<string, AnyCommandDef>
+        ? string extends keyof Children
+          ? unknown
+          : CommandResult<Children[keyof Children]>
+        : never
+      : never);
+
+export function runCommand<C extends AnyCommandDef>(
+  root: C,
+  argv: string[],
+  options?: RunCommandOptions,
+): Promise<CommandResult<C> | undefined>;
+export async function runCommand(
+  root: AnyCommandDef,
   argv: string[],
   options: RunCommandOptions = {},
 ): Promise<unknown> {
@@ -199,7 +209,6 @@ export async function runCommand<S extends ArgsSchema>(
     return await executeCommand(
       root,
       argv,
-      options.showUsage ?? showUsage,
       output,
       options.env,
       options.signal ?? new AbortController().signal,
@@ -213,7 +222,6 @@ export interface RunMainOptions extends OutputOptions {
   onError?: (error: unknown) => void | Promise<void>;
   argv?: string[];
   printer?: Printer;
-  showUsage?: ShowUsageCallback;
 }
 
 async function drainAndExit(output: PrintQueue, code = 1): Promise<never> {
@@ -269,15 +277,11 @@ async function reportOutputSetupError(error: unknown, options: RunMainOptions): 
   return drainAndExit(output);
 }
 
-async function reportCommandError(
-  error: unknown,
-  output: PrintQueue,
-  displayUsage: ShowUsageCallback,
-): Promise<void> {
+async function reportCommandError(error: unknown, output: PrintQueue): Promise<void> {
   if (error instanceof HackshExitError && error.message === "") return;
   await output.printer.print({ type: "error", error: summarizeError(error) });
   if (error instanceof HackshUsageError) {
-    await printUsage(displayUsage, error.command, output.printer, "stderr");
+    await showUsage(error.command, { printer: output.printer, stream: "stderr" });
   }
 }
 
@@ -285,7 +289,6 @@ export async function runMain<S extends ArgsSchema>(
   command: CommandDef<S>,
   options: RunMainOptions = {},
 ): Promise<void> {
-  const displayUsage = options.showUsage ?? showUsage;
   let output: PreparedOutput;
   try {
     output = prepareOutput(options, options.env ?? process.env);
@@ -301,7 +304,6 @@ export async function runMain<S extends ArgsSchema>(
     await executeCommand(
       command,
       options.argv ?? process.argv.slice(2),
-      displayUsage,
       output,
       options.env,
       signals.signal,
@@ -313,7 +315,7 @@ export async function runMain<S extends ArgsSchema>(
       return exit(commandErrorExitCode(error));
     }
     try {
-      await reportCommandError(error, output, displayUsage);
+      await reportCommandError(error, output);
     } finally {
       await exit(commandErrorExitCode(error));
     }
@@ -323,11 +325,4 @@ export async function runMain<S extends ArgsSchema>(
   const signalExitCode = signals.exitCode();
   if (signalExitCode !== undefined) return drainAndExit(output, signalExitCode);
   await output.drain();
-}
-
-export function createMain<S extends ArgsSchema>(
-  command: CommandDef<S>,
-  options: RunMainOptions = {},
-): (argv?: string[]) => Promise<void> {
-  return (argv) => runMain(command, argv === undefined ? options : { ...options, argv });
 }

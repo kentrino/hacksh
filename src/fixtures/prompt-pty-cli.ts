@@ -10,9 +10,9 @@ const baseline = {
 await runMain(
   defineCommand({
     name: "prompt-pty-probe",
-    async run({ logger }) {
+    async run({ logger, prompt }) {
       if (mode === "caught-cancel") {
-        await logger.text({ message: "Caught cancellation" }).catch(() => undefined);
+        await prompt.text({ message: "Caught cancellation" }).catch(() => undefined);
         logger.info("first log after cancellation");
         logger.info("second log after cancellation");
         const restored =
@@ -24,16 +24,16 @@ await runMain(
         return;
       }
       if (mode === "cancel") {
-        await logger.text({ message: "Cancel me" });
+        await prompt.text({ message: "Cancel me" });
         throw new Error("cancellation unexpectedly returned");
       }
 
-      const environment = await logger.select({
+      const environment = await prompt.select({
         message: "Environment\nTarget",
         options: [{ value: "staging" }, { value: "production" }] as const,
       });
-      const confirmed = await logger.confirm({ message: "Continue?" });
-      const name = await logger.text({
+      const confirmed = await prompt.confirm({ message: "Continue?" });
+      const name = await prompt.text({
         message: "Name",
         placeholder: "at least three letters",
         validate: (value) => (value.length < 3 ? "Too short" : undefined),
@@ -48,5 +48,5 @@ await runMain(
       );
     },
   }),
-  { output: "pretty", env: { NO_COLOR: "1" } },
+  { argv: process.argv.slice(3), output: "pretty", env: { NO_COLOR: "1" } },
 );

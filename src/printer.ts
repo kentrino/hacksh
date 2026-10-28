@@ -1,5 +1,5 @@
 import type { HackshErrorSummary } from "./errors.ts";
-import { formatExecCommand, type ExecCommand } from "./exec.ts";
+import type { ExecCommand } from "./exec.ts";
 import type { LogRecord } from "./logger.ts";
 import { normalizeJson } from "./serialization.ts";
 import type { UsageSummary } from "./usage.ts";
@@ -164,33 +164,6 @@ export function eventStream(event: PrintEvent): PrintStream {
   return "stdout";
 }
 
-function formatTextEvent(event: PrintEvent): string {
-  switch (event.type) {
-    case "usage":
-      return event.text;
-    case "version":
-      return event.version;
-    case "error":
-      return event.error.kind === "usage" || event.error.kind === "validation"
-        ? event.error.message
-        : `Error: ${event.error.message}`;
-    case "log":
-      return event.record.message;
-    case "prompt":
-      return event.prompt.message;
-    case "exec":
-      return `${event.phase === "skip" ? "#" : "$"} ${formatExecCommand(event.command)}`;
-  }
-}
-
-/** Undecorated console compatibility adapter; automatic output uses the selected format printer. */
-export const consolePrinter: Printer = {
-  print(event) {
-    const text = formatTextEvent(event);
-    return eventStream(event) === "stdout" ? console.log(text) : console.error(text);
-  },
-};
-
 export interface OutputWriter {
   write(text: string): unknown;
 }
@@ -214,21 +187,6 @@ export interface TerminalOutput extends OutputWriter {
 export interface JsonPrinterOptions {
   stdout?: OutputWriter;
   stderr?: OutputWriter;
-}
-
-export interface StreamPrinterOptions {
-  stdout: OutputWriter;
-  stderr: OutputWriter;
-}
-
-/** Create an undecorated stream-backed compatibility adapter. */
-export function createStreamPrinter(options: StreamPrinterOptions): Printer {
-  return {
-    print(event) {
-      const writer = eventStream(event) === "stdout" ? options.stdout : options.stderr;
-      writer.write(`${formatTextEvent(event)}\n`);
-    },
-  };
 }
 
 /** Create a one-semantic-event-per-line JSON printer. */

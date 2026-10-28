@@ -17,6 +17,7 @@ type TestApi = {
   transform: (schema: $ZodType) => $ZodType;
   catch: (schema: $ZodType) => $ZodType;
   describe: (schema: $ZodType) => $ZodType;
+  meta: (schema: $ZodType, metadata: Record<string, unknown>) => $ZodType;
 };
 
 const implementations: ReadonlyArray<[string, TestApi]> = [
@@ -35,6 +36,7 @@ const implementations: ReadonlyArray<[string, TestApi]> = [
       transform: (schema) => (schema as z.ZodType).transform(String),
       catch: (schema) => (schema as z.ZodType).catch("caught"),
       describe: (schema) => (schema as z.ZodType).describe("described"),
+      meta: (schema, metadata) => (schema as z.ZodType).meta(metadata),
     },
   ],
   [
@@ -52,6 +54,7 @@ const implementations: ReadonlyArray<[string, TestApi]> = [
       transform: (schema) => mini.pipe(schema, mini.transform(String)),
       catch: (schema) => mini.catch(schema, "caught"),
       describe: (schema) => (schema as mini.ZodMiniType).check(mini.describe("described")),
+      meta: (schema, metadata) => (schema as mini.ZodMiniType).check(mini.meta(metadata)),
     },
   ],
 ];
@@ -74,6 +77,10 @@ describe.each(implementations)("schema reading with %s", (_name, api) => {
       required: false,
       defaultValue: "fallback",
       description: "described",
+      title: undefined,
+      alias: undefined,
+      valueName: undefined,
+      env: undefined,
       choices: undefined,
     });
     expect(readArgInfo(api.catch(api.describe(api.string())))).toMatchObject({
@@ -89,6 +96,41 @@ describe.each(implementations)("schema reading with %s", (_name, api) => {
     });
     expect(readArgInfo(api.transform(api.describe(api.string())))).toMatchObject({
       description: "described",
+    });
+  });
+
+  it("reads all argument metadata through wrappers and prefers outer metadata", () => {
+    const metadata = {
+      alias: ["a", "A"],
+      valueName: "VALUE",
+      env: "TOOL_VALUE",
+      title: "VALUE",
+      description: "A value",
+    };
+    const inner = api.meta(api.string(), metadata);
+    for (const wrap of [
+      api.optional,
+      api.nullable,
+      api.default,
+      api.catch,
+      api.pipe,
+      api.transform,
+    ]) {
+      expect(readArgInfo(wrap(inner))).toMatchObject(metadata);
+    }
+    const outer = api.meta(api.optional(inner), {
+      alias: "b",
+      valueName: "OTHER",
+      env: false,
+      title: "OTHER",
+      description: "Outer description",
+    });
+    expect(readArgInfo(outer)).toMatchObject({
+      alias: "b",
+      valueName: "OTHER",
+      env: false,
+      title: "OTHER",
+      description: "Outer description",
     });
   });
 

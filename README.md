@@ -2,7 +2,7 @@
 
 Define a type-safe command-line interface with a Zod 4 object schema. The same schema parses and
 validates arguments, infers the value passed to `run`, and generates help. Run external commands
-with the context’s `exec`, and use its `logger` for progress and interactive prompts.
+with the context’s `exec`, use its `logger` for progress, and request interactive input with `prompt`.
 
 The name comes from 拍手 (_hakushu_), the Japanese word for "clap", as a nod to
 [clap](https://github.com/clap-rs/clap), the command-line argument parser for Rust. It is spelled
@@ -35,12 +35,13 @@ const main = defineCommand({
   version: "0.1.0",
   description: "Show a commit summary",
   args: z.object({
-    _: z.tuple([z.string().default("HEAD").describe("Commit to inspect").meta({ title: "REF" })]),
-    repo: z.string().optional().describe("Repository directory"),
+    positionals: z.tuple([
+      z.string().default("HEAD").meta({ title: "REF", description: "Commit to inspect" }),
+    ]),
+    repo: z.string().optional().meta({ description: "Repository directory", alias: "C" }),
   }),
-  argOptions: { repo: { alias: "C" } },
   async run({ args, exec }) {
-    const [ref] = args._;
+    const [ref] = args.positionals;
     const { stdout } = await exec(
       "git",
       ["show", "--no-patch", "--format=%h %s", "--end-of-options", ref],
@@ -85,27 +86,27 @@ Boolean flags also accept the explicit forms `--verbose=true` and
 
 ## Positional arguments
 
-Declare positional arguments as a `z.tuple` in the `_` field. Tuple items are assigned in order,
+Declare positional arguments as a `z.tuple` in the `positionals` field. Tuple items are assigned in order,
 and the tuple rest collects all remaining values. Optional or defaulted items must come after
-required ones, and items cannot be booleans or arrays. The `_` field is never a named option.
+required ones, and items cannot be booleans or arrays. The `positionals` field is never a named option.
 
 ```ts
 const copy = defineCommand({
   name: "copy",
   args: z.object({
-    _: z.tuple(
-      [z.string().describe("Output directory").meta({ title: "DESTINATION" })],
-      z.string().describe("Input files").meta({ title: "FILES" }),
+    positionals: z.tuple(
+      [z.string().meta({ title: "DESTINATION", description: "Output directory" })],
+      z.string().meta({ title: "FILES", description: "Input files" }),
     ),
   }),
   run({ args }) {
-    const [destination, ...files] = args._; // [string, ...string[]]
+    const [destination, ...files] = args.positionals; // [string, ...string[]]
   },
 });
 ```
 
 ```sh
-copy out a.txt b.txt   # { _: ["out", "a.txt", "b.txt"] }
+copy out a.txt b.txt   # { positionals: ["out", "a.txt", "b.txt"] }
 ```
 
 Help and validation errors label each item with its `.meta({ title })`, such as `<DESTINATION>` and
@@ -117,17 +118,17 @@ additional positional arguments are rejected by default, as are unknown options.
 
 A command rejects unknown options and excess positional arguments before its `run` handler or
 schema transforms execute. For ordinary commands, declare the accepted arguments in `args`;
-there is no need to inspect `extraArgs` manually. Errors are `HackshValidationError` instances,
+there is no need to inspect `input.unknown` manually. Errors are `HackshValidationError` instances,
 with each rejected token in `issues[].arg`.
 
-Everything after `--` is always collected unchanged in `passthrough`, independently of this policy.
+Everything after `--` is always collected unchanged in `input.passthrough`, independently of this policy.
 Use that explicit boundary when forwarding arguments to another executable:
 
 ```ts
 const forward = defineCommand({
   name: "git-forward",
-  async run({ exec, passthrough }) {
-    const { stdout } = await exec("git", passthrough);
+  async run({ exec, input }) {
+    const { stdout } = await exec("git", input.passthrough);
     console.log(stdout);
   },
 });
@@ -139,17 +140,17 @@ For a wrapper that also accepts undeclared arguments before `--`, set `allowUnkn
 ```ts
 const wrapper = defineCommand({
   allowUnknownArgs: true,
-  async run({ extraArgs, passthrough, exec }) {
-    await exec("some-tool", [...extraArgs, ...passthrough]);
+  async run({ input, exec }) {
+    await exec("some-tool", [...input.unknown, ...input.passthrough]);
   },
 });
 ```
 
-`extraArgs` preserves the order of unknown option tokens and excess positional values. Unknown
+`input.unknown` preserves the order of unknown option tokens and excess positional values. Unknown
 options do not consume a following value: if the schema has an unfilled positional slot, that
 value fills it. Known options are still parsed and validated. Use `--` when a child's arguments
-must not be interpreted by this command. A handler that does not use `passthrough` ignores those
-arguments; commands that require rejecting them can check `passthrough.length` explicitly.
+must not be interpreted by this command. A handler that does not use `input.passthrough` ignores those
+arguments; commands that require rejecting them can check `input.passthrough.length` explicitly.
 
 `allowUnknownArgs` defaults to `false`, inherits down the selected subcommand route, and can be
 overridden by each child. A child's setting does not change validation of its parent's arguments.
@@ -161,37 +162,39 @@ including unknown arguments. Routing errors such as an unknown subcommand still 
 undeclared `--version` is an unknown argument, since the version builtin belongs to the root.
 
 **Migrating from 0.11.0:** unknown input was previously accepted by default. Add
-`allowUnknownArgs: true` to commands that intentionally use `extraArgs`, or to their shared parent.
+`allowUnknownArgs: true` to commands that intentionally use `input.unknown`, or to their shared parent.
 No migration is needed for `--` forwarding.
 
-## Argument options
+## Argument metadata
 
-Use `argOptions` to set short aliases and help labels for each named option without changing
-schema keys, parsed output, or validation error paths. `z.enum` choices and schema descriptions
-appear in generated help, including enums inside the supported schema wrappers and tuple items.
+Use Zod 4 `.meta({ alias, valueName, env, title, description })` on each argument schema.
+Metadata does not change schema keys, parsed output, or validation error paths. `z.enum` choices
+and descriptions appear in generated help, including inside supported schema wrappers and tuple items.
 
 ```ts
 const convert = defineCommand({
   name: "convert",
   args: z.object({
-    _: z.tuple(
-      [z.enum(["small", "large"]).describe("Item size").meta({ title: "SIZE" })],
-      z.string().describe("Input files").meta({ title: "INPUT" }),
+    positionals: z.tuple(
+      [z.enum(["small", "large"]).meta({ title: "SIZE", description: "Item size" })],
+      z.string().meta({ title: "INPUT", description: "Input files" }),
     ),
-    format: z.enum(["json", "yaml"]).optional().describe("Output format"),
-    overwrite: z.boolean().default(true).describe("Replace existing files"),
-    verbose: z.boolean().default(false).describe("Show details"),
+    format: z
+      .enum(["json", "yaml"])
+      .optional()
+      .meta({ description: "Output format", alias: "f", valueName: "FORMAT" }),
+    overwrite: z.boolean().default(true).meta({ description: "Replace existing files" }),
+    verbose: z
+      .boolean()
+      .default(false)
+      .meta({ description: "Show details", alias: ["v", "V"] }),
   }),
-  argOptions: {
-    format: { alias: "f", valueName: "FORMAT" },
-    verbose: { alias: ["v", "V"] },
-  },
 });
 ```
 
 ```sh
 convert large -f yaml -v a.txt b.txt
-# { _: ["large", "a.txt", "b.txt"], format: "yaml", overwrite: true, verbose: true }
+# { positionals: ["large", "a.txt", "b.txt"], format: "yaml", overwrite: true, verbose: true }
 ```
 
 ```text
@@ -211,18 +214,24 @@ OPTIONS
 
 - `alias` gives a named option one or more single-character short forms.
 - `valueName` sets the value label of a named option.
+- `env` overrides an option's automatic environment variable name, or disables it with `false`.
+- `title` labels a positional argument; `description` supplies its help text.
+
+Place metadata on the outer schema to override metadata inherited through wrappers. Zod's native
+`.describe(text)` remains equivalent to description metadata; new code should use `.meta({ description: text })`.
+With `zod/mini`, use `.check(mini.meta({ ... }))`.
 
 Boolean flags are shown as `--[no-]name` because they also accept the `--no-` form. The
 `negatable` field of `UsageOptionSummary` carries the same information for machine-readable
 help, where `flags` keeps the literal `--name` spelling.
 
-`argOptions` keys are checked against the argument schema. `defineCommand` throws a `TypeError`
-when an alias is longer than one character or is used by more than one option, and when
-`argOptions` has a `_` key. Without an alias of the same letter, `-h` and `-v` are shorthands
+`defineCommand` validates metadata types and throws a `TypeError` for empty or multi-character
+aliases, duplicate aliases, and option-only metadata (`alias`, `env`, `valueName`) on positional
+schemas. Without an alias of the same letter, `-h` and `-v` are shorthands
 for `--help` and `--version`. Defining an `h` or `v` alias replaces the shorthand, so `convert -v`
-above sets `verbose`; `--help` and `--version` remain available. A `help` option throws a
-`TypeError` from `defineCommand`. A `version` option on the root command throws a `TypeError` when
-`runMain` or `runCommand` starts; subcommands may define one. Output selection does not reserve
+above sets `verbose`; `--help` and `--version` remain available. Both `help` and `version` option
+names are reserved and throw a `TypeError` from `defineCommand` on every command.
+Output selection does not reserve
 any additional command-line flags, so names such as `--json`, `--output`, and `--log-format` remain
 available to application schemas.
 
@@ -234,8 +243,11 @@ upper snake case.
 
 ```ts
 const deploy = defineCommand({
-  args: z.object({ target: z.string(), dryRun: z.boolean().default(false), token: z.string() }),
-  argOptions: { token: { env: "GITHUB_TOKEN" } },
+  args: z.object({
+    target: z.string(),
+    dryRun: z.boolean().default(false),
+    token: z.string().meta({ env: "GITHUB_TOKEN" }),
+  }),
   run: ({ args }) => args,
 });
 const main = defineCommand({ name: "my-cli", subCommands: { deploy } });
@@ -254,7 +266,7 @@ MY_CLI_DEPLOY_TARGET=prod MY_CLI_DEPLOY_DRY_RUN=true GITHUB_TOKEN=t my-cli deplo
   positional arguments, and commands under an unnamed root get no derived name.
 - Help shows the name as `(Env: MY_CLI_DEPLOY_TARGET)`, and `UsageOptionSummary.env` carries it.
   Errors name the variable but never include its value.
-- `runCommand`, `runMain`, and `createMain` read the `env` option, defaulting to `process.env`.
+- `runCommand` and `runMain` read the `env` option, defaulting to `process.env`.
   `parseArgs(command, argv, { env })` reads the environment only when `env` is given.
 - Two options that resolve to the same name on one route, such as a root `deployTarget` and a
   `deploy` subcommand's `target`, make the invocation throw a `TypeError`.
@@ -327,15 +339,15 @@ finishes. A printer failure rejects the invocation without changing a successful
 
 ## Interactive input
 
-The logger also owns the invocation's interactive input. Use `select`, `confirm`, and `text` from
-the same logger (including loggers returned by `with` and `getChild`) so prompts use the selected
-printer and output mode.
+Every `run` context has a `prompt` with `select`, `confirm`, and `text` methods. Interactive input
+is separate from `logger`: prompts share the invocation's selected printer, serialized output queue,
+terminal lock, output mode, and abort signal.
 
 ```ts
 const deploy = defineCommand({
   name: "deploy",
-  async run({ logger }) {
-    const environment = await logger.select({
+  async run({ logger, prompt }) {
+    const environment = await prompt.select({
       message: "Environment",
       options: [
         { value: "staging", hint: "safe default" },
@@ -343,9 +355,9 @@ const deploy = defineCommand({
       ] as const,
       initialValue: "staging",
     }); // "staging" | "production"
-    const confirmed = await logger.confirm({ message: `Deploy to ${environment}?` });
+    const confirmed = await prompt.confirm({ message: `Deploy to ${environment}?` });
     if (!confirmed) return;
-    const release = await logger.text({
+    const release = await prompt.text({
       message: "Release name",
       placeholder: "v1.2.3",
       validate: (value) => (value.length === 0 ? "A release name is required" : undefined),
@@ -574,7 +586,8 @@ to its caller, and returns the selected `run` handler's result. Pass a `printer`
 receive all output produced by that invocation as structured events:
 
 ```ts
-import { runCommand, type PrintEvent, type Printer } from "hacksh";
+import { runCommand } from "hacksh";
+import type { PrintEvent, Printer } from "hacksh/printer";
 
 const events: PrintEvent[] = [];
 const printer: Printer = {
@@ -587,7 +600,7 @@ await runCommand(main, ["--help"], { printer });
 // events[0] is { type: "usage", usage, text, stream: "stdout" }
 ```
 
-The current events are `usage`, `version`, `error`, `log`, and `prompt`. Usage events include the resolved
+The current events are `usage`, `version`, `error`, `log`, `prompt`, and `exec`. Usage events include the resolved
 command's schema-free name, version, description, synopsis, arguments, options, and visible child
 commands, plus rendered text and the intended `stdout` or `stderr` stream. Version events include
 the version string. Error events contain a schema-free summary with an explicit `kind`, structured
@@ -597,68 +610,74 @@ the prompt kind, status, current value or choices, placeholder, and validation m
 drained before `runCommand` or `runMain` completes or exits. A printer rejection rejects
 `runCommand`.
 
+The root `hacksh` entry exposes command-definition and execution APIs. Import printer factories,
+output-mode helpers, `Printer`, `PrintEvent`, and renderer-facing event and summary types from
+`hacksh/printer`. A custom printer can narrow `PrintEvent` on `event.type` without importing
+each individual event type.
+
 Use `createPrettyPrinter({ color, unicode, stdout, stderr })` to reuse the built-in human-readable
 renderer with custom writable targets, or `createJsonPrinter({ stdout, stderr })` to reuse the
 built-in JSON-lines behavior. The pretty renderer has no public theme API; replacing the fixed
-presentation requires a custom `Printer`. `consolePrinter` and `createStreamPrinter` remain the
-undecorated compatibility adapters. `summarizeUsage(command)` returns the same canonical help
+presentation requires a custom `Printer`. `summarizeUsage(command)` returns the same canonical help
 metadata carried by a usage event. `resolveOutputMode(...)` exposes the selection contract for
-wrappers and the later presentation or prompting layers.
+wrappers and presentation or prompting layers.
 
-For parsing and usage rendering without execution, use the async composition APIs. `parseArgs`
+For parsing and usage rendering without execution, use the composition APIs. `parseArgs`
 parses exactly the supplied command definition and argument segment, returns its schema output only,
-and throws `HackshValidationError` on failure. It does not route subcommands, act on help or version
-tokens, or bypass validation; callers that resolve commands themselves must pass the selected
-command and its segment. `renderUsage` has no output side effects; `showUsage` sends that same text
-through an explicit printer or the same automatic pretty/JSON selection used by command
-invocations. Its `output`, `env`, `stdin`, `stdout`, `stderr`, and `unicode` options configure that
-automatic path. The existing synchronous or asynchronous `write` option remains supported and
-takes precedence over printer selection; an explicit `printer` also retains its existing behavior.
-These functions are async so future command-resolution features can be added without changing
-their return types.
+and throws `HackshValidationError` on failure. It remains asynchronous to support async Zod
+refinements and transformations. It does not route subcommands, act on help or version tokens, or
+bypass validation; callers that resolve commands themselves must pass the selected command and
+its segment. `renderUsage` returns a string synchronously with no output side effects. `showUsage`
+requires an explicit `printer`, sends the same text and structured help summary as a usage event,
+and awaits the printer. Its optional `stream` defaults to `"stdout"`.
 
 ```ts
-import { consolePrinter, parseArgs, renderUsage, showUsage } from "hacksh";
+import { parseArgs, renderUsage, showUsage } from "hacksh";
+import { createPrettyPrinter } from "hacksh/printer";
 
 const args = await parseArgs(main, ["42", "--repo", "owner/repo"]);
 // args is inferred from the schema as:
-// { pr?: number; repo?: string; verbose: boolean }
+// { positionals: [string]; repo?: string }
 
-const text: string = await renderUsage(main); // does not write output
+const text: string = renderUsage(main); // does not write output
 await showUsage(main, {
-  printer: consolePrinter,
+  printer: createPrettyPrinter({ color: false, unicode: true }),
   stream: "stderr",
 });
 ```
 
-The `run` context includes `cmd`, the actual resolved command definition. An unnamed subcommand is
-represented by a completed copy whose `name` is its key; the original definition is not mutated.
+The `run` context includes `command`, the actual resolved command definition. An unnamed subcommand
+is represented by a completed copy whose `name` is its key; the original definition is not mutated.
+`args` contains validated schema output. `input` separates the original selected command segment
+(`argv`), accepted unknown tokens (`unknown`), and tokens after `--` (`passthrough`).
+For a routed child, `input.argv` excludes the parent options and subcommand names.
+
+`defineCommand` preserves the handler's return type. `runCommand` returns a promise of the awaited
+handler result, unioned with results from every possible routed descendant and `undefined` for
+help/version. Routing-only commands add no handler result. Async and void handlers retain their
+result types; `runMain` deliberately discards results.
 
 `runMain(command)` reads `process.argv`, prints validation or usage errors, and exits with status 1.
-Use `argv` to inject arguments, or `createMain` to make a reusable entry point. Invocation arguments
-passed to the returned function take precedence over configured `argv`; omitting both falls back to
-`process.argv.slice(2)`. Both functions return `Promise<void>`.
+Use `argv` to inject arguments. Omitting it uses `process.argv.slice(2)`; an empty array is an
+explicit empty invocation. `runMain` returns `Promise<void>`. A reusable entry point is an ordinary
+local function:
 
 ```ts
-import { createMain } from "hacksh";
+import { runMain } from "hacksh";
 
-const mainEntry = createMain(main, { argv: ["--verbose"] });
-await mainEntry(); // uses the configured argv
-await mainEntry([]); // an explicit empty invocation overrides it
+const mainEntry = (argv: string[] = ["--verbose"]) => runMain(main, { argv });
+await mainEntry(); // uses the local default
+await mainEntry([]); // explicitly supplies no arguments
 ```
 
-The legacy `RunMainOptions.showUsage` callback still customizes both ordinary help and the usage
-appended to validation or routing errors. Its supplied `write` function targets stdout for help and
-stderr for errors by emitting usage events through the invocation's selected printer, and the
-callback may be async. Pass `onError` to replace the entire default error display, including usage;
-output written by this application callback remains its own responsibility:
+Help and the usage appended to validation or routing errors use the invocation's printer.
+Usage events target stdout for help and stderr for errors. Pass `onError` to replace the entire
+default error display, including usage; output written by this application callback remains its
+own responsibility:
 
 ```ts
 await runMain(main, {
   argv: ["--help"],
-  async showUsage(command, { write }) {
-    await write(await renderUsage(command));
-  },
   async onError(error) {
     console.error(`gh-pr-commits: ${error instanceof Error ? error.message : String(error)}`);
   },

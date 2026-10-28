@@ -4,15 +4,16 @@ import { existsSync } from "node:fs";
 import { z } from ${JSON.stringify(zodSpecifier)};
 import * as mini from ${JSON.stringify(miniSpecifier)};
 import {
-  createMain,
+  runMain,
   defineCommand,
   parseArgs,
   renderUsage,
   showUsage,
   HackshValidationError,
 } from ${JSON.stringify(packageSpecifier)};
+import { createPrettyPrinter, createJsonPrinter } from ${JSON.stringify(packageSpecifier + "/printer")};
 async function verifyPhaseTwo(label, phaseCommand) {
-  const usage = await renderUsage(phaseCommand);
+  const usage = renderUsage(phaseCommand);
   for (const expected of [
     "<MODE>",
     "[INPUT...]",
@@ -32,14 +33,14 @@ async function verifyPhaseTwo(label, phaseCommand) {
     "--enabled=false",
   ]);
   if (
-    parsed._.join(",") !== "fast,txt,md" ||
+    parsed.positionals.join(",") !== "fast,txt,md" ||
     parsed.format !== "json" ||
     parsed.enabled !== false
   ) {
     throw new Error(label + " combined phase 2 parse failed: " + JSON.stringify(parsed));
   }
   const explicitTrue = await parseArgs(phaseCommand, ["safe", "--enabled=true"]);
-  if (explicitTrue.enabled !== true || explicitTrue._.join(",") !== "safe") {
+  if (explicitTrue.enabled !== true || explicitTrue.positionals.join(",") !== "safe") {
     throw new Error(label + " explicit true or empty variadic failed");
   }
   for (const token of ["--enabled=maybe", "--no-enabled=false"]) {
@@ -51,29 +52,23 @@ async function verifyPhaseTwo(label, phaseCommand) {
 }
 const phaseCommand = defineCommand({
   args: z.object({
-    _: z.tuple(
-      [z.enum(["fast", "safe"]).describe("Execution mode").meta({ title: "MODE" })],
-      z.enum(["txt", "md"]).describe("Input files").meta({ title: "INPUT" }),
+    positionals: z.tuple(
+      [z.enum(["fast", "safe"]).meta({ title: "MODE", description: "Execution mode" })],
+      z.enum(["txt", "md"]).meta({ title: "INPUT", description: "Input files" }),
     ),
-    enabled: z.boolean().default(true).describe("Enable feature"),
-    format: z.enum(["json", "yaml"]).optional().describe("Output format"),
+    enabled: z.boolean().default(true).meta({ description: "Enable feature" }),
+    format: z.enum(["json", "yaml"]).optional().meta({ description: "Output format", valueName: "FORMAT" }),
   }),
-  argOptions: {
-    format: { valueName: "FORMAT" },
-  },
 });
 const miniPhaseCommand = defineCommand({
   args: mini.object({
-    _: mini.tuple(
-      [mini.enum(["fast", "safe"]).check(mini.describe("Execution mode"), mini.meta({ title: "MODE" }))],
-      mini.enum(["txt", "md"]).check(mini.describe("Input files"), mini.meta({ title: "INPUT" })),
+    positionals: mini.tuple(
+      [mini.enum(["fast", "safe"]).check(mini.meta({ description: "Execution mode" }), mini.meta({ title: "MODE" }))],
+      mini.enum(["txt", "md"]).check(mini.meta({ description: "Input files" }), mini.meta({ title: "INPUT" })),
     ),
-    enabled: mini._default(mini.boolean(), true).check(mini.describe("Enable feature")),
-    format: mini.optional(mini.enum(["json", "yaml"])).check(mini.describe("Output format")),
+    enabled: mini._default(mini.boolean(), true).check(mini.meta({ description: "Enable feature" })),
+    format: mini.optional(mini.enum(["json", "yaml"])).check(mini.meta({ description: "Output format", valueName: "FORMAT" })),
   }),
-  argOptions: {
-    format: { valueName: "FORMAT" },
-  },
 });
 await verifyPhaseTwo("zod", phaseCommand);
 await verifyPhaseTwo("zod/mini", miniPhaseCommand);
@@ -82,26 +77,23 @@ function hiddenCommand(flavor, args) {
     hidden: true,
     description: "Internal " + flavor + " command",
     args,
-    argOptions: {
-      mode: { valueName: "MODE" },
-    },
-    run({ cmd, args: parsed }) {
-      console.log(JSON.stringify({ flavor, cmd: cmd.name, args: parsed }));
+    run({ command, args: parsed }) {
+      console.log(JSON.stringify({ flavor, command: command.name, args: parsed }));
     },
   });
 }
 const zodHidden = hiddenCommand(
   "zod",
   z.object({
-    mode: z.enum(["fast", "safe"]).describe("Execution mode"),
-    enabled: z.boolean().default(true).describe("Enable feature"),
+    mode: z.enum(["fast", "safe"]).meta({ description: "Execution mode", valueName: "MODE" }),
+    enabled: z.boolean().default(true).meta({ description: "Enable feature" }),
   }),
 );
 const miniHidden = hiddenCommand(
   "zod/mini",
   mini.object({
-    mode: mini.enum(["fast", "safe"]).check(mini.describe("Execution mode")),
-    enabled: mini._default(mini.boolean(), true).check(mini.describe("Enable feature")),
+    mode: mini.enum(["fast", "safe"]).check(mini.meta({ description: "Execution mode", valueName: "MODE" })),
+    enabled: mini._default(mini.boolean(), true).check(mini.meta({ description: "Enable feature" })),
   }),
 );
 const runtimeScript = (code, ...args) =>
@@ -113,12 +105,11 @@ const legacyCommand = defineCommand({
   allowUnknownArgs: true,
   args: z.object({
     enabled: z.boolean().default(true),
-    repo: z.string().optional(),
-    _: z.array(z.string().transform((value) => value.toUpperCase())),
+    repo: z.string().optional().meta({ alias: ["R", "Q"] }),
+    positionals: z.array(z.string().transform((value) => value.toUpperCase())),
   }),
-  argOptions: { repo: { alias: ["R", "Q"] } },
-  run({ cmd, args, extraArgs, passthrough }) {
-    console.log(JSON.stringify({ cmd: cmd.name, args, extraArgs, passthrough }));
+  run({ command, args, input }) {
+    console.log(JSON.stringify({ command: command.name, args, input }));
   },
 });
 function terminalCommand(flavor, args) {
@@ -167,8 +158,8 @@ const command = defineCommand({
       }),
     ),
     prompt: defineCommand({
-      async run({ logger }) {
-        await logger.select({
+      async run({ prompt }) {
+        await prompt.select({
           message: "Environment",
           options: [{ value: "staging" }, { value: "production" }],
           initialValue: "staging",
@@ -278,25 +269,25 @@ const command = defineCommand({
 const miniCommand = defineCommand({
   args: mini.object({
     value: mini._default(mini.string(), "mini"),
-    _: mini.optional(mini.array(mini.string())),
+    positionals: mini.optional(mini.array(mini.string())),
   }),
 });
 const miniArgs = await parseArgs(miniCommand, ["one", "two"]);
-if (miniArgs.value !== "mini" || miniArgs._?.join(",") !== "one,two") {
+if (miniArgs.value !== "mini" || miniArgs.positionals?.join(",") !== "one,two") {
   throw new Error("zod/mini variadic parseArgs failed");
 }
-const usage = await renderUsage(legacyCommand);
+const usage = renderUsage(legacyCommand);
 const writes = [];
-await showUsage(legacyCommand, { async write(text) { writes.push(text); } });
-if (writes.length !== 1 || writes[0] !== usage) throw new Error("usage APIs diverged");
-const main = createMain(command, {
-  output: "auto",
-  async showUsage(selected, { write }) {
-    await write("CUSTOM\\n" + await renderUsage(selected));
-  },
+await showUsage(legacyCommand, {
+  printer: { async print(event) { if (event.type === "usage") writes.push(event.text); } },
 });
-if (process.argv.slice(2)[0] === "__standalone-help__") await showUsage(command);
-else await main();
+if (writes.length !== 1 || writes[0] !== usage) throw new Error("usage APIs diverged");
+const main = (argv = process.argv.slice(2)) => runMain(command, { argv, output: "auto" });
+if (process.argv.slice(2)[0] === "__standalone-help__") {
+  await showUsage(command, { printer: createPrettyPrinter({ color: false }) });
+} else if (process.argv.slice(2)[0] === "__standalone-json-help__") {
+  await showUsage(command, { printer: createJsonPrinter() });
+} else await main();
 `;
 }
 
@@ -305,51 +296,47 @@ export function typeConsumerSource() {
 import { z } from "zod";
 import * as mini from "zod/mini";
 import {
-  consolePrinter,
-  createMain,
-  createStreamPrinter,
+  runMain,
   defineCommand,
   HackshExecError,
   parseArgs,
   renderUsage,
   runCommand,
   showUsage,
-  type ArgOptions,
-  type ArgOptionsMap,
   type CommandDef,
   type Exec,
   type ExecCommand,
   type ExecFailure,
   type ExecFailureReason,
   type ExecOptions,
-  type ExecPrintEvent,
   type ExecResult,
   type ExecReturn,
   type ExecSkipped,
   type ExecSuccess,
-  type PrintEvent,
   type HackshPromptErrorReason,
-  type Printer,
-  type ShowUsageCallback,
 } from "hacksh";
+import {
+  createPrettyPrinter,
+  createJsonPrinter,
+  type ExecPrintEvent,
+  type PrintEvent,
+  type Printer,
+} from "hacksh/printer";
 const schema = z.object({
-  _: z.tuple([z.enum(["fast", "safe"]).meta({ title: "MODE" })], z.string()),
+  positionals: z.tuple([z.enum(["fast", "safe"]).meta({ title: "MODE" })], z.string()),
   count: z.coerce.number(),
   label: z.string().default("ok"),
   enabled: z.boolean().default(true),
-  format: z.enum(["json", "yaml"]).optional(),
+  format: z.enum(["json", "yaml"]).optional().meta({ alias: "f", valueName: "FORMAT" }),
 });
-const formatOptions: ArgOptions = { alias: "f", valueName: "FORMAT" };
-const argOptions: ArgOptionsMap<typeof schema> = {
-  format: formatOptions,
-};
 const command = defineCommand({
   args: schema,
-  argOptions,
-  run({ cmd, args }) {
-    const same: CommandDef<typeof schema> = cmd;
+  run({ command, args, input }) {
+    const same: CommandDef<typeof schema> = command;
+    const channels: { argv: string[]; unknown: string[]; passthrough: string[] } = input;
+    void channels;
     const output: {
-      _: ["fast" | "safe", ...string[]];
+      positionals: ["fast" | "safe", ...string[]];
       count: number;
       label: string;
       enabled: boolean;
@@ -358,32 +345,44 @@ const command = defineCommand({
     return { same, output };
   },
 });
+const commandResult: Promise<{
+  same: CommandDef<typeof schema>;
+  output: z.output<typeof schema>;
+} | undefined> = runCommand(command, ["fast", "--count", "2"]);
+const numeric = defineCommand({ run: () => 42 });
+const numericResult: Promise<number | undefined> = runCommand(numeric, []);
+// @ts-expect-error help/version can return undefined
+const numericOnly: Promise<number> = runCommand(numeric, []);
+const asyncLeaf = defineCommand({ async run() { return true; } });
+const routed = defineCommand({
+  run: () => "root",
+  subCommands: { group: defineCommand({ subCommands: { numeric, asyncLeaf } }) },
+});
+const routedResult: Promise<string | number | boolean | undefined> = runCommand(routed, []);
+// @ts-expect-error a routed child may return a number or boolean
+const rootOnly: Promise<string | undefined> = runCommand(routed, []);
+const voidResult: Promise<void> = runCommand(defineCommand({ run() {} }), []);
+const asyncVoidResult: Promise<void> = runCommand(defineCommand({ async run() {} }), []);
+void [commandResult, numericResult, numericOnly, routedResult, rootOnly, voidResult, asyncVoidResult];
 const parsed: Promise<z.output<typeof schema>> = parseArgs(command, [
   "fast",
   "--count",
   "2",
   "one",
 ]);
-const rendered: Promise<string> = renderUsage(command);
-const shown: Promise<void> = showUsage(command, { write: async (_text) => {} });
-const callback: ShowUsageCallback = async (selected, { write }) => write(await renderUsage(selected));
-const main: (argv?: string[]) => Promise<void> = createMain(command, {
-  output: "pretty",
-  showUsage: callback,
-});
+const rendered: string = renderUsage(command);
+const shown: Promise<void> = showUsage(command, { printer: createJsonPrinter() });
+const main: (argv?: string[]) => Promise<void> = (argv = []) =>
+  runMain(command, { argv, output: "pretty" });
 const miniSchema = mini.object({
-  _: mini.tuple([mini.enum(["fast", "safe"])], mini.string()),
-  enabled: mini._default(mini.boolean(), true),
+  positionals: mini.tuple([mini.enum(["fast", "safe"])], mini.string()),
+  enabled: mini._default(mini.boolean(), true).check(mini.meta({ alias: "e" })),
 });
-const miniArgOptions: ArgOptionsMap<typeof miniSchema> = {
-  enabled: { alias: "e" },
-};
 const miniCommand = defineCommand({
   args: miniSchema,
-  argOptions: miniArgOptions,
 });
 const miniParsed: Promise<{
-  _: ["fast" | "safe", ...string[]];
+  positionals: ["fast" | "safe", ...string[]];
   enabled: boolean;
 }> = parseArgs(miniCommand, ["fast", "one"]);
 const hiddenSchema = z.object({
@@ -415,8 +414,8 @@ const hiddenRoot = defineCommand({
 });
 const hiddenMetadata: boolean | undefined = hiddenZod.hidden;
 const promptCommand = defineCommand({
-  async run({ logger }) {
-    const selected = await logger.select({
+  async run({ prompt }) {
+    const selected = await prompt.select({
       message: "Environment",
       options: [{ value: "staging" }, { value: "production" }] as const,
       initialValue: "staging",
@@ -497,8 +496,13 @@ const execCommand = defineCommand({
 const execFailure = (error: unknown): ExecFailure | undefined =>
   error instanceof HackshExecError ? error.result : undefined;
 const promptReason: HackshPromptErrorReason = "non-interactive";
-const legacyConsole: Printer = consolePrinter;
-const legacyStreams: Printer = createStreamPrinter({
+const pretty: Printer = createPrettyPrinter({
+  color: false,
+  unicode: true,
+  stdout: { write: (_text) => undefined },
+  stderr: { write: (_text) => undefined },
+});
+const json: Printer = createJsonPrinter({
   stdout: { write: (_text) => undefined },
   stderr: { write: (_text) => undefined },
 });
@@ -508,16 +512,14 @@ void [
   shown,
   main,
   miniParsed,
-  argOptions,
-  miniArgOptions,
   hiddenRoot,
   hiddenMetadata,
   promptResult,
   promptReason,
   execCommand,
   execFailure,
-  legacyConsole,
-  legacyStreams,
+  pretty,
+  json,
 ];
 `;
 }

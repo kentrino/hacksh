@@ -11,7 +11,7 @@ describe("unknown argument policy", () => {
       const transform = vi.fn((value: string) => value);
       const run = vi.fn();
       const command = defineCommand({
-        args: z.object({ _: z.tuple([z.string().transform(transform)]) }),
+        args: z.object({ positionals: z.tuple([z.string().transform(transform)]) }),
         run,
       });
       await expect(runCommand(command, ["one", token], { printer })).rejects.toMatchObject({
@@ -43,33 +43,40 @@ describe("unknown argument policy", () => {
     for (const allowUnknownArgs of [undefined, false, true]) {
       const command = defineCommand({
         allowUnknownArgs,
-        run: ({ extraArgs, passthrough }) => ({ extraArgs, passthrough }),
+        run: ({ input }) => input,
       });
       await expect(
         runCommand(command, ["--", "--help", "--version", "a b", "--"], { printer }),
-      ).resolves.toEqual({ extraArgs: [], passthrough: ["--help", "--version", "a b", "--"] });
+      ).resolves.toEqual({
+        argv: ["--", "--help", "--version", "a b", "--"],
+        unknown: [],
+        passthrough: ["--help", "--version", "a b", "--"],
+      });
     }
   });
 
   it("allows unknown input in order without guessing which option takes a value", async () => {
     const command = defineCommand({
       allowUnknownArgs: true,
-      args: z.object({ _: z.tuple([z.string()]), known: z.boolean().default(false) }),
-      run: ({ args, extraArgs, passthrough }) => ({ args, extraArgs, passthrough }),
+      args: z.object({ positionals: z.tuple([z.string()]), known: z.boolean().default(false) }),
+      run: ({ args, input }) => ({ args, input }),
     });
     await expect(
       runCommand(command, ["--unknown", "first", "--known", "tail", "-x", "--", "last"], {
         printer,
       }),
     ).resolves.toEqual({
-      args: { _: ["first"], known: true },
-      extraArgs: ["--unknown", "tail", "-x"],
-      passthrough: ["last"],
+      args: { positionals: ["first"], known: true },
+      input: {
+        argv: ["--unknown", "first", "--known", "tail", "-x", "--", "last"],
+        unknown: ["--unknown", "tail", "-x"],
+        passthrough: ["last"],
+      },
     });
   });
 
   it("inherits through several levels and allows children to override without mutation", async () => {
-    const leaf = defineCommand({ run: ({ extraArgs }) => extraArgs });
+    const leaf = defineCommand({ run: ({ input }) => input.unknown });
     const strict = defineCommand({ allowUnknownArgs: false, subCommands: { leaf } });
     const root = defineCommand({
       allowUnknownArgs: true,
@@ -86,7 +93,7 @@ describe("unknown argument policy", () => {
   });
 
   it("validates parents independently of a permissive child", async () => {
-    const run = vi.fn(({ extraArgs }) => extraArgs);
+    const run = vi.fn(({ input }) => input.unknown);
     const root = defineCommand({
       subCommands: { child: defineCommand({ allowUnknownArgs: true, run }) },
     });

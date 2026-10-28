@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import {
-  createMain,
   defineCommand,
   parseArgs,
   runCommand,
@@ -10,10 +9,8 @@ import {
   HackshUsageError,
   HackshValidationError,
   type CommandDef,
-  type PrintEvent,
-  type Printer,
-  type ShowUsageCallback,
 } from "./index.ts";
+import type { PrintEvent, Printer } from "./printer-api.ts";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -32,15 +29,14 @@ describe("command routing", () => {
 
   it("validates the parent prefix, skips option values, and runs only the child", async () => {
     const parentRun = vi.fn();
-    const childRun = vi.fn(({ rawArgs }: { rawArgs: string[] }) => rawArgs.join(" "));
+    const childRun = vi.fn(({ input }: { input: { argv: string[] } }) => input.argv.join(" "));
     const child = defineCommand({
       args: z.object({ name: z.string() }),
       run: childRun,
     });
     const root = defineCommand({
       name: "git-worktree",
-      args: z.object({ repo: z.string() }),
-      argOptions: { repo: { alias: "R" } },
+      args: z.object({ repo: z.string().meta({ alias: "R" }) }),
       subCommands: { new: child },
       run: parentRun,
     });
@@ -72,27 +68,28 @@ describe("command routing", () => {
     await expect(runCommand(root, ["child"])).rejects.toBeInstanceOf(HackshUsageError);
   });
 
-  it("provides the actual resolved command and inferred schema on cmd", async () => {
+  it("provides the actual resolved command and inferred schema on command", async () => {
     const rootArgs = z.object({ rootValue: z.string().default("root") });
     const rootRun = vi.fn();
     const root = defineCommand({
       name: "root",
       args: rootArgs,
-      run({ cmd, args }) {
-        expectTypeOf(cmd).toEqualTypeOf<CommandDef<typeof rootArgs>>();
+      run({ command, args }) {
+        expectTypeOf(command).toEqualTypeOf<CommandDef<typeof rootArgs>>();
         expectTypeOf(args).toEqualTypeOf<{ rootValue: string }>();
         rootRun();
-        return cmd;
+        return command;
       },
     });
     await expect(runCommand(root, [])).resolves.toBe(root);
 
+    const leafArgs = z.object({ count: z.coerce.number() });
     const unnamedLeaf = defineCommand({
-      args: z.object({ count: z.coerce.number() }),
-      run({ cmd, args }) {
-        expectTypeOf(cmd).toEqualTypeOf<typeof unnamedLeaf>();
+      args: leafArgs,
+      run({ command, args }) {
+        expectTypeOf(command).toEqualTypeOf<CommandDef<typeof leafArgs>>();
         expectTypeOf(args).toEqualTypeOf<{ count: number }>();
-        return { cmd, args };
+        return { command, args };
       },
     });
     const nested = defineCommand({
@@ -102,10 +99,10 @@ describe("command routing", () => {
       },
     });
     const result = await runCommand(nested, ["group", "leaf", "--count", "2"]);
-    expect(result).toMatchObject({ cmd: { name: "leaf" }, args: { count: 2 } });
+    expect(result).toMatchObject({ command: { name: "leaf" }, args: { count: 2 } });
     expect(unnamedLeaf).not.toHaveProperty("name");
 
-    const namedLeaf = defineCommand({ name: "custom", run: ({ cmd }) => cmd });
+    const namedLeaf = defineCommand({ name: "custom", run: ({ command }) => command });
     const namedRoot = defineCommand({ subCommands: { alias: namedLeaf } });
     const resolved = await runCommand(namedRoot, ["alias"]);
     expect(resolved).toMatchObject({ name: "custom" });
@@ -147,41 +144,25 @@ describe("help and version", () => {
         calls.push(`end:${event.type}`);
       },
     };
-    const showUsage: ShowUsageCallback = (command, { write }) => {
-      void write(`first:${command.name}`);
-      void write(`second:${command.name}`);
-    };
+    const command = defineCommand({
+      name: "tool",
+      run({ logger }) {
+        logger.info("first");
+        logger.info("second");
+      },
+    });
 
     let completed = false;
-    const invocation = runCommand(defineCommand({ name: "tool" }), ["--help"], {
-      printer,
-      showUsage,
-    }).then(() => {
+    const invocation = runCommand(command, [], { printer }).then(() => {
       completed = true;
     });
     await vi.waitFor(() => expect(releaseFirst).toBeTypeOf("function"));
-    expect(calls).toEqual(["start:usage"]);
+    expect(calls).toEqual(["start:log"]);
     expect(completed).toBe(false);
 
     releaseFirst?.();
     await invocation;
-    expect(calls).toEqual(["start:usage", "end:usage", "start:usage", "end:usage"]);
-  });
-
-  it("preserves legacy callback order when the printer writes synchronously", async () => {
-    const output: string[] = [];
-    const showUsage: ShowUsageCallback = (_command, { write }) => {
-      output.push("HEADER");
-      void write("USAGE");
-      output.push("FOOTER");
-    };
-
-    await runCommand(defineCommand({ name: "tool" }), ["--help"], {
-      printer: { print: (event) => void output.push(event.type.toUpperCase()) },
-      showUsage,
-    });
-
-    expect(output).toEqual(["HEADER", "USAGE", "FOOTER"]);
+    expect(calls).toEqual(["start:log", "end:log", "start:log", "end:log"]);
   });
 
   it("rejects the invocation when an async printer rejects", async () => {
@@ -224,7 +205,7 @@ describe("help and version", () => {
     const child = defineCommand({
       args: z.object({ childFlag: z.boolean().catch(false) }),
       allowUnknownArgs: true,
-      run: ({ extraArgs }) => extraArgs,
+      run: ({ input }) => input.unknown,
     });
     const root = defineCommand({
       name: "root",
@@ -258,7 +239,7 @@ describe("help and version", () => {
     const leaf = defineCommand({
       description: "Create a worktree\nwith a selected branch",
       args: z.object({
-        _: z.tuple([z.string().describe("Target path").meta({ title: "PATH" })]),
+        positionals: z.tuple([z.string().describe("Target path").meta({ title: "PATH" })]),
         force: z.boolean().default(false).describe("Overwrite target"),
       }),
       run: vi.fn(),
@@ -279,8 +260,9 @@ describe("help and version", () => {
       name: "tool",
       version: "1.2.3",
       description: "A useful tool",
-      args: z.object({ repo: z.string().optional().describe("Repository") }),
-      argOptions: { repo: { alias: "R" } },
+      args: z.object({
+        repo: z.string().optional().meta({ description: "Repository", alias: "R" }),
+      }),
       subCommands: { child: defineCommand({ description: "Do work", run: () => undefined }) },
     });
     await runCommand(root, ["--help"], { output: "pretty" });
@@ -297,8 +279,10 @@ describe("help and version", () => {
     const root = defineCommand({
       name: "tool",
       version: "1.2.3",
-      args: z.object({ verbose: z.boolean().default(false), host: z.boolean().default(false) }),
-      argOptions: { verbose: { alias: "v" }, host: { alias: "h" } },
+      args: z.object({
+        verbose: z.boolean().default(false).meta({ alias: "v" }),
+        host: z.boolean().default(false).meta({ alias: "h" }),
+      }),
       run,
     });
     await runCommand(root, ["-v", "-h"]);
@@ -312,7 +296,7 @@ describe("help and version", () => {
   });
 
   it("treats version as a root-only builtin", async () => {
-    const childRun = vi.fn(({ extraArgs }) => extraArgs);
+    const childRun = vi.fn(({ input }) => input.unknown);
     const root = defineCommand({
       version: "1.0.0",
       subCommands: { child: defineCommand({ allowUnknownArgs: true, run: childRun }) },
@@ -320,31 +304,15 @@ describe("help and version", () => {
     await expect(runCommand(root, ["child", "--version"])).resolves.toEqual(["--version"]);
   });
 
-  it("rejects a root version option but accepts one on a subcommand", async () => {
-    const versioned = { args: z.object({ version: z.string().optional() }) };
-    const run = vi.fn();
-    await expect(
-      runCommand(defineCommand({ ...versioned, run }), ["--version", "2.0"]),
-    ).rejects.toThrow(TypeError);
-    expect(run).not.toHaveBeenCalled();
-
-    const root = defineCommand({
-      subCommands: { child: defineCommand({ ...versioned, run: ({ args }) => args }) },
-    });
-    await expect(runCommand(root, ["child", "--version", "2.0"])).resolves.toEqual({
-      version: "2.0",
-    });
-  });
-
   it("ignores root and child builtin spellings after the passthrough separator", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const rootRun = vi.fn(({ passthrough }) => passthrough);
+    const rootRun = vi.fn(({ input }) => input.passthrough);
     const root = defineCommand({ name: "root", version: "1.0.0", run: rootRun });
     await expect(runCommand(root, ["--", "--help", "-v"])).resolves.toEqual(["--help", "-v"]);
     expect(rootRun).toHaveBeenCalledOnce();
     expect(log).not.toHaveBeenCalled();
 
-    const childRun = vi.fn(({ passthrough }) => passthrough);
+    const childRun = vi.fn(({ input }) => input.passthrough);
     const withChild = defineCommand({
       name: "root",
       version: "1.0.0",
@@ -546,63 +514,6 @@ describe("runMain", () => {
     expect(seen).toEqual(["explicit", "empty", "process"]);
   });
 
-  it("creates a reusable main whose invocation argv takes precedence", async () => {
-    const seen: string[] = [];
-    const command = defineCommand({
-      args: z.object({ value: z.string().default("empty") }),
-      run: ({ args }) => seen.push(args.value),
-    });
-    const main = createMain(command, { argv: ["--value", "configured"] });
-    expectTypeOf(main).toEqualTypeOf<(argv?: string[]) => Promise<void>>();
-
-    await main();
-    await main(["--value", "invocation"]);
-    await main([]);
-    expect(seen).toEqual(["configured", "invocation", "empty"]);
-  });
-
-  it("uses one async usage hook with stdout and stderr writers", async () => {
-    vi.spyOn(process, "exit").mockImplementation((() => {
-      throw new Error("stopped");
-    }) as never);
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const calls: string[] = [];
-    const display: ShowUsageCallback = async (command, { write }) => {
-      await Promise.resolve();
-      calls.push(command.name ?? "command");
-      await write(`custom:${command.name ?? "command"}`);
-    };
-    const command = defineCommand({ name: "tool", args: z.object({ value: z.string() }) });
-
-    await runMain(command, { argv: ["--help"], showUsage: display, output: "pretty" });
-    expect(log).toHaveBeenCalledWith("◆  custom:tool");
-    expect(error).not.toHaveBeenCalled();
-
-    await expect(
-      runMain(command, { argv: [], showUsage: display, output: "pretty" }),
-    ).rejects.toThrow("stopped");
-    expect(error).toHaveBeenCalledWith(expect.stringContaining("Invalid arguments:"));
-    expect(error).toHaveBeenCalledWith("◆  custom:tool");
-    expect(calls).toEqual(["tool", "tool"]);
-  });
-
-  it("exits one when an async usage hook rejects while reporting an error", async () => {
-    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const showUsage: ShowUsageCallback = async () => {
-      await Promise.resolve();
-      throw new Error("usage rendering failed");
-    };
-
-    await expect(
-      runMain(defineCommand({ name: "empty" }), { argv: [], showUsage, output: "pretty" }),
-    ).rejects.toThrow("exit:1");
-    expect(exit).toHaveBeenCalledWith(1);
-  });
-
   it("preserves an onError rejection without forcing another exit", async () => {
     const exit = vi.spyOn(process, "exit");
     const onError = vi.fn(async () => {
@@ -622,18 +533,20 @@ describe("runMain", () => {
     const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
-    const failure = new Error("usage failed");
+    const failure = new Error("command failed");
     const onError = vi.fn();
-    const showUsage: ShowUsageCallback = (_command, { write }) => {
-      void write("usage");
-      throw failure;
-    };
+    const command = defineCommand({
+      name: "tool",
+      run({ logger }) {
+        logger.info("pending output");
+        throw failure;
+      },
+    });
 
     await expect(
-      runMain(defineCommand({ name: "tool" }), {
-        argv: ["--help"],
+      runMain(command, {
+        argv: [],
         printer: { print: async () => Promise.reject(new Error("printer failed")) },
-        showUsage,
         onError,
       }),
     ).rejects.toThrow("exit:1");
@@ -647,17 +560,17 @@ describe("runMain", () => {
       throw new Error(`exit:${code}`);
     }) as never);
     const onError = vi.fn(async () => Promise.resolve());
-    const showUsage = vi.fn();
+    const printer = { print: vi.fn() };
     const command = defineCommand({
       allowUnknownArgs: true,
       run: () => {
         throw new Error("boom");
       },
     });
-    await expect(runMain(command, { onError, showUsage })).rejects.toThrow("exit:1");
+    await expect(runMain(command, { onError, printer })).rejects.toThrow("exit:1");
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "boom" }));
     expect(exit).toHaveBeenCalledWith(1);
-    expect(showUsage).not.toHaveBeenCalled();
+    expect(printer.print).not.toHaveBeenCalled();
   });
 
   it("prints usage errors and ordinary errors differently", async () => {

@@ -7,31 +7,66 @@ import { parseCommandArgs } from "./parser.ts";
 describe("argument parsing and validation", () => {
   const command = defineCommand({
     args: z.object({
-      repo: z.string(),
-      dryRun: z.boolean().default(false),
+      repo: z.string().meta({ alias: ["R", "Q"] }),
+      dryRun: z
+        .boolean()
+        .default(false)
+        .meta({ alias: ["d", "D"] }),
       verbose: z.boolean().default(true),
-      _: z.tuple([z.string(), z.string().optional()]),
+      positionals: z.tuple([z.string(), z.string().optional()]),
     }),
-    argOptions: { repo: { alias: ["R", "Q"] }, dryRun: { alias: ["d", "D"] } },
+  });
+
+  it.each([
+    [
+      "zod",
+      z.object({
+        value: z
+          .string()
+          .meta({ alias: ["q", "Q"], env: "CUSTOM_VALUE" })
+          .optional(),
+      }),
+    ],
+    [
+      "zod/mini",
+      mini.object({
+        value: mini.optional(
+          mini.string().check(mini.meta({ alias: ["q", "Q"], env: "CUSTOM_VALUE" })),
+        ),
+      }),
+    ],
+  ])("uses wrapped metadata for aliases and environment fallback with %s", async (_name, args) => {
+    const command = defineCommand({ args });
+    const env = { CUSTOM_VALUE: "environment" };
+    await expect(parseCommandArgs(command, [], undefined, env)).resolves.toMatchObject({
+      args: { value: "environment" },
+    });
+    for (const alias of ["-q", "-Q"]) {
+      await expect(
+        parseCommandArgs(command, [alias, "cli"], undefined, env),
+      ).resolves.toMatchObject({
+        args: { value: "cli" },
+      });
+    }
   });
 
   it("parses names, kebab names, aliases, equals values, flags, and negation", async () => {
     await expect(
       parseCommandArgs(command, ["-R", "a/b", "--dry-run", "--no-verbose", "one"]),
     ).resolves.toMatchObject({
-      args: { repo: "a/b", dryRun: true, verbose: false, _: ["one"] },
+      args: { repo: "a/b", dryRun: true, verbose: false, positionals: ["one"] },
     });
     await expect(
       parseCommandArgs(command, ["--repo=a/b", "--dryRun", "one"]),
-    ).resolves.toMatchObject({ args: { repo: "a/b", dryRun: true, _: ["one"] } });
+    ).resolves.toMatchObject({ args: { repo: "a/b", dryRun: true, positionals: ["one"] } });
     await expect(parseCommandArgs(command, ["-Q", "a/b", "-D", "one"])).resolves.toMatchObject({
-      args: { repo: "a/b", dryRun: true, _: ["one"] },
+      args: { repo: "a/b", dryRun: true, positionals: ["one"] },
     });
     await expect(parseCommandArgs(command, ["-Rowner/repo", "one"])).resolves.toMatchObject({
-      args: { repo: "owner/repo", _: ["one"] },
+      args: { repo: "owner/repo", positionals: ["one"] },
     });
     await expect(parseCommandArgs(command, ["-Qowner/repo", "one"])).resolves.toMatchObject({
-      args: { repo: "owner/repo", _: ["one"] },
+      args: { repo: "owner/repo", positionals: ["one"] },
     });
   });
 
@@ -48,14 +83,14 @@ describe("argument parsing and validation", () => {
     ]);
     expect(result.extraArgs).toEqual(["--model", "overflow", "--temperature=1"]);
     expect(result.passthrough).toEqual(["--sandbox"]);
-    expect(result.args).toMatchObject({ _: ["one", "two"] });
+    expect(result.args).toMatchObject({ positionals: ["one", "two"] });
   });
 
   it("collects trailing values after fixed positionals and preserves boundaries", async () => {
     const variadic = defineCommand({
       allowUnknownArgs: true,
       args: z.object({
-        _: z.tuple(
+        positionals: z.tuple(
           [z.string().optional()],
           z.string().transform((value) => value.toUpperCase()),
         ),
@@ -64,35 +99,41 @@ describe("argument parsing and validation", () => {
     await expect(
       parseCommandArgs(variadic, ["dest", "a", "--unknown", "b", "--", "c"]),
     ).resolves.toEqual({
-      args: { _: ["dest", "A", "B"] },
+      args: { positionals: ["dest", "A", "B"] },
       extraArgs: ["--unknown"],
       passthrough: ["c"],
     });
     await expect(parseCommandArgs(variadic, [])).resolves.toEqual({
-      args: { _: [] },
+      args: { positionals: [] },
       extraArgs: [],
       passthrough: [],
     });
-    await expect(parseCommandArgs(variadic, ["--_", "one"])).resolves.toEqual({
-      args: { _: ["one"] },
-      extraArgs: ["--_"],
+    await expect(parseCommandArgs(variadic, ["--positionals", "one"])).resolves.toEqual({
+      args: { positionals: ["one"] },
+      extraArgs: ["--positionals"],
       passthrough: [],
     });
   });
 
   it("supplies an empty array through optional and default wrappers", async () => {
-    const optional = defineCommand({ args: z.object({ _: z.array(z.string()).optional() }) });
-    const defaulted = defineCommand({
-      args: z.object({ _: z.array(z.string()).default(["fallback"]) }),
+    const optional = defineCommand({
+      args: z.object({ positionals: z.array(z.string()).optional() }),
     });
-    await expect(parseCommandArgs(optional, [])).resolves.toMatchObject({ args: { _: [] } });
-    await expect(parseCommandArgs(defaulted, [])).resolves.toMatchObject({ args: { _: [] } });
+    const defaulted = defineCommand({
+      args: z.object({ positionals: z.array(z.string()).default(["fallback"]) }),
+    });
+    await expect(parseCommandArgs(optional, [])).resolves.toMatchObject({
+      args: { positionals: [] },
+    });
+    await expect(parseCommandArgs(defaulted, [])).resolves.toMatchObject({
+      args: { positionals: [] },
+    });
   });
 
   it("reports positional labels while retaining the full element path", async () => {
     const variadic = defineCommand({
       args: z.object({
-        _: z.tuple(
+        positionals: z.tuple(
           [z.coerce.number().meta({ title: "COUNT" })],
           z.coerce.number().int().positive().meta({ title: "VALUE" }),
         ),
@@ -107,15 +148,15 @@ describe("argument parsing and validation", () => {
       expect.arrayContaining([
         expect.objectContaining({
           arg: "<COUNT>",
-          issue: expect.objectContaining({ path: ["_", 0] }),
+          issue: expect.objectContaining({ path: ["positionals", 0] }),
         }),
         expect.objectContaining({
           arg: "<VALUE...>",
-          issue: expect.objectContaining({ path: ["_", 2] }),
+          issue: expect.objectContaining({ path: ["positionals", 2] }),
         }),
         expect.objectContaining({
           arg: "<VALUE...>",
-          issue: expect.objectContaining({ path: ["_", 3] }),
+          issue: expect.objectContaining({ path: ["positionals", 3] }),
         }),
       ]),
     );
@@ -123,7 +164,7 @@ describe("argument parsing and validation", () => {
 
   it("labels untitled positionals by position", async () => {
     const untitled = defineCommand({
-      args: z.object({ _: z.tuple([z.string(), z.coerce.number()], z.coerce.number()) }),
+      args: z.object({ positionals: z.tuple([z.string(), z.coerce.number()], z.coerce.number()) }),
     });
     const error = await parseCommandArgs(untitled, ["a", "x", "y"]).catch(
       (caught: unknown) => caught,
@@ -137,7 +178,7 @@ describe("argument parsing and validation", () => {
   it("supports zod/mini variadic arrays", async () => {
     const variadic = defineCommand({
       args: mini.object({
-        _: mini.array(
+        positionals: mini.array(
           mini.pipe(
             mini.string(),
             mini.transform((value) => value.toUpperCase()),
@@ -146,7 +187,7 @@ describe("argument parsing and validation", () => {
       }),
     });
     await expect(parseCommandArgs(variadic, ["a", "b"])).resolves.toEqual({
-      args: { _: ["A", "B"] },
+      args: { positionals: ["A", "B"] },
       extraArgs: [],
       passthrough: [],
     });
@@ -155,8 +196,7 @@ describe("argument parsing and validation", () => {
   it("preserves grouped unknown options once, including mixed groups", async () => {
     const grouped = defineCommand({
       allowUnknownArgs: true,
-      args: z.object({ alpha: z.boolean().default(false) }),
-      argOptions: { alpha: { alias: "a" } },
+      args: z.object({ alpha: z.boolean().default(false).meta({ alias: "a" }) }),
     });
     await expect(parseCommandArgs(grouped, ["-ab", "-xy", "tail"])).resolves.toEqual({
       args: { alpha: true },
@@ -248,8 +288,11 @@ describe("argument parsing and validation", () => {
   it("runs async validation and maps every issue to CLI names", async () => {
     const validated = defineCommand({
       args: z.object({
-        repo: z.string().regex(/^[^/]+\/[^/]+$/),
-        _: z.tuple([
+        repo: z
+          .string()
+          .regex(/^[^/]+\/[^/]+$/)
+          .meta({ valueName: "OWNER/REPO" }),
+        positionals: z.tuple([
           z.coerce
             .number()
             .int()
@@ -257,7 +300,6 @@ describe("argument parsing and validation", () => {
             .meta({ title: "PR" }),
         ]),
       }),
-      argOptions: { repo: { valueName: "OWNER/REPO" } },
     });
     const error = await parseCommandArgs(validated, ["--repo", "bad", "0"]).catch(
       (caught: unknown) => caught,

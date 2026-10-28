@@ -1,6 +1,6 @@
 # Design A: コマンド経路から環境変数名を決める
 
-推奨案。名前付きオプションごとに、コマンドの経路とオプション名から環境変数名を1つ決める。`argOptions.env` で名前の差し替えと無効化ができる。
+推奨案。名前付きオプションごとに、コマンドの経路とオプション名から環境変数名を1つ決める。スキーマの `.meta({ env })` で名前の差し替えと無効化ができる。
 
 ## Example
 
@@ -9,13 +9,9 @@ const deploy = defineCommand({
   args: z.object({
     target: z.string(),
     dryRun: z.boolean().default(false),
-    token: z.string(),
-    debug: z.boolean().optional(),
+    token: z.string().meta({ env: "GITHUB_TOKEN" }),
+    debug: z.boolean().optional().meta({ env: false }),
   }),
-  argOptions: {
-    token: { env: "GITHUB_TOKEN" },
-    debug: { env: false },
-  },
   run({ args }) {},
 });
 
@@ -62,8 +58,8 @@ await runCommand(main, ["deploy"], {
 - 変数名は経路の各要素を大文字の snake case にして `_` で連結する。ルートは `name`、サブコマンドは `subCommands` のキー、最後がオプションのキーである。
 - 変換は既存の `kebabCase` の後に英数字以外を `_` に置き換え、大文字にする。`my-cli` は `MY_CLI`、`dryRun` は `DRY_RUN`、`s3Bucket` は `S3_BUCKET` になる。
 - サブコマンドは `child.name` ではなく `subCommands` のキー、つまり利用者が入力する名前を使う。現在の `namedChild` は `child.name` を優先するので、両者が異なる場合に表示名と変数名がずれる。別名（0002）を導入しても変数名は正規名から作る。
-- ルートに `name` がなければ自動の変数名を作らない。プレフィックスなしの `TARGET` や `PATH` のような名前を読むと、無関係な環境変数でオプションが変わるためである。`argOptions.env` で明示した名前は読む。
-- `argOptions.env` に文字列を書くと、自動の名前を置き換える。追加ではないので、1つのオプションに対応する変数は常に1つである。`false` を書くと無効化する。
+- ルートに `name` がなければ自動の変数名を作らない。プレフィックスなしの `TARGET` や `PATH` のような名前を読むと、無関係な環境変数でオプションが変わるためである。スキーマの `.meta({ env })` で明示した名前は読む。
+- スキーマの `.meta({ env })` に文字列を書くと、自動の名前を置き換える。追加ではないので、1つのオプションに対応する変数は常に1つである。`false` を書くと無効化する。
 
 ## 元の方針からの変更
 
@@ -84,12 +80,12 @@ await runCommand(main, ["deploy"], {
 - 値を取るオプションには、文字列をそのまま渡す。数値などへの変換は CLI 引数と同じく Zod スキーマ（`z.coerce.number()` など）が行う。
 - boolean のオプションは、CLI の `--flag=true|false` と同じく `true` と `false` だけを受け付ける。それ以外は `expects true or false` の検証エラーにする。
 - 空文字は設定済みとして扱う。値を取るオプションでは `--name=` と同じく `""` を Zod に渡し、boolean では検証エラーにする。未設定（`undefined`）だけが既定値へ進む。
-- 配列やオブジェクトのオプションは、CLI 上の表現が 0007 で決まるまで自動の変数名を作らない。`argOptions.env` を指定した場合は `defineCommand` が `TypeError` にする。
+- 配列やオブジェクトのオプションは、CLI 上の表現が 0007 で決まるまで自動の変数名を作らない。スキーマの `.meta({ env })` を指定した場合は `defineCommand` が `TypeError` にする。
 - 位置引数とパススルー引数は対象外である。
 
 ## 秘匿
 
-hacksh はヘルプ・`UsageSummary`・自分で組み立てるエラー（`expects true or false` など）に変数名だけを含め、値を含めない。zod 4.6.7 の標準メッセージは入力値を含まない（`z.coerce.number()`・`z.enum()`・`z.string().min()` の不正値で確認済み）。作者が `refine` などで値を含むメッセージを書いた場合は作者の責任とし、hacksh は加工しない。機密項目を宣言する `argOptions.secret` は、この契約で足りない事例が出るまで作らない。
+hacksh はヘルプ・`UsageSummary`・自分で組み立てるエラー（`expects true or false` など）に変数名だけを含め、値を含めない。zod 4.6.7 の標準メッセージは入力値を含まない（`z.coerce.number()`・`z.enum()`・`z.string().min()` の不正値で確認済み）。作者が `refine` などで値を含むメッセージを書いた場合は作者の責任とし、hacksh は加工しない。機密項目を宣言する `secret` メタデータ は、この契約で足りない事例が出るまで作らない。
 
 ## 互換性
 
@@ -97,7 +93,7 @@ hacksh はヘルプ・`UsageSummary`・自分で組み立てるエラー（`expe
 
 ## 比較: 明示した項目だけを読む案
 
-元の issue の方針で、`argOptions.env` に名前を書いたオプションだけを環境変数から読む。
+元の issue の方針で、スキーマの `.meta({ env })` に名前を書いたオプションだけを環境変数から読む。
 
 - 利点: 定義を読めば読む変数がすべて分かる。既存の CLI の動作は変わらない。衝突の検査も単純になる。
 - 欠点: 環境変数で指定したいオプションごとに名前を書く必要がある。名前の付け方が CLI ごとにばらつき、今回の要望である「オプションを定義すれば環境変数でも指定できる」を満たさない。
@@ -117,6 +113,6 @@ Design A でも `env: false` と名前の差し替えにより、この案と同
 - 衝突は呼び出し時に、解決した経路の全セグメントについて検査する。0004 の遅延定義と両立させるためである。呼ばれない経路の衝突は、その経路を呼ぶまで見つからない。
 - boolean は `true` と `false` だけを受け付ける。CLI の `--flag=true|false` と同じ規則にするためである。
 - `envPrefix` は作らない。ルートの `name` を変えると変数名も変わる。
-- 先頭が数字になる名前もそのまま読む。シェルで `export` できない名前になる場合は、`argOptions.env` で差し替える。
+- 先頭が数字になる名前もそのまま読む。シェルで `export` できない名前になる場合は、スキーマの `.meta({ env })` で差し替える。
 - 1つのオプションに対応する変数名は1つに限る。
 - `parseArgs` は第3引数の `env` を渡したときだけ環境変数を読み、ルート名に `command.name` を使う。

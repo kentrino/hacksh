@@ -25,7 +25,7 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
   },
   pack: {
-    entry: ["src/index.ts"],
+    entry: ["src/index.ts", "src/printer-api.ts"],
     format: ["esm"],
     platform: "node",
     dts: true,

@@ -3,9 +3,9 @@ import { z } from "zod";
 import * as mini from "zod/mini";
 import {
   defineCommand,
+  runCommand,
   HackshExitError,
   HackshPromptError,
-  createPrettyPrinter,
   parseArgs,
   renderUsage,
   showUsage,
@@ -14,7 +14,6 @@ import {
   type HackshExecError,
   type Exec,
   type ExecCommand,
-  type ExecPrintEvent,
   type ExecFailure,
   type ExecFailureReason,
   type ExecOptions,
@@ -22,8 +21,17 @@ import {
   type ExecReturn,
   type ExecSkipped,
   type ExecSuccess,
-  type Printer,
   type Logger,
+  type RunCommandOptions,
+  type RunMainOptions,
+  type CommandDef,
+  type ShowUsageOptions,
+} from "./index.ts";
+import type { Prompter } from "./index.ts";
+import {
+  createPrettyPrinter,
+  type ExecPrintEvent,
+  type Printer,
   type HackshErrorKind,
   type LogKind,
   type LogLevel,
@@ -36,15 +44,119 @@ import {
   type PrintEvent,
   type PromptPrintEvent,
   type PromptState,
-  type RunCommandOptions,
-  type RunMainOptions,
   type TerminalInput,
   type TerminalOutput,
-  type ArgOptions,
-  type CommandDef,
-  type ShowUsageOptions,
   type UsageOptionSummary,
-} from "./index.ts";
+} from "./printer-api.ts";
+
+describe("public command execution API", () => {
+  it("preserves synchronous and asynchronous handler results", async () => {
+    const schema = z.object({ count: z.coerce.number() });
+    const sync = defineCommand({ args: schema, run: ({ args }) => args.count });
+    expectTypeOf(sync).toEqualTypeOf<CommandDef<typeof schema, number, {}>>();
+    const result = runCommand(sync, ["--count", "3"]);
+    expectTypeOf(result).toEqualTypeOf<Promise<number | undefined>>();
+    await expect(result).resolves.toBe(3);
+
+    const asyncCommand = defineCommand({
+      async run() {
+        return { status: "complete" as const };
+      },
+    });
+    const asyncResult = runCommand(asyncCommand, []);
+    expectTypeOf(asyncResult).toEqualTypeOf<Promise<{ status: "complete" } | undefined>>();
+    await expect(asyncResult).resolves.toEqual({ status: "complete" });
+  });
+
+  it("includes every routed result without inventing a result for routing-only commands", async () => {
+    const leaf = defineCommand({
+      async run() {
+        return true;
+      },
+    });
+    const group = defineCommand({
+      subCommands: { leaf },
+      run: () => 42,
+    });
+    const root = defineCommand({
+      subCommands: { group },
+      run: () => "root",
+    });
+    const result = runCommand(root, ["group", "leaf"]);
+    expectTypeOf(result).toEqualTypeOf<Promise<string | number | boolean | undefined>>();
+    await expect(result).resolves.toBe(true);
+    await expect(runCommand(root, ["group"])).resolves.toBe(42);
+    await expect(runCommand(root, [])).resolves.toBe("root");
+
+    const routingOnly = defineCommand({ subCommands: { group } });
+    const routedResult = runCommand(routingOnly, ["group", "leaf"]);
+    expectTypeOf(routedResult).toEqualTypeOf<Promise<number | boolean | undefined>>();
+    await expect(routedResult).resolves.toBe(true);
+
+    const inline = defineCommand({
+      subCommands: { group: { subCommands: { leaf: { run: () => 7 } } } },
+    });
+    const inlineResult = runCommand(inline, ["group", "leaf"]);
+    expectTypeOf(inlineResult).toEqualTypeOf<Promise<number | undefined>>();
+    await expect(inlineResult).resolves.toBe(7);
+
+    const nestedDefinition = defineCommand({
+      run: () => "root",
+      subCommands: { group: defineCommand({ subCommands: { leaf } }) },
+    });
+    const nestedResult = runCommand(nestedDefinition, ["group", "leaf"]);
+    expectTypeOf(nestedResult).toEqualTypeOf<Promise<string | boolean | undefined>>();
+    await expect(nestedResult).resolves.toBe(true);
+  });
+
+  it("preserves void handlers and includes undefined for builtins", async () => {
+    const sync = defineCommand({ run() {} });
+    const asyncCommand = defineCommand({ async run() {} });
+    const syncResult = runCommand(sync, []);
+    const asyncResult = runCommand(asyncCommand, []);
+    expectTypeOf(syncResult).toEqualTypeOf<Promise<void | undefined>>();
+    expectTypeOf(asyncResult).toEqualTypeOf<Promise<void | undefined>>();
+    await expect(syncResult).resolves.toBeUndefined();
+    await expect(asyncResult).resolves.toBeUndefined();
+
+    const command = defineCommand({ version: "1.0.0", run: () => 42 });
+    const events: PrintEvent[] = [];
+    const printer: Printer = {
+      print(event) {
+        events.push(event);
+      },
+    };
+    const help = runCommand(command, ["--help"], { printer });
+    expectTypeOf(help).toEqualTypeOf<Promise<number | undefined>>();
+    await expect(help).resolves.toBeUndefined();
+    await expect(runCommand(command, ["--version"], { printer })).resolves.toBeUndefined();
+    expect(events.map(({ type }) => type)).toEqual(["usage", "version"]);
+  });
+
+  it("exposes validated args and separate invocation input channels", async () => {
+    const command = defineCommand({
+      allowUnknownArgs: true,
+      args: z.object({ count: z.coerce.number() }),
+      run(context) {
+        expectTypeOf(context.args).toEqualTypeOf<{ count: number }>();
+        expectTypeOf(context.input).toEqualTypeOf<{
+          argv: string[];
+          unknown: string[];
+          passthrough: string[];
+        }>();
+        expectTypeOf<
+          Extract<keyof typeof context, "cmd" | "rawArgs" | "extraArgs" | "passthrough">
+        >().toEqualTypeOf<never>();
+        return { args: context.args, input: context.input };
+      },
+    });
+    const argv = ["--count", "2", "--unknown", "--", "--forwarded"];
+    await expect(runCommand(command, argv)).resolves.toEqual({
+      args: { count: 2 },
+      input: { argv, unknown: ["--unknown"], passthrough: ["--forwarded"] },
+    });
+  });
+});
 
 describe("public parsing API", () => {
   it("returns only validated zod output and awaits async validation", async () => {
@@ -134,7 +246,6 @@ describe("public parsing API", () => {
     expectTypeOf<Parameters<typeof parseArgs>[2]>().toEqualTypeOf<
       { readonly env?: Readonly<Record<string, string | undefined>> } | undefined
     >();
-    expectTypeOf<ArgOptions["env"]>().toEqualTypeOf<string | false | undefined>();
     expectTypeOf<UsageOptionSummary["env"]>().toEqualTypeOf<string | undefined>();
   });
 });
@@ -142,7 +253,7 @@ describe("public parsing API", () => {
 describe("public logger API", () => {
   it("infers logger types on the command context and print event", () => {
     defineCommand({
-      run({ logger }) {
+      run({ logger, prompt }) {
         expectTypeOf(logger).toEqualTypeOf<Logger>();
         expectTypeOf(logger.category).toEqualTypeOf<readonly string[]>();
         expectTypeOf<Logger["info"]>().parameter(0).toEqualTypeOf<string>();
@@ -150,14 +261,16 @@ describe("public logger API", () => {
         expectTypeOf<Logger["error"]>().parameter(0).toEqualTypeOf<string | Error>();
         expectTypeOf(logger.with({ requestId: "1" })).toEqualTypeOf<Logger>();
         expectTypeOf(logger.getChild("child")).toEqualTypeOf<Logger>();
+        expectTypeOf<Extract<keyof Logger, "select" | "confirm" | "text">>().toEqualTypeOf<never>();
+        expectTypeOf(prompt).toEqualTypeOf<Prompter>();
         expectTypeOf(
-          logger.select({
+          prompt.select({
             message: "Environment",
             options: [{ value: "staging" }, { value: "production" }] as const,
           }),
         ).toEqualTypeOf<Promise<"staging" | "production">>();
-        expectTypeOf(logger.confirm({ message: "Continue?" })).toEqualTypeOf<Promise<boolean>>();
-        expectTypeOf(logger.text({ message: "Name" })).toEqualTypeOf<Promise<string>>();
+        expectTypeOf(prompt.confirm({ message: "Continue?" })).toEqualTypeOf<Promise<boolean>>();
+        expectTypeOf(prompt.text({ message: "Name" })).toEqualTypeOf<Promise<string>>();
       },
     });
 
@@ -363,6 +476,7 @@ describe("public usage API", () => {
 
     expectTypeOf<RunCommandOptions["printer"]>().toEqualTypeOf<Printer | undefined>();
     expectTypeOf<RunMainOptions["printer"]>().toEqualTypeOf<Printer | undefined>();
+    expectTypeOf<ShowUsageOptions["printer"]>().toEqualTypeOf<Printer>();
     await showUsage(command, { printer, stream: "stderr" });
 
     expect(print).toHaveBeenCalledWith({
@@ -401,8 +515,6 @@ describe("public usage API", () => {
       stderr?: { write(text: string): unknown };
     }>();
     expectTypeOf(createPrettyPrinter).parameter(0).toEqualTypeOf<PrettyPrinterOptions>();
-    expectTypeOf<ShowUsageOptions["output"]>().toEqualTypeOf<OutputPreference | undefined>();
-    expectTypeOf<ShowUsageOptions["unicode"]>().toEqualTypeOf<boolean | undefined>();
   });
 
   it("omits hidden subcommands from parent and nested listings", async () => {
@@ -425,7 +537,7 @@ describe("public usage API", () => {
       },
     });
 
-    const usage = await renderUsage(command);
+    const usage = renderUsage(command);
     expect(usage).toContain("USAGE tool [OPTIONS] <COMMAND>");
     expect(usage).toContain("visible  Shown by default");
     expect(usage).toContain("explicit  Explicitly shown");
@@ -434,13 +546,15 @@ describe("public usage API", () => {
 
     const written: string[] = [];
     await showUsage(command, {
-      write(text) {
-        written.push(text);
+      printer: {
+        print(event) {
+          if (event.type === "usage") written.push(event.text);
+        },
       },
     });
     expect(written).toEqual([usage]);
 
-    const nestedUsage = await renderUsage(group);
+    const nestedUsage = renderUsage(group);
     expect(nestedUsage).toContain("nestedVisible  Nested public command");
     expect(nestedUsage).not.toContain("nestedHidden");
   });
@@ -453,7 +567,7 @@ describe("public usage API", () => {
       },
     });
 
-    const usage = await renderUsage(command);
+    const usage = renderUsage(command);
     expect(usage).toContain("USAGE tool [OPTIONS] <COMMAND>");
     expect(usage).not.toContain("COMMANDS");
     expect(usage).not.toContain("internal");
@@ -463,42 +577,44 @@ describe("public usage API", () => {
     [
       "zod",
       z.object({
-        _: z.tuple(
-          [z.enum(["small", "large"]).describe("Item size").meta({ title: "SIZE" })],
-          z.enum(["txt", "md"]).describe("Input files").meta({ title: "INPUT" }),
+        positionals: z.tuple(
+          [z.enum(["small", "large"]).meta({ title: "SIZE", description: "Item size" })],
+          z.enum(["txt", "md"]).meta({ title: "INPUT", description: "Input files" }),
         ),
-        format: z.enum(["json", "yaml"]).optional().describe("Output format"),
-        overwrite: z.boolean().default(false).describe("Replace existing files"),
+        format: z
+          .enum(["json", "yaml"])
+          .optional()
+          .meta({ description: "Output format", valueName: "FORMAT" }),
+        overwrite: z.boolean().default(false).meta({ description: "Replace existing files" }),
       }),
     ],
     [
       "zod/mini",
       mini.object({
-        _: mini.tuple(
+        positionals: mini.tuple(
           [
             mini
               .enum(["small", "large"])
-              .check(mini.describe("Item size"), mini.meta({ title: "SIZE" })),
+              .check(mini.meta({ description: "Item size" }), mini.meta({ title: "SIZE" })),
           ],
           mini
             .enum(["txt", "md"])
-            .check(mini.describe("Input files"), mini.meta({ title: "INPUT" })),
+            .check(mini.meta({ description: "Input files" }), mini.meta({ title: "INPUT" })),
         ),
-        format: mini.optional(mini.enum(["json", "yaml"])).check(mini.describe("Output format")),
+        format: mini
+          .optional(mini.enum(["json", "yaml"]))
+          .check(mini.meta({ description: "Output format", valueName: "FORMAT" })),
         overwrite: mini
           ._default(mini.boolean(), false)
-          .check(mini.describe("Replace existing files")),
+          .check(mini.meta({ description: "Replace existing files" })),
       }),
     ],
   ])("renders enum choices and display metadata with %s", async (_name, args) => {
     const command = defineCommand({
       name: "convert",
       args,
-      argOptions: {
-        format: { valueName: "FORMAT" },
-      },
     });
-    const usage = await renderUsage(command);
+    const usage = renderUsage(command);
     expect(usage).toContain("USAGE convert [OPTIONS] <SIZE> [INPUT...]");
     expect(usage).toContain("SIZE  Item size (Choices: small, large) (Required)");
     expect(usage).toContain("INPUT...  Input files (Choices: txt, md)");
@@ -547,7 +663,7 @@ describe("public usage API", () => {
     ["zod", z.object({ level: z.enum({ A: 0, B: 1, 0: "A", 1: "B" }) })],
     ["zod/mini", mini.object({ level: mini.enum({ A: 0, B: 1, 0: "A", 1: "B" }) })],
   ])("omits numeric enum reverse mappings from %s help", async (_name, args) => {
-    const usage = await renderUsage(defineCommand({ name: "tool", args }));
+    const usage = renderUsage(defineCommand({ name: "tool", args }));
     expect(usage).toContain("--level=<level>  (Choices: 0, 1) (Required)");
     expect(usage).not.toContain("A, B");
   });
@@ -556,20 +672,20 @@ describe("public usage API", () => {
     const command = defineCommand({
       name: "copy",
       args: z.object({
-        _: z.tuple(
+        positionals: z.tuple(
           [z.string().describe("Output directory").meta({ title: "DESTINATION" })],
           z.string().describe("Input files").meta({ title: "FILES" }),
         ),
       }),
     });
-    const usage = await renderUsage(command);
+    const usage = renderUsage(command);
     expect(usage).toContain("USAGE copy [OPTIONS] <DESTINATION> [FILES...]");
     expect(usage).toContain("FILES...  Input files");
     expect(usage).not.toContain("OPTIONS\n");
-    expect(usage).not.toContain("--_");
+    expect(usage).not.toContain("--positionals");
   });
 
-  it("shares rendering, supports async writers, and keeps rendering side-effect free", async () => {
+  it("shares rendering, awaits async printers, and keeps rendering synchronous and side-effect free", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const exit = vi.spyOn(process, "exit");
@@ -579,8 +695,8 @@ describe("public usage API", () => {
     });
 
     const rendered = renderUsage(command);
-    expectTypeOf(rendered).toEqualTypeOf<Promise<string>>();
-    const text = await rendered;
+    expectTypeOf(rendered).toEqualTypeOf<string>();
+    const text = rendered;
     expect(text).toContain("USAGE tool [OPTIONS]");
     expect(log).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
@@ -588,40 +704,16 @@ describe("public usage API", () => {
 
     const written: string[] = [];
     const result = showUsage(command, {
-      async write(value) {
-        await Promise.resolve();
-        written.push(value);
+      printer: {
+        async print(event) {
+          await Promise.resolve();
+          if (event.type === "usage") written.push(event.text);
+        },
       },
     });
     expectTypeOf(result).toEqualTypeOf<Promise<void>>();
     await result;
     expect(written).toEqual([text]);
-  });
-
-  it("uses automatic pretty output for standalone help", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    await showUsage(defineCommand({ name: "tool" }), { env: {} });
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("◆  tool\n│\n│  USAGE tool"));
-  });
-
-  it.each([
-    ["CI", { CI: "1" }, undefined],
-    ["HACKSH_OUTPUT", { HACKSH_OUTPUT: "json" }, "pretty"],
-  ] as const)("selects standalone JSON help through %s", async (_name, env, output) => {
-    const stdout: string[] = [];
-    await showUsage(defineCommand({ name: "tool" }), {
-      env,
-      output,
-      stdout: { isTTY: true, write: (text) => void stdout.push(text) },
-    });
-
-    expect(stdout).toHaveLength(1);
-    expect(JSON.parse(stdout[0]!)).toMatchObject({
-      type: "usage",
-      usage: { name: "tool", synopsis: "tool [OPTIONS]" },
-      stream: "stdout",
-    });
-    expect(stdout[0]).not.toContain(`${String.fromCodePoint(27)}[`);
   });
 
   it.each(["NO_COLOR", "CI"])(
@@ -632,11 +724,13 @@ describe("public usage API", () => {
         name: "tool",
         args: z.object({ value: z.string().describe("A value") }),
       });
-      const rendered = await renderUsage(command);
+      const rendered = renderUsage(command);
       const written: string[] = [];
       await showUsage(command, {
-        write(text) {
-          written.push(text);
+        printer: {
+          print(event) {
+            if (event.type === "usage") written.push(event.text);
+          },
         },
       });
       expect(rendered).not.toContain(`${String.fromCodePoint(27)}[`);

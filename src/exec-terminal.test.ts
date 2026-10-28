@@ -6,7 +6,8 @@ import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { summarizeError } from "./errors.ts";
 import { createExec } from "./exec.ts";
-import { defineCommand, HackshExecError, runCommand, type PrintEvent } from "./index.ts";
+import { defineCommand, HackshExecError, runCommand } from "./index.ts";
+import type { PrintEvent } from "./printer-api.ts";
 import { TerminalLock } from "./terminal.ts";
 
 const node = process.execPath;
@@ -478,8 +479,8 @@ describe("exec terminal use", () => {
     const input = new TtyInput();
     const events: PrintEvent[] = [];
     const command = defineCommand({
-      async run({ exec, logger }) {
-        const pendingPrompt = logger.text({ message: "Name" });
+      async run({ exec, prompt }) {
+        const pendingPrompt = prompt.text({ message: "Name" });
         const captured = await exec(node, script("process.stdout.write('beside-prompt')"));
         expect(captured.stdout).toBe("beside-prompt");
         const duringPrompt = await exec(node, markerScript(marker), {
@@ -504,7 +505,7 @@ describe("exec terminal use", () => {
         );
         const pid = Number(await waitForFile(pidFile));
         try {
-          await expect(logger.text({ message: "Later" })).rejects.toMatchObject({
+          await expect(prompt.text({ message: "Later" })).rejects.toMatchObject({
             name: "HackshPromptError",
             reason: "overlapping",
             message: "A command is using the terminal",

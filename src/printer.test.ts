@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
-  consolePrinter,
   createJsonPrinter,
   createPrettyPrinter,
-  createStreamPrinter,
   resolveOutputMode,
   type PrintEvent,
-} from "./index.ts";
+} from "./printer-api.ts";
 
 function memoryWriters() {
   const stdout: string[] = [];
@@ -416,21 +414,6 @@ describe("pretty printer", () => {
   });
 });
 
-describe("undecorated compatibility printers", () => {
-  it("keeps consolePrinter and createStreamPrinter free of pretty decoration", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const streamOutput = memoryWriters();
-    const event: PrintEvent = { type: "version", version: "1.2.3" };
-
-    void consolePrinter.print(event);
-    void createStreamPrinter(streamOutput.writers).print(event);
-
-    expect(log).toHaveBeenCalledWith("1.2.3");
-    expect(streamOutput.stdout).toEqual(["1.2.3\n"]);
-    expect(streamOutput.stderr).toEqual([]);
-  });
-});
-
 describe("JSON printer", () => {
   it("writes one parseable, undecorated line per semantic event to its documented stream", () => {
     const stdout: string[] = [];
@@ -682,14 +665,6 @@ describe("exec events", () => {
     expect(output.stderr).toEqual(["$  git status\n"]);
   });
 
-  it("writes an undecorated dollar line through the stream printer", () => {
-    const output = memoryWriters();
-    void createStreamPrinter(output.writers).print(event);
-
-    expect(output.stdout).toEqual([]);
-    expect(output.stderr).toEqual(['$ git commit -m "hello world"\n']);
-  });
-
   it("marks a planned command with a hash and a started command with a dollar", () => {
     const output = memoryWriters();
     const skip = { ...event, phase: "skip" as const };
@@ -699,10 +674,6 @@ describe("exec events", () => {
     const ascii = memoryWriters();
     void createPrettyPrinter({ color: false, unicode: false, ...ascii.writers }).print(skip);
     expect(ascii.stderr).toEqual(['#  git commit -m "hello world"\n|    cwd: /repo\n']);
-
-    const stream = memoryWriters();
-    void createStreamPrinter(stream.writers).print(skip);
-    expect(stream.stderr).toEqual(['# git commit -m "hello world"\n']);
 
     const json = memoryWriters();
     void createJsonPrinter(json.writers).print(skip);

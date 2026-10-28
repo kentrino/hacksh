@@ -4,8 +4,9 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, expectTypeOf, it } from "vite-plus/test";
 import { HackshPromptError } from "./errors.ts";
-import { createLogger } from "./logger.ts";
-import { createPrintQueue, type PrintEvent, type Printer } from "./printer.ts";
+import { PromptController } from "./prompts.ts";
+import { createPrintQueue } from "./printer.ts";
+import type { PrintEvent } from "./printer-api.ts";
 import { TerminalLock } from "./terminal.ts";
 import { defineCommand } from "./command.ts";
 import { runCommand } from "./run.ts";
@@ -33,8 +34,8 @@ describe("interactive prompts", () => {
     const input = new TestInput();
     const events: PrintEvent[] = [];
     const command = defineCommand({
-      async run({ logger }) {
-        const value = await logger.select({
+      async run({ prompt }) {
+        const value = await prompt.select({
           message: "Environment",
           options: [
             { value: "staging", hint: "safe" },
@@ -71,9 +72,9 @@ describe("interactive prompts", () => {
     const input = new TestInput();
     const events: PrintEvent[] = [];
     const command = defineCommand({
-      async run({ logger }) {
-        const confirmed = await logger.confirm({ message: "Continue?", initialValue: true });
-        const text = await logger.text({
+      async run({ prompt }) {
+        const confirmed = await prompt.confirm({ message: "Continue?", initialValue: true });
+        const text = await prompt.text({
           message: "Name",
           placeholder: "three letters",
           validate: (value) => (value.length < 3 ? "Too short" : undefined),
@@ -113,9 +114,9 @@ describe("interactive prompts", () => {
   it("accepts f/F, ignores function keys, and removes a full Unicode code point", async () => {
     const input = new TestInput();
     const command = defineCommand({
-      async run({ logger }) {
-        const letters = await logger.text({ message: "Letters" });
-        const unicode = await logger.text({ message: "Unicode" });
+      async run({ prompt }) {
+        const letters = await prompt.text({ message: "Letters" });
+        const unicode = await prompt.text({ message: "Unicode" });
         return { letters, unicode };
       },
     });
@@ -134,9 +135,9 @@ describe("interactive prompts", () => {
   it("preserves pasted type-ahead for the next prompt", async () => {
     const input = new TestInput();
     const command = defineCommand({
-      async run({ logger }) {
-        const confirmed = await logger.confirm({ message: "Continue?" });
-        const name = await logger.text({ message: "Name" });
+      async run({ prompt }) {
+        const confirmed = await prompt.confirm({ message: "Continue?" });
+        const name = await prompt.text({ message: "Name" });
         return { confirmed, name };
       },
     });
@@ -156,7 +157,7 @@ describe("interactive prompts", () => {
     const input = new TestInput();
     const result = runCommand(
       defineCommand({
-        run: ({ logger }) => logger.text({ message: "Value", validate: () => "" }),
+        run: ({ prompt }) => prompt.text({ message: "Value", validate: () => "" }),
       }),
       [],
       {
@@ -175,8 +176,8 @@ describe("interactive prompts", () => {
   it("always rejects noninteractive prompts, including prompts with defaults", async () => {
     const input = new TestInput();
     const command = defineCommand({
-      async run({ logger }) {
-        return logger.confirm({ message: "Continue?", initialValue: true });
+      async run({ prompt }) {
+        return prompt.confirm({ message: "Continue?", initialValue: true });
       },
     });
 
@@ -201,7 +202,7 @@ describe("interactive prompts", () => {
     ] as const) {
       const input = new TestInput();
       const events: PrintEvent[] = [];
-      const command = defineCommand({ run: ({ logger }) => logger.text({ message: "Value" }) });
+      const command = defineCommand({ run: ({ prompt }) => prompt.text({ message: "Value" }) });
       const result = runCommand(command, [], {
         stdin: input,
         stdout: terminalOutput,
@@ -223,7 +224,7 @@ describe("interactive prompts", () => {
     const controller = new AbortController();
     const reason = new Error("stop");
     const result = runCommand(
-      defineCommand({ run: ({ logger }) => logger.text({ message: "Value" }) }),
+      defineCommand({ run: ({ prompt }) => prompt.text({ message: "Value" }) }),
       [],
       {
         stdin: input,
@@ -254,9 +255,9 @@ describe("interactive prompts", () => {
     const reason = new Error("stop");
     const result = runCommand(
       defineCommand({
-        run: ({ logger }) => {
+        run: ({ prompt }) => {
           controller.abort(reason);
-          return logger.confirm({ message: "Continue?" });
+          return prompt.confirm({ message: "Continue?" });
         },
       }),
       [],
@@ -278,8 +279,8 @@ describe("interactive prompts", () => {
     const input = new TestInput();
     const events: PrintEvent[] = [];
     const command = defineCommand({
-      async run({ logger }) {
-        await logger.text({ message: "Cancel me" }).catch((error: unknown) => {
+      async run({ logger, prompt }) {
+        await prompt.text({ message: "Cancel me" }).catch((error: unknown) => {
           expect(error).toMatchObject({ reason: "cancelled" });
         });
         logger.info("first log");
@@ -300,18 +301,18 @@ describe("interactive prompts", () => {
     expect(events[1]).toMatchObject({ type: "prompt", prompt: { status: "closed" } });
   });
 
-  it("rejects overlapping prompts across child and bound loggers", async () => {
+  it("rejects overlapping prompts on the invocation prompter", async () => {
     const input = new TestInput();
     const queue = createPrintQueue({ print: () => undefined });
-    const logger = createLogger(queue.printer, [], {
+    const prompt = new PromptController({
       interactive: true,
       input,
-      printPrompt: (event) => queue.printChecked(event),
+      print: (event) => queue.printChecked(event),
       terminal: new TerminalLock(),
       signal: new AbortController().signal,
     });
-    const first = logger.with({ request: 1 }).text({ message: "First" });
-    await expect(logger.getChild("child").confirm({ message: "Second" })).rejects.toMatchObject({
+    const first = prompt.text({ message: "First" });
+    await expect(prompt.confirm({ message: "Second" })).rejects.toMatchObject({
       reason: "overlapping",
       prompt: { kind: "confirm", message: "Second" },
     });
@@ -322,31 +323,30 @@ describe("interactive prompts", () => {
 
   it("defines invalid options, input errors, and printer errors", async () => {
     const input = new TestInput();
-    const printer: Printer = { print: () => undefined };
     const states: string[] = [];
-    const logger = createLogger(printer, [], {
+    const prompt = new PromptController({
       interactive: true,
       input,
-      printPrompt: async (event) => {
+      print: async (event) => {
         if (event.type === "prompt") states.push(event.prompt.status);
       },
       terminal: new TerminalLock(),
       signal: new AbortController().signal,
     });
-    await expect(logger.select({ message: "Empty", options: [] })).rejects.toMatchObject({
+    await expect(prompt.select({ message: "Empty", options: [] })).rejects.toMatchObject({
       reason: "invalid-options",
     });
     await expect(
-      logger.select({
+      prompt.select({
         message: "Duplicate",
         options: [{ value: "same" }, { value: "same" }],
       }),
     ).rejects.toMatchObject({ reason: "invalid-options" });
 
-    const brokenPrinter = createLogger(printer, [], {
+    const brokenPrinter = new PromptController({
       interactive: true,
       input,
-      printPrompt: async () => Promise.reject(new Error("write failed")),
+      print: async () => Promise.reject(new Error("write failed")),
       terminal: new TerminalLock(),
       signal: new AbortController().signal,
     });
@@ -356,7 +356,7 @@ describe("interactive prompts", () => {
     });
     expect(input.rawModes).toEqual([true, false]);
 
-    const inputFailure = logger.text({ message: "Value" });
+    const inputFailure = prompt.text({ message: "Value" });
     await turn();
     input.emit("error", new Error("read failed"));
     await expect(inputFailure).rejects.toMatchObject({
@@ -368,14 +368,14 @@ describe("interactive prompts", () => {
   });
 
   it("rejects a stdin value without readable-stream operations", async () => {
-    const logger = createLogger({ print: () => undefined }, [], {
+    const prompt = new PromptController({
       interactive: true,
       input: { isTTY: true } as TestInput,
-      printPrompt: async () => undefined,
+      print: async () => undefined,
       terminal: new TerminalLock(),
       signal: new AbortController().signal,
     });
-    await expect(logger.text({ message: "Value" })).rejects.toMatchObject({
+    await expect(prompt.text({ message: "Value" })).rejects.toMatchObject({
       reason: "input-error",
       message: "Interactive input is not a readable stream",
     });
@@ -384,17 +384,17 @@ describe("interactive prompts", () => {
   it("propagates a submitted-state printer failure after cleaning up", async () => {
     const input = new TestInput();
     let calls = 0;
-    const logger = createLogger({ print: () => undefined }, [], {
+    const prompt = new PromptController({
       interactive: true,
       input,
-      printPrompt: async () => {
+      print: async () => {
         calls += 1;
         if (calls === 2) throw new Error("final write failed");
       },
       terminal: new TerminalLock(),
       signal: new AbortController().signal,
     });
-    const result = logger.confirm({ message: "Continue?" });
+    const result = prompt.confirm({ message: "Continue?" });
     await turn();
     input.write("y");
     await expect(result).rejects.toMatchObject({ reason: "printer-error" });
@@ -406,7 +406,7 @@ describe("interactive prompts", () => {
     const input = new TestInput();
     const failure = new Error("printer failed");
     const result = runCommand(
-      defineCommand({ run: ({ logger }) => logger.text({ message: "Value" }) }),
+      defineCommand({ run: ({ prompt }) => prompt.text({ message: "Value" }) }),
       [],
       {
         stdin: input,
@@ -423,10 +423,10 @@ describe("interactive prompts", () => {
     const input = new TestInput();
     const states: string[] = [];
     const failure = new Error("redraw failed");
-    const logger = createLogger({ print: () => undefined }, [], {
+    const prompt = new PromptController({
       interactive: true,
       input,
-      printPrompt: async (event) => {
+      print: async (event) => {
         if (event.type !== "prompt") return;
         states.push(event.prompt.status);
         if (states.length === 2) throw failure;
@@ -434,7 +434,7 @@ describe("interactive prompts", () => {
       terminal: new TerminalLock(),
       signal: new AbortController().signal,
     });
-    const result = logger.text({ message: "Value" });
+    const result = prompt.text({ message: "Value" });
     await turn();
     input.write("a");
 

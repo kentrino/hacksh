@@ -2,7 +2,6 @@ import type { AnyCommandDef } from "./command.ts";
 import { commandEnvPath, optionEnvNames } from "./environment.ts";
 import { summarizeErrors } from "./errors.ts";
 import { aliasList, kebabCase } from "./options.ts";
-import { selectOutputPrinter, type OutputOptions } from "./output.ts";
 import type { Printer, PrintStream } from "./printer.ts";
 import { POSITIONALS_KEY, readArgInfo, readPositionals, schemaShape } from "./schema.ts";
 
@@ -124,12 +123,10 @@ export function summarizeUsage(command: AnyCommandDef): UsageSummary {
     .filter(([key]) => key !== POSITIONALS_KEY)
     .map(([key, schema]): UsageOptionSummary => {
       const info = readArgInfo(schema);
-      const argOptions = command.argOptions?.[key];
-      const aliases = argOptions?.alias
-        ? aliasList(argOptions.alias).map((item) => `-${item}`)
-        : [];
+      const aliases =
+        info.alias === undefined ? [] : aliasList(info.alias).map((item) => `-${item}`);
       const name = kebabCase(key);
-      const valueName = argOptions?.valueName ?? name;
+      const valueName = info.valueName ?? name;
       const envName = envNames.get(key);
       return {
         name,
@@ -205,36 +202,21 @@ function formatUsage(summary: UsageSummary): string {
   return lines.join("\n");
 }
 
-export type UsageWriter = (text: string) => void | Promise<void>;
-
-export interface ShowUsageOptions extends OutputOptions {
-  write?: UsageWriter;
-  printer?: Printer;
+export interface ShowUsageOptions {
+  printer: Printer;
   stream?: PrintStream;
 }
 
-export type UsageOutput = Required<Pick<ShowUsageOptions, "write">>;
-
-export type ShowUsageCallback = (
-  command: AnyCommandDef,
-  output: UsageOutput,
-) => void | Promise<void>;
-
 /** Generate usage text without writing to stdout or stderr. */
-export async function renderUsage(command: AnyCommandDef): Promise<string> {
+export function renderUsage(command: AnyCommandDef): string {
   return formatUsage(summarizeUsage(command));
 }
 
-/** Generate and write usage text, awaiting asynchronous writers. */
-export async function showUsage(
-  command: AnyCommandDef,
-  options: ShowUsageOptions = {},
-): Promise<void> {
+/** Generate a usage event and await its printer. */
+export async function showUsage(command: AnyCommandDef, options: ShowUsageOptions): Promise<void> {
   const usage = summarizeUsage(command);
   const text = formatUsage(usage);
-  if (options.write) return options.write(text);
-  const printer = options.printer ?? selectOutputPrinter(options);
-  return printer.print({
+  return options.printer.print({
     type: "usage",
     usage,
     text,

@@ -1,6 +1,12 @@
 import type { AnyCommandDef } from "./command.ts";
 import { kebabCase } from "./options.ts";
-import { isArrayInput, isObjectInput, POSITIONALS_KEY, schemaShape } from "./schema.ts";
+import {
+  isArrayInput,
+  isObjectInput,
+  POSITIONALS_KEY,
+  readArgInfo,
+  schemaShape,
+} from "./schema.ts";
 
 const commandPaths = new WeakMap<AnyCommandDef, readonly string[] | undefined>();
 
@@ -31,7 +37,7 @@ export function optionEnvNames(
   for (const [key, schema] of Object.entries(schemaShape(command.args))) {
     if (key === POSITIONALS_KEY) continue;
     if (isArrayInput(schema) || isObjectInput(schema)) continue;
-    const configured = command.argOptions?.[key]?.env;
+    const configured = readArgInfo(schema).env;
     if (configured === false) continue;
     if (typeof configured === "string") {
       names.set(key, configured);

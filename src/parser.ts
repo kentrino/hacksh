@@ -75,12 +75,12 @@ function optionModel(command: AnyCommandDef): OptionModel {
   if (command.args) {
     for (const [key, schema] of Object.entries(schemaShape(command.args))) {
       if (key === POSITIONALS_KEY) continue;
-      const alias = command.argOptions?.[key]?.alias;
-      const aliases = alias ? aliasList(alias) : [];
+      const info = readArgInfo(schema);
+      const aliases = info.alias === undefined ? [] : aliasList(info.alias);
       const definition: OptionDefinition = {
         key,
         kebabName: kebabCase(key),
-        takesValue: readArgInfo(schema).takesValue,
+        takesValue: info.takesValue,
       };
       const type = definition.takesValue ? "string" : "boolean";
       for (const name of new Set([key, definition.kebabName])) {
