@@ -4,7 +4,6 @@ import {
   resolveOutputMode,
   type OutputMode,
   type OutputPreference,
-  type OutputWriter,
   type Printer,
   type TerminalInput,
   type TerminalOutput,
@@ -17,7 +16,7 @@ export interface OutputOptions {
   env?: Readonly<Record<string, string | undefined>>;
   stdin?: TerminalInput;
   stdout?: TerminalOutput;
-  stderr?: OutputWriter;
+  stderr?: TerminalOutput;
 }
 
 function consoleWriter(method: "log" | "error", stream: TerminalOutput): TerminalOutput {
@@ -51,6 +50,7 @@ export function selectOutputPrinter(
       env: options.env,
       inputIsTTY: stdin.isTTY,
       outputIsTTY: stdout.isTTY,
+      errorOutputIsTTY: stderr.isTTY,
     });
   if (override) return override;
   if (mode.format === "json") return createJsonPrinter({ stdout, stderr });

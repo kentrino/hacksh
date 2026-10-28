@@ -8,10 +8,15 @@ export type PrintStream = "stdout" | "stderr";
 export type OutputPreference = "auto" | "pretty" | "json";
 export type OutputFormat = Exclude<OutputPreference, "auto">;
 
+export interface StreamColors {
+  stdout: boolean;
+  stderr: boolean;
+}
+
 export interface OutputMode {
   format: OutputFormat;
   interactive: boolean;
-  color: boolean;
+  color: StreamColors;
 }
 
 export interface ResolveOutputModeOptions {
@@ -19,6 +24,7 @@ export interface ResolveOutputModeOptions {
   env?: Readonly<Record<string, string | undefined>>;
   inputIsTTY?: boolean;
   outputIsTTY?: boolean;
+  errorOutputIsTTY?: boolean;
 }
 
 function fallbackValue(value: unknown): string {
@@ -58,10 +64,12 @@ export function resolveOutputMode(options: ResolveOutputModeOptions = {}): Outpu
   const format = requested === "auto" ? (ci ? "json" : "pretty") : requested;
   const inputIsTTY = options.inputIsTTY ?? process.stdin.isTTY === true;
   const outputIsTTY = options.outputIsTTY ?? process.stdout.isTTY === true;
+  const errorOutputIsTTY = options.errorOutputIsTTY ?? process.stderr.isTTY === true;
+  const colorable = format === "pretty" && !readEnvironment(env, "NO_COLOR");
   return {
     format,
     interactive: format === "pretty" && !ci && inputIsTTY && outputIsTTY,
-    color: format === "pretty" && outputIsTTY && !readEnvironment(env, "NO_COLOR"),
+    color: { stdout: colorable && outputIsTTY, stderr: colorable && errorOutputIsTTY },
   };
 }
 
@@ -127,6 +135,11 @@ export interface PromptPrintEvent {
   prompt: PromptState;
 }
 
+/** Command output: exact text written to stdout, or a JSON value. */
+export type OutputPrintEvent =
+  | { type: "output"; kind: "text"; text: string }
+  | { type: "output"; kind: "json"; data: unknown };
+
 export interface ExecPrintEvent {
   type: "exec";
   phase: "start" | "skip";
@@ -146,6 +159,7 @@ export type PrintEvent =
   | ErrorPrintEvent
   | LogPrintEvent
   | PromptPrintEvent
+  | OutputPrintEvent
   | ExecPrintEvent;
 
 /** Receives every output event produced by one command invocation. */
@@ -153,14 +167,9 @@ export interface Printer {
   print(event: PrintEvent): void | Promise<void>;
 }
 
-function isErrorLevel(level: LogRecord["level"]): boolean {
-  return level === "warning" || level === "error" || level === "fatal";
-}
-
 export function eventStream(event: PrintEvent): PrintStream {
-  if (event.type === "error" || event.type === "exec") return "stderr";
+  if (event.type === "error" || event.type === "exec" || event.type === "log") return "stderr";
   if (event.type === "usage") return event.stream;
-  if (event.type === "log" && isErrorLevel(event.record.level)) return "stderr";
   return "stdout";
 }
 

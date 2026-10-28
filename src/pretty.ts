@@ -4,11 +4,16 @@ import { formatExecCommand } from "./exec.ts";
 import type { LogLevel, LogRecord } from "./logger.ts";
 import {
   eventStream,
+  type OutputPrintEvent,
   type OutputWriter,
   type Printer,
   type PrintEvent,
+  type StreamColors,
   type TerminalOutput,
 } from "./printer.ts";
+import { normalizeJson } from "./serialization.ts";
+
+type DecoratedEvent = Exclude<PrintEvent, OutputPrintEvent>;
 
 type PrettyMark =
   | LogLevel
@@ -85,7 +90,8 @@ const markStyles: Record<PrettyMark, TextStyle> = {
 };
 
 export interface PrettyPrinterOptions {
-  color: boolean;
+  /** One flag for both streams, or a flag per stream. */
+  color: boolean | StreamColors;
   unicode: boolean;
   stdout?: TerminalOutput;
   stderr?: OutputWriter;
@@ -135,7 +141,12 @@ function errorLines(error: HackshErrorSummary): string[] {
   return [...lines, ...propertyLines(details)];
 }
 
-function eventMark(event: PrintEvent): PrettyMark {
+function outputText(event: OutputPrintEvent): string {
+  if (event.kind === "text") return event.text;
+  return `${JSON.stringify(normalizeJson(event.data), null, 2)}\n`;
+}
+
+function eventMark(event: DecoratedEvent): PrettyMark {
   if (event.type === "usage") return "usage";
   if (event.type === "version") return "version";
   if (event.type === "error") return "errorEvent";
@@ -144,7 +155,7 @@ function eventMark(event: PrintEvent): PrettyMark {
   return event.record.kind === "message" ? event.record.level : event.record.kind;
 }
 
-function eventLines(event: PrintEvent): string[] {
+function eventLines(event: DecoratedEvent): string[] {
   switch (event.type) {
     case "usage":
       return event.text.split("\n");
@@ -255,13 +266,18 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
   const symbols = options.unicode ? unicodeSymbols : asciiSymbols;
+  const colors =
+    typeof options.color === "boolean"
+      ? { stdout: options.color, stderr: options.color }
+      : options.color;
   let activePrompt: { rendered: string; lines: number } | undefined;
 
-  function render(event: PrintEvent): string {
+  function render(event: DecoratedEvent): string {
+    const color = colors[eventStream(event)];
     const mark = eventMark(event);
     const lines = eventLines(event);
-    const firstPrefix = colorize(options.color, markStyles[mark], symbols.marks[mark]);
-    const barPrefix = colorize(options.color, "gray", symbols.bar);
+    const firstPrefix = colorize(color, markStyles[mark], symbols.marks[mark]);
+    const barPrefix = colorize(color, "gray", symbols.bar);
     return lines
       .map((line, index) => `${index === 0 ? firstPrefix : barPrefix}${line ? `  ${line}` : ""}`)
       .join("\n");
@@ -273,6 +289,12 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
 
   return {
     print(event) {
+      if (event.type === "output") {
+        const erase = eraseActivePrompt();
+        stdout.write(`${erase}${outputText(event)}`);
+        if (activePrompt) stdout.write(`${activePrompt.rendered}\n`);
+        return;
+      }
       const rendered = render(event);
       if (event.type === "prompt") {
         const erase = eraseActivePrompt();

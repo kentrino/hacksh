@@ -1,6 +1,6 @@
 # Logging
 
-Every `run` receives a `logger` with `trace`, `debug`, `info`, `warn`, `error`, `fatal`, plus `step` and `success` kinds. All levels are emitted by default. `with` binds properties, `getChild` appends a category segment, and `{name}` placeholders interpolate properties. An error thrown from `run` is printed as an `error` event and exits 1.
+Every `run` receives a `logger` with `trace`, `debug`, `info`, `warn`, `error`, `fatal`, plus `step` and `success` kinds. All levels are emitted by default, on stderr. `with` binds properties, `getChild` appends a category segment, and `{name}` placeholders interpolate properties. An error thrown from `run` is printed as an `error` event and exits 1.
 
 ## Sub-features
 
@@ -21,8 +21,8 @@ Preconditions:
 
 - Baseline from the index.
 
-- **Pretty levels.** Run `D --label levels-pretty --env NO_COLOR=1 --expect-code 0 -- CLI levels`. stdout has trace/debug/info/step/success lines; stderr has `▲  [demo:levels] warning` and the error and fatal lines.
-- **Properties and placeholders.** Run the `deploy` drive from [Arguments and help](./arguments-and-help.md). stdout shows `◇  [demo:deploy] Deploying api to production` followed by `│    env: production` and `│    target: api`, and `[demo:deploy:upload] Uploaded 1 files` with `files: 1`. stderr has the `▲` dry-run warning.
+- **Pretty levels.** Run `D --label levels-pretty --env NO_COLOR=1 --expect-code 0 -- CLI levels`. stdout is empty; stderr has every level, including `▲  [demo:levels] warning` and the step and success lines.
+- **Properties and placeholders.** Run the `deploy` drive from [Arguments and help](./arguments-and-help.md). stderr shows `◇  [demo:deploy] Deploying api to production` followed by `│    env: production` and `│    target: api`, and `[demo:deploy:upload] Uploaded 1 files` with `files: 1`, and the `▲` dry-run warning.
 - **Runtime error.** Run `D --label explode-json --env HACKSH_OUTPUT=json --expect-code 1 -- CLI explode`. stderr is one `error` line with `message` `runtime exploded` and `properties.code` `E_RUNTIME`.
 
 ## Gotchas

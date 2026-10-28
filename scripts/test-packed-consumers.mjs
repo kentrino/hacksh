@@ -207,10 +207,17 @@ async function verifyConsumer(label, execute) {
     ];
     const pretty = await execute(args, { HACKSH_OUTPUT: "pretty", NO_COLOR: "0" });
     assert(pretty.code === 0, `${label}: ${commandName} pretty run exited ${pretty.code}`);
-    for (const message of ["trace", "debug", "info", "step", "success"]) {
-      assert(pretty.stdout.includes(message), `${label}: pretty stdout omitted ${message}`);
-    }
-    for (const message of ["warning", "error", "fatal"]) {
+    assert(pretty.stdout === "", `${label}: pretty logs reached stdout: ${pretty.stdout}`);
+    for (const message of [
+      "trace",
+      "debug",
+      "info",
+      "step",
+      "success",
+      "warning",
+      "error",
+      "fatal",
+    ]) {
       assert(pretty.stderr.includes(message), `${label}: pretty stderr omitted ${message}`);
     }
     assert(
@@ -221,7 +228,8 @@ async function verifyConsumer(label, execute) {
 
     const json = await execute(args, { HACKSH_OUTPUT: "json" });
     assert(json.code === 0, `${label}: ${commandName} JSON run exited ${json.code}`);
-    const logs = [...parseLines(json.stdout), ...parseLines(json.stderr)];
+    assert(json.stdout === "", `${label}: JSON logs reached stdout: ${json.stdout}`);
+    const logs = parseLines(json.stderr);
     assert(logs.length === 8, `${label}: expected all eight log records, got ${logs.length}`);
     assert(
       logs.every((event) => event.type === "log"),

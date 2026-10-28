@@ -1,4 +1,5 @@
 import type { output } from "zod/v4/core";
+import type { Output } from "./command-output.ts";
 import type { Exec } from "./exec.ts";
 import type { Logger } from "./logger.ts";
 import type { Prompter } from "./prompts.ts";
@@ -22,6 +23,7 @@ export interface CommandContext<S extends ArgsSchema> {
     unknown: string[];
     passthrough: string[];
   };
+  output: Output;
   logger: Logger;
   prompt: Prompter;
   exec: Exec;
