@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.14.0](https://github.com/kentrino/hacksh/compare/v0.13.0...v0.14.0) (2026-10-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** Printer factories, output-mode helpers, and renderer-facing types move to `hacksh/printer`. Argument aliases, environment bindings, value names, labels, and descriptions come from Zod metadata; `argOptions` and positional `_` are removed in favor of `.meta(...)` and `positionals`. Interactive input moves from `logger` to `context.prompt`. `consolePrinter`, `createStreamPrinter`, usage writer overrides, and automatic standalone usage output are removed; `showUsage` requires a printer and `renderUsage` returns a string synchronously. Context uses `command` and `input.argv`, `input.unknown`, and `input.passthrough` instead of `cmd`, `rawArgs`, `extraArgs`, and `passthrough`. `runCommand` infers handler results, `version` is reserved when the command is defined, and `createMain` is removed in favor of `runMain`.
+
+### Refactoring
+
+* **api:** narrow the public command surface ([#49](https://github.com/kentrino/hacksh/issues/49)) ([3b04e8b](https://github.com/kentrino/hacksh/commit/3b04e8bf49ef3a25bd101ffb4371dd304a201fab))
+
 ## [0.13.0](https://github.com/kentrino/hacksh/compare/v0.12.0...v0.13.0) (2026-10-28)
 
 
