@@ -12,7 +12,7 @@ context に共通の AbortSignal がなく、prompt のキャンセル、作者�
 # Rules
 
 - invocation ごとの signal を通信・exec・prompt に接続する。exec のタイムアウトや子の終了処理は0023と統合する。
-- 資源の確保・解放は0005で扱い、別の cleanup registry を追加しない。
+- 資源を開いた `run` がそれを解放する。別の cleanup registry は追加しない。
 - runCommand はOSシグナルを勝手に購読せず、process.exit を呼ばない。runMain のシグナル管理は取り外しと多重登録の契約を持つ。
 - 協調的中断の範囲を明記する。signal を無視する任意の処理を停止できるとは約束しない。
 
@@ -35,5 +35,5 @@ context に共通の AbortSignal がなく、prompt のキャンセル、作者�
 - `src/run.ts`
 - `src/prompts.ts`
 - `docs/issues/open/0001-invocation-data/issue.md`
-- `docs/issues/parked/0005-lifecycle-hooks/issue.md`
+- `docs/issues/closed/0005-lifecycle-hooks/issue.md`
 - `docs/issues/closed/0023-context-exec/issue.md`
