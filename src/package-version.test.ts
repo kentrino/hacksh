@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-import { defineCommand, runCommand, runMain, type PrintEvent, type Printer } from "./index.ts";
+import { defineCommand, runCommand, runMain } from "./index.ts";
+import type { PrintEvent, Printer } from "./printer-api.ts";
 import { findPackageVersion } from "./package-version.ts";
 
 let root: string;

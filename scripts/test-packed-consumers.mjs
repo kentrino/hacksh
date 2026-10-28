@@ -77,10 +77,13 @@ async function verifyConsumer(label, execute) {
   assert(
     phaseTwoBehavior.stdout.trim() ===
       JSON.stringify({
-        cmd: "visible",
-        args: { enabled: false, repo: "owner/repo", _: ["ONE", "TWO"] },
-        extraArgs: ["--unknown=value"],
-        passthrough: ["--help"],
+        command: "visible",
+        args: { enabled: false, repo: "owner/repo", positionals: ["ONE", "TWO"] },
+        input: {
+          argv: ["--no-enabled", "-Qowner/repo", "one", "two", "--unknown=value", "--", "--help"],
+          unknown: ["--unknown=value"],
+          passthrough: ["--help"],
+        },
       }),
     `${label}: unexpected visible behavior output: ${phaseTwoBehavior.stdout}${phaseTwoBehavior.stderr}`,
   );
@@ -89,7 +92,7 @@ async function verifyConsumer(label, execute) {
   assert(equals.code === 0, `${label}: equals command exited ${equals.code}`);
   assert(
     JSON.parse(equals.stdout).args.repo === "equal/repo" &&
-      JSON.parse(equals.stdout).args._.length === 0,
+      JSON.parse(equals.stdout).args.positionals.length === 0,
     `${label}: equals value or empty variadic was not parsed`,
   );
 
@@ -110,7 +113,7 @@ async function verifyConsumer(label, execute) {
   assert(missing.code === 1, `${label}: missing value exited ${missing.code}`);
   assert(missing.stderr.includes("--repo: requires a value"), `${label}: missing error absent`);
   assert(
-    missing.stderr.includes("◆  CUSTOM\n│  Public command (visible)") &&
+    missing.stderr.includes("◆  Public command (visible)") &&
       missing.stderr.includes("USAGE visible"),
     `${label}: visible usage absent: ${missing.stderr}`,
   );
@@ -121,7 +124,7 @@ async function verifyConsumer(label, execute) {
   const parentHelp = await execute(["--help"]);
   assert(parentHelp.code === 0, `${label}: parent help exited ${parentHelp.code}`);
   assert(
-    parentHelp.stdout.includes("◆  CUSTOM\n│  packed-consumer v1.2.3") &&
+    parentHelp.stdout.includes("◆  packed-consumer v1.2.3") &&
       parentHelp.stdout.includes("USAGE packed-consumer [OPTIONS] <COMMAND>") &&
       parentHelp.stdout.includes("visible  Public command") &&
       !parentHelp.stdout.includes("zod-hidden") &&
@@ -142,14 +145,14 @@ async function verifyConsumer(label, execute) {
     );
     assert(
       executed.stdout.trim() ===
-        JSON.stringify({ flavor, cmd: commandName, args: { mode: "safe", enabled: false } }),
+        JSON.stringify({ flavor, command: commandName, args: { mode: "safe", enabled: false } }),
       `${label}: ${commandName} did not execute by name: ${executed.stdout}${executed.stderr}`,
     );
 
     const directHelp = await execute([commandName, "--help"]);
     assert(directHelp.code === 0, `${label}: ${commandName} help exited ${directHelp.code}`);
     assert(
-      directHelp.stdout.includes(`◆  CUSTOM\n│  Internal ${flavor} command (${commandName})`) &&
+      directHelp.stdout.includes(`◆  Internal ${flavor} command (${commandName})`) &&
         directHelp.stdout.includes(`USAGE ${commandName} [OPTIONS]`) &&
         directHelp.stdout.includes("--mode=<MODE>  Execution mode (Choices: fast, safe)") &&
         directHelp.stdout.includes("--[no-]enabled  Enable feature (Default: true)"),
@@ -162,7 +165,7 @@ async function verifyConsumer(label, execute) {
   assert(unknown.code === 1, `${label}: unknown command exited ${unknown.code}`);
   assert(
     unknown.stderr.includes("Unknown command `missing`") &&
-      unknown.stderr.includes("◆  CUSTOM\n│  packed-consumer v1.2.3") &&
+      unknown.stderr.includes("◆  packed-consumer v1.2.3") &&
       unknown.stderr.includes("visible  Public command") &&
       !unknown.stderr.includes("zod-hidden") &&
       !unknown.stderr.includes("mini-hidden") &&
@@ -471,20 +474,17 @@ async function verifyConsumer(label, execute) {
     `${label}: non-interactive pretty output did not show the plan: ${execDryPretty.stdout}${execDryPretty.stderr}`,
   );
 
-  const standalonePretty = await execute(["__standalone-help__"], {
-    HACKSH_OUTPUT: "pretty",
-    NO_COLOR: "0",
-  });
+  const standalonePretty = await execute(["__standalone-help__"]);
   assert(
     standalonePretty.code === 0 &&
       standalonePretty.stdout.includes("USAGE packed-consumer") &&
       !standalonePretty.stdout.includes(`${String.fromCharCode(27)}[`),
-    `${label}: standalone help did not use automatic pretty policy`,
+    `${label}: standalone help did not use the explicit pretty printer`,
   );
-  const standaloneJson = await execute(["__standalone-help__"], { HACKSH_OUTPUT: "json" });
+  const standaloneJson = await execute(["__standalone-json-help__"]);
   assert(
     standaloneJson.code === 0 && JSON.parse(standaloneJson.stdout).type === "usage",
-    `${label}: standalone help did not use automatic JSON policy`,
+    `${label}: standalone help did not use the explicit JSON printer`,
   );
 }
 

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
-import { defineCommand, runCommand, runMain, type PrintEvent } from "./index.ts";
+import { defineCommand, runCommand, runMain } from "./index.ts";
+import type { PrintEvent } from "./printer-api.ts";
 import { selectOutputPrinter } from "./output.ts";
 
 afterEach(() => vi.restoreAllMocks());

@@ -31,11 +31,11 @@ Preconditions:
   ```ts
   const exec = defineCommand({
     description: "Run node as an external command",
-    args: z.object({ _: z.tuple([], z.string()) }),
+    args: z.object({ positionals: z.tuple([], z.string()) }),
     async run({ args, exec }) {
       const node = (code: string, ...rest: string[]) =>
         [process.execPath, ["-e", code, ...rest]] as const;
-      if (args._[0] === "fail") {
+      if (args.positionals[0] === "fail") {
         await exec(...node("process.stdout.write('child' + '-secret'); process.exit(3)"));
         return;
       }
@@ -88,9 +88,11 @@ Preconditions:
     "process.stdout.write('child-done ' + JSON.stringify(buffer.toString('utf8', 0, read).trim()) + '\\n');";
   const term = defineCommand({
     description: "Exercise exec display and terminal use",
-    args: z.object({ _: z.tuple([z.enum(["show", "pick", "watch", "flow", "overlap"])]) }),
-    async run({ args, exec, logger }) {
-      const mode = args._[0];
+    args: z.object({
+      positionals: z.tuple([z.enum(["show", "pick", "watch", "flow", "overlap"])]),
+    }),
+    async run({ args, exec, logger, prompt }) {
+      const mode = args.positionals[0];
       if (mode === "show") {
         const shown = await exec(
           ...node("process.stdout.write('child-captured')", "a b", "--token=s3cret"),
@@ -118,7 +120,7 @@ Preconditions:
         return;
       }
       if (mode === "overlap") {
-        const prompt = logger.confirm({ message: "Still there?" });
+        const pendingPrompt = prompt.confirm({ message: "Still there?" });
         const refused = await exec(...node(pickChild), {
           input: "x",
           interactive: true,
@@ -127,10 +129,10 @@ Preconditions:
         logger.info("Overlap {reason}", {
           reason: refused.status === "failed" ? refused.reason : "none",
         });
-        await prompt;
+        await pendingPrompt;
         return;
       }
-      const environment = await logger.select({
+      const environment = await prompt.select({
         message: "Environment",
         options: [{ value: "staging" }, { value: "production" }] as const,
       });
@@ -154,7 +156,7 @@ Preconditions:
   const node = (code: string) => [process.execPath, ["-e", code]] as const;
   const rebase = defineCommand({
     description: "Read a file, then skip the write",
-    args: z.object({ target: z.string().describe("State file") }),
+    args: z.object({ target: z.string().meta({ description: "State file" }) }),
     async run({ args, exec }) {
       const { readFileSync } = await import("node:fs");
       const fetched = await exec(
@@ -189,7 +191,7 @@ Preconditions:
   });
   const plan = defineCommand({
     description: "Dry-run a terminal command",
-    args: z.object({ target: z.string().describe("State file") }),
+    args: z.object({ target: z.string().meta({ description: "State file" }) }),
     async run({ args, exec }) {
       const { readFileSync } = await import("node:fs");
       const skipped = await exec(
@@ -209,7 +211,7 @@ Preconditions:
   });
   const conflict = defineCommand({
     description: "Reject input with inherited stdin during dry-run",
-    args: z.object({ _: z.tuple([]) }),
+    args: z.object({ positionals: z.tuple([]) }),
     async run({ exec }) {
       await exec(...node("process.exit(0)"), {
         dryRun: true,

@@ -1,6 +1,7 @@
 import type { output } from "zod/v4/core";
 import type { Exec } from "./exec.ts";
 import type { Logger } from "./logger.ts";
+import type { Prompter } from "./prompts.ts";
 import { aliasList } from "./options.ts";
 import {
   isArrayInput,
@@ -11,44 +12,45 @@ import {
   schemaShape,
   type ArgsSchema,
   type EmptyArgs,
-  type OptionKey,
 } from "./schema.ts";
 
-export interface ArgOptions {
-  alias?: string | readonly string[];
-  valueName?: string;
-  env?: string | false;
-}
-
-export type ArgOptionsMap<S extends ArgsSchema> = Partial<Record<OptionKey<S>, ArgOptions>>;
-
 export interface CommandContext<S extends ArgsSchema> {
-  cmd: CommandDef<S>;
+  command: CommandDef<S>;
   args: output<S>;
-  rawArgs: string[];
-  passthrough: string[];
-  extraArgs: string[];
+  input: {
+    argv: string[];
+    unknown: string[];
+    passthrough: string[];
+  };
   logger: Logger;
+  prompt: Prompter;
   exec: Exec;
   signal: AbortSignal;
 }
 
-export interface CommandDef<S extends ArgsSchema = EmptyArgs> {
+export interface CommandDef<
+  S extends ArgsSchema = EmptyArgs,
+  R = unknown,
+  Children extends Record<string, AnyCommandDef> = Record<string, AnyCommandDef>,
+> {
   name?: string;
   version?: string;
   description?: string;
   hidden?: boolean;
-  /** Keep unknown options and excess positionals in extraArgs. Inherits from the parent; defaults to false. */
+  /** Keep unknown options and excess positionals in input.unknown. Inherits from the parent; defaults to false. */
   allowUnknownArgs?: boolean;
   args?: S;
-  argOptions?: ArgOptionsMap<S>;
-  subCommands?: Record<string, CommandDef<ArgsSchema>>;
-  run?(context: CommandContext<S>): unknown;
+  subCommands?: Children;
+  run?(context: CommandContext<S>): R;
 }
 
 export type AnyCommandDef = CommandDef<ArgsSchema>;
 
-export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<S>): CommandDef<S> {
+export function defineCommand<
+  S extends ArgsSchema = EmptyArgs,
+  R = never,
+  Children extends Record<string, AnyCommandDef> = {},
+>(def: CommandDef<S, R, Children>): CommandDef<S, NoInfer<R>, NoInfer<Children>> {
   if (def.allowUnknownArgs !== undefined && typeof def.allowUnknownArgs !== "boolean") {
     throw new TypeError("allowUnknownArgs must be a boolean");
   }
@@ -59,6 +61,11 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
     let sawOptional = false;
     for (const { schema, label } of positionals.items) {
       const info = readArgInfo(schema);
+      if (info.alias !== undefined || info.env !== undefined || info.valueName !== undefined) {
+        throw new TypeError(
+          `Positional argument \`${label}\` cannot have alias, env, or valueName metadata`,
+        );
+      }
       if (isArrayInput(schema)) {
         throw new TypeError(
           `Positional argument \`${label}\` cannot be an array; use a tuple rest`,
@@ -74,19 +81,33 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
       }
       sawOptional ||= !info.required;
     }
+    if (positionals.rest) {
+      const info = readArgInfo(positionals.rest.schema);
+      if (info.alias !== undefined || info.env !== undefined || info.valueName !== undefined) {
+        throw new TypeError(
+          `Positional argument \`${positionals.rest.label}\` cannot have alias, env, or valueName metadata`,
+        );
+      }
+    }
     if (def.subCommands && Object.keys(def.subCommands).length > 0) {
       throw new TypeError("A command cannot define both positional arguments and subcommands");
     }
   }
 
   const usedAliases = new Set<string>();
-  for (const [key, options] of Object.entries(def.argOptions ?? {})) {
+  for (const [key, schema] of Object.entries(shape)) {
+    const options = readArgInfo(schema);
     if (key === POSITIONALS_KEY) {
-      throw new TypeError("Positional arguments cannot have argument options");
+      if (
+        options.alias !== undefined ||
+        options.env !== undefined ||
+        options.valueName !== undefined
+      ) {
+        throw new TypeError("Positional arguments cannot have alias, env, or valueName metadata");
+      }
+      continue;
     }
-    const schema = shape[key];
-    if (!schema) throw new TypeError(`Unknown argument options key \`${key}\``);
-    if (options?.env !== undefined) {
+    if (options.env !== undefined) {
       if (options.env === "") {
         throw new TypeError(`Environment variable name for \`${key}\` cannot be empty`);
       }
@@ -101,7 +122,7 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
         );
       }
     }
-    if (options?.alias === undefined) continue;
+    if (options.alias === undefined) continue;
     for (const alias of aliasList(options.alias)) {
       if (alias.length !== 1)
         throw new TypeError(`Alias \`${alias}\` must be exactly one character`);
@@ -111,7 +132,9 @@ export function defineCommand<S extends ArgsSchema = EmptyArgs>(def: CommandDef<
   }
 
   for (const key of Object.keys(shape)) {
-    if (key === "help") throw new TypeError("Option `help` conflicts with the builtin --help");
+    if (key === "help" || key === "version") {
+      throw new TypeError(`Option \`${key}\` conflicts with the builtin --${key}`);
+    }
     if (key !== POSITIONALS_KEY && /^no[-A-Z]/.test(key)) {
       throw new TypeError(`Option \`${key}\` conflicts with --no- negation`);
     }

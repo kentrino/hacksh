@@ -77,7 +77,7 @@ In a PTY both streams share the terminal, so all output lands in the evidence's 
 
 Each drive writes `verify-hacksh.local/evidence/<run>/<label>.json` (args, env overrides, PTY steps, Node version, exit code, signal, timing, stdout, stderr) and a `.txt` transcript. A proof for a change:
 
-- Runs the change through a real consumer process and `runMain` or `createMain`, not by calling `parseArgs` or a printer directly, unless the change is to that programmatic API itself.
+- Runs the change through a real consumer process and `runMain`, not by calling `parseArgs` or a printer directly, unless the change is to that programmatic API itself.
 - Shows the action (argv, env, PTY steps) and the resulting state: exit code and both streams. For JSON mode, parse the lines and check `type`, `stream`, and fields, not substrings.
 - Covers each entry point the feature map lists for the behavior (for example both pretty and JSON, or both `--flag` and its alias), and the failure path when the change touches validation.
 - Includes a before/after pair when fixing a bug: drive on the base revision (`git stash` or a worktree) and on the change with the same label suffixed `-before` / `-after`.

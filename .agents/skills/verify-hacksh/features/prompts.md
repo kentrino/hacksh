@@ -1,6 +1,6 @@
 # Prompts
 
-`logger.select`, `logger.confirm`, and `logger.text` ask the user for input when the mode is interactive (pretty, no `CI`, TTY stdin and stdout). Active prompts redraw in place and collapse to one `✔` result line. Text re-prompts while `validate` returns a message. Ctrl-C or Escape cancels and `runMain` exits 130. In any non-interactive mode a prompt fails immediately with `reason: non-interactive` and exit 1.
+`prompt.select`, `prompt.confirm`, and `prompt.text` on the command context ask the user for input when the mode is interactive (pretty, no `CI`, TTY stdin and stdout). The logger only emits logs; prompts use the same print queue, terminal lock, and abort signal as the rest of the invocation. Active prompts redraw in place and collapse to one `✔` result line. Text re-prompts while `validate` returns a message. Ctrl-C or Escape cancels and `runMain` exits 130. In any non-interactive mode a prompt fails immediately with `reason: non-interactive` and exit 1.
 
 ## Sub-features
 

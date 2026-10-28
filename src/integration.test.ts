@@ -2,7 +2,8 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import * as mini from "zod/mini";
-import { defineCommand, runCommand, runMain, type PrintEvent } from "./index.ts";
+import { defineCommand, runCommand, runMain } from "./index.ts";
+import type { PrintEvent } from "./printer-api.ts";
 
 class IntegrationInput extends PassThrough {
   readonly isTTY = true;
@@ -39,14 +40,17 @@ describe("consumer-equivalent commands", () => {
     const command = defineCommand({
       args: z.object({ path: z.string().optional(), focus: z.boolean().default(true) }),
       allowUnknownArgs: true,
-      run: ({ args, extraArgs, passthrough }) => ({ args, extraArgs, passthrough }),
+      run: ({ args, input }) => ({ args, input }),
     });
     await expect(
       runCommand(command, ["--path", ".", "--no-focus", "--model=o3", "--", "--sandbox"]),
     ).resolves.toEqual({
       args: { path: ".", focus: false },
-      extraArgs: ["--model=o3"],
-      passthrough: ["--sandbox"],
+      input: {
+        argv: ["--path", ".", "--no-focus", "--model=o3", "--", "--sandbox"],
+        unknown: ["--model=o3"],
+        passthrough: ["--sandbox"],
+      },
     });
   });
 
@@ -57,7 +61,7 @@ describe("consumer-equivalent commands", () => {
       subCommands: {
         new: defineCommand({
           args: z.object({ name: z.string() }),
-          run: ({ args, rawArgs }) => ({ args, rawArgs }),
+          run: ({ args, input }) => ({ args, input }),
         }),
       },
       run: parentRun,
@@ -65,7 +69,7 @@ describe("consumer-equivalent commands", () => {
     await expect(runCommand(command, ["--repo", "x", "new", "--name", "feature"])).resolves.toEqual(
       {
         args: { name: "feature" },
-        rawArgs: ["--name", "feature"],
+        input: { argv: ["--name", "feature"], unknown: [], passthrough: [] },
       },
     );
     expect(parentRun).not.toHaveBeenCalled();
@@ -74,27 +78,26 @@ describe("consumer-equivalent commands", () => {
   it("supports gh-pr-commits coercion, optional positional, and repo alias", async () => {
     const command = defineCommand({
       args: z.object({
-        _: z.tuple([z.coerce.number().int().optional()]),
-        repo: z.string().optional(),
+        positionals: z.tuple([z.coerce.number().int().optional()]),
+        repo: z.string().optional().meta({ alias: "R" }),
       }),
-      argOptions: { repo: { alias: "R" } },
       run: ({ args }) => args,
     });
     await expect(runCommand(command, ["42", "-R", "owner/repo"])).resolves.toEqual({
-      _: [42],
+      positionals: [42],
       repo: "owner/repo",
     });
   });
 
   it("supports multiple positional arguments and overflow", async () => {
     const command = defineCommand({
-      args: z.object({ _: z.tuple([z.string(), z.string().optional()]) }),
+      args: z.object({ positionals: z.tuple([z.string(), z.string().optional()]) }),
       allowUnknownArgs: true,
-      run: ({ args, extraArgs }) => ({ args, extraArgs }),
+      run: ({ args, input }) => ({ args, input }),
     });
     await expect(runCommand(command, ["a", "b", "c"])).resolves.toEqual({
-      args: { _: ["a", "b"] },
-      extraArgs: ["c"],
+      args: { positionals: ["a", "b"] },
+      input: { argv: ["a", "b", "c"], unknown: ["c"], passthrough: [] },
     });
   });
 
@@ -107,20 +110,23 @@ describe("consumer-equivalent commands", () => {
   });
 
   it.each([
-    ["zod", z.object({ _: z.tuple([z.string()], z.string()) })],
-    ["zod/mini", mini.object({ _: mini.tuple([mini.string()], mini.string()) })],
+    ["zod", z.object({ positionals: z.tuple([z.string()], z.string()) })],
+    ["zod/mini", mini.object({ positionals: mini.tuple([mini.string()], mini.string()) })],
   ])("runs fixed and variadic arguments with %s", async (_name, args) => {
     const command = defineCommand({
       args,
       allowUnknownArgs: true,
-      run: ({ args: parsed, extraArgs, passthrough }) => ({ parsed, extraArgs, passthrough }),
+      run: ({ args: parsed, input }) => ({ parsed, input }),
     });
     await expect(
       runCommand(command, ["fixed", "one", "two", "--extra", "--", "tail"]),
     ).resolves.toEqual({
-      parsed: { _: ["fixed", "one", "two"] },
-      extraArgs: ["--extra"],
-      passthrough: ["tail"],
+      parsed: { positionals: ["fixed", "one", "two"] },
+      input: {
+        argv: ["fixed", "one", "two", "--extra", "--", "tail"],
+        unknown: ["--extra"],
+        passthrough: ["tail"],
+      },
     });
   });
 });
@@ -137,9 +143,9 @@ describe("terminal output integration", () => {
       subCommands: {
         deploy: defineCommand({
           args: z.object({ target: z.string() }),
-          async run({ args, logger }) {
+          async run({ args, logger, prompt }) {
             logger.info("Preparing {target}", { target: args.target });
-            const environment = await logger.select({
+            const environment = await prompt.select({
               message: "Environment",
               options: [{ value: "staging" }, { value: "production" }] as const,
               initialValue: "staging",
@@ -151,7 +157,7 @@ describe("terminal output integration", () => {
           },
         }),
         prompt: defineCommand({
-          run: ({ logger }) => logger.confirm({ message: "Continue?", initialValue: true }),
+          run: ({ prompt }) => prompt.confirm({ message: "Continue?", initialValue: true }),
         }),
         crash: defineCommand({
           run() {

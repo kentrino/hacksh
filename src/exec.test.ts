@@ -6,13 +6,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { summarizeError } from "./errors.ts";
 import { createExec, type ExecContext } from "./exec.ts";
-import {
-  defineCommand,
-  HackshExecError,
-  runCommand,
-  type ExecPrintEvent,
-  type ExecResult,
-} from "./index.ts";
+import { defineCommand, HackshExecError, runCommand, type ExecResult } from "./index.ts";
+import type { ExecPrintEvent } from "./printer-api.ts";
 import { TerminalLock } from "./terminal.ts";
 
 const node = process.execPath;

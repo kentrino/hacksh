@@ -6,22 +6,17 @@ import {
   renderUsage,
   runCommand,
   HackshValidationError,
-  type PrintEvent,
-  type Printer,
 } from "./index.ts";
+import type { PrintEvent, Printer } from "./printer-api.ts";
 
 function deployTree() {
   const deploy = defineCommand({
     args: z.object({
       target: z.string(),
       dryRun: z.boolean().default(false),
-      token: z.string(),
-      debug: z.boolean().optional(),
+      token: z.string().meta({ env: "GITHUB_TOKEN" }),
+      debug: z.boolean().optional().meta({ env: false }),
     }),
-    argOptions: {
-      token: { env: "GITHUB_TOKEN" },
-      debug: { env: false },
-    },
     run: ({ args }) => args,
   });
   return defineCommand({
@@ -105,8 +100,10 @@ describe("environment-backed options", () => {
     const root = defineCommand({
       subCommands: {
         sub: defineCommand({
-          args: z.object({ a: z.string().optional(), b: z.string().optional() }),
-          argOptions: { b: { env: "B_VALUE" } },
+          args: z.object({
+            a: z.string().optional(),
+            b: z.string().optional().meta({ env: "B_VALUE" }),
+          }),
           run: ({ args }) => args,
         }),
       },
@@ -210,11 +207,11 @@ describe("environment names in help", () => {
     expect(event.text).toContain("--token=<token>  (Required) (Env: GITHUB_TOKEN)");
   });
 
-  it("treats a standalone command as the root", async () => {
+  it("treats a standalone command as the root", () => {
     const command = defineCommand({ name: "tool", args: z.object({ level: z.string() }) });
-    await expect(renderUsage(command)).resolves.toContain("(Env: TOOL_LEVEL)");
-    await expect(
-      renderUsage(defineCommand({ args: z.object({ level: z.string() }) })),
-    ).resolves.not.toContain("Env:");
+    expect(renderUsage(command)).toContain("(Env: TOOL_LEVEL)");
+    expect(renderUsage(defineCommand({ args: z.object({ level: z.string() }) }))).not.toContain(
+      "Env:",
+    );
   });
 });

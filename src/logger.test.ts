@@ -1,15 +1,13 @@
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import {
-  createJsonPrinter,
   defineCommand,
   parseArgs,
   runCommand,
   HackshValidationError,
   type Logger,
-  type LogRecord,
-  type PrintEvent,
 } from "./index.ts";
+import { createJsonPrinter, type LogRecord, type PrintEvent } from "./printer-api.ts";
 
 afterEach(() => vi.restoreAllMocks());
 

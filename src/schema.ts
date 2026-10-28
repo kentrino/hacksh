@@ -2,11 +2,8 @@ import { globalRegistry, type $ZodObject, type $ZodType } from "zod/v4/core";
 
 export type ArgsSchema = $ZodObject;
 export type EmptyArgs = $ZodObject<{}>;
-export type ShapeOf<S extends ArgsSchema> = S["_zod"]["def"]["shape"];
-export type ArgKey<S extends ArgsSchema> = Extract<keyof ShapeOf<S>, string>;
-export type OptionKey<S extends ArgsSchema> = Exclude<ArgKey<S>, typeof POSITIONALS_KEY>;
 
-export const POSITIONALS_KEY = "_";
+export const POSITIONALS_KEY = "positionals";
 
 export interface ArgInfo {
   readonly takesValue: boolean;
@@ -14,6 +11,9 @@ export interface ArgInfo {
   readonly defaultValue: unknown;
   readonly description: string | undefined;
   readonly title: string | undefined;
+  readonly alias: string | readonly string[] | undefined;
+  readonly valueName: string | undefined;
+  readonly env: string | false | undefined;
   readonly choices: readonly string[] | undefined;
 }
 
@@ -57,9 +57,39 @@ export function readArgInfo(schema: $ZodType): ArgInfo {
   let defaultValue: unknown;
   let description: string | undefined;
   let title: string | undefined;
+  let alias: string | readonly string[] | undefined;
+  let valueName: string | undefined;
+  let env: string | false | undefined;
 
   while (current) {
     const metadata = globalRegistry.get(current);
+    if (metadata) {
+      if (
+        metadata.alias !== undefined &&
+        typeof metadata.alias !== "string" &&
+        !(
+          Array.isArray(metadata.alias) &&
+          metadata.alias.every((value) => typeof value === "string")
+        )
+      ) {
+        throw new TypeError("Argument metadata `alias` must be a string or an array of strings");
+      }
+      if (
+        metadata.env !== undefined &&
+        typeof metadata.env !== "string" &&
+        metadata.env !== false
+      ) {
+        throw new TypeError("Argument metadata `env` must be a string or false");
+      }
+      for (const key of ["valueName", "title", "description"] as const) {
+        if (metadata[key] !== undefined && typeof metadata[key] !== "string") {
+          throw new TypeError(`Argument metadata \`${key}\` must be a string`);
+        }
+      }
+      alias ??= metadata.alias as string | readonly string[] | undefined;
+      valueName ??= metadata.valueName as string | undefined;
+      env ??= metadata.env as string | false | undefined;
+    }
     description ??= metadata?.description;
     title ??= metadata?.title;
 
@@ -78,11 +108,14 @@ export function readArgInfo(schema: $ZodType): ArgInfo {
     defaultValue,
     description,
     title,
+    alias,
+    valueName,
+    env,
     choices: enumChoices(base),
   };
 }
 
-/** Read the `_` tuple or array schema that declares positional arguments. */
+/** Read the `positionals` tuple or array schema that declares positional arguments. */
 export function readPositionals(shape: Record<string, $ZodType>): Positionals | undefined {
   const field = shape[POSITIONALS_KEY];
   if (!field) return undefined;
@@ -96,7 +129,7 @@ export function readPositionals(shape: Record<string, $ZodType>): Positionals | 
     items = [];
     rest = def.element as $ZodType;
   } else {
-    throw new TypeError("Positional arguments `_` must use a tuple or array schema");
+    throw new TypeError("Positional arguments `positionals` must use a tuple or array schema");
   }
   return {
     items: items.map((schema, index) => ({

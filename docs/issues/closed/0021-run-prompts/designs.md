@@ -2,9 +2,9 @@
 
 対話できるかどうかは 0019 の `OutputMode.interactive` で決まる。どの案も、入力欄の描画は printer（0022）に `prompt` の表示として渡し、キー入力の読み取りは `node:readline` で自前に書く。
 
-## A. ロガーに対話メソッドを足す（明示的に失敗）
+## A. コマンドの prompt に対話メソッドを持たせる（明示的に失敗）
 
-`logger` に @clack/prompts と同じ形の入力メソッドを持たせる（API の形だけを借り、依存はしない）。対話できなければ常にエラーにする。
+`prompt` に @clack/prompts と同じ形の入力メソッドを持たせる（API の形だけを借り、依存はしない）。`logger` はログ出力だけを担当する。対話できなければ常にエラーにする。
 
 ```ts
 interface Prompter {
@@ -22,7 +22,8 @@ interface Prompter {
 }
 
 interface CommandContext<S> {
-  logger: Logger & Prompter;
+  logger: Logger;
+  prompt: Prompter;
 }
 
 class HackshPromptError extends Error {
@@ -42,18 +43,7 @@ class HackshPromptError extends Error {
 
 未指定の引数を対話で埋める。選択肢や説明は Zod スキーマ（`z.enum`、`.describe()`）から作る。対話できない環境では、通常の検証エラーになる。
 
-```ts
-const main = defineCommand({
-  args: z.object({
-    env: z.enum(["staging", "prod"]).describe("Target environment"),
-    yes: z.boolean().default(false).describe("Skip confirmation"),
-  }),
-  argOptions: { env: { prompt: true } }, // 未指定なら select で尋ねる
-  async run({ args, prompt }) {
-    if (!args.yes && !(await prompt.confirm({ message: `Deploy to ${args.env}?` }))) return;
-  },
-});
-```
+この案は採用していない。現在の API では、引数を任意にしたうえで `run` 内から `prompt` を明示的に呼び出す。
 
 - 利点: 対話と引数指定が同じ値に揃い、AI エージェントは `--env prod` と書けば対話を避けられる。失敗の形は既存の `HackshValidationError` と同じ。
 - 欠点: 解析と検証の流れに対話が入り、`parseCommandArgs` の責務が広がる。
