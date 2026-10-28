@@ -15,6 +15,7 @@ export type {
   ExecOptions,
   ExecResult,
   ExecReturn,
+  ExecSkipped,
   ExecSuccess,
 } from "./exec.ts";
 export type {

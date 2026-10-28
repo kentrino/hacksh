@@ -690,6 +690,26 @@ describe("exec events", () => {
     expect(output.stderr).toEqual(['$ git commit -m "hello world"\n']);
   });
 
+  it("marks a planned command with a hash and a started command with a dollar", () => {
+    const output = memoryWriters();
+    const skip = { ...event, phase: "skip" as const };
+    void createPrettyPrinter({ color: false, unicode: true, ...output.writers }).print(skip);
+    expect(output.stderr).toEqual(['#  git commit -m "hello world"\n│    cwd: /repo\n']);
+
+    const ascii = memoryWriters();
+    void createPrettyPrinter({ color: false, unicode: false, ...ascii.writers }).print(skip);
+    expect(ascii.stderr).toEqual(['#  git commit -m "hello world"\n|    cwd: /repo\n']);
+
+    const stream = memoryWriters();
+    void createStreamPrinter(stream.writers).print(skip);
+    expect(stream.stderr).toEqual(['# git commit -m "hello world"\n']);
+
+    const json = memoryWriters();
+    void createJsonPrinter(json.writers).print(skip);
+    expect(JSON.parse(json.stderr[0]!)).toEqual(skip);
+    expect(JSON.parse(json.stderr[0]!).phase).not.toBe("start");
+  });
+
   it("writes one JSON event line to stderr", () => {
     const stdout: string[] = [];
     const stderr: string[] = [];

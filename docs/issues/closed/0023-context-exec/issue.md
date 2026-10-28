@@ -39,4 +39,4 @@ theme: process-execution
 - `src/index.ts` — 公開 API
 - `scripts/test-packed-consumers.mjs` — Node.js / Deno のパッケージ検証
 - `docs/issues/closed/0024-exec-output/issue.md`
-- `docs/issues/open/0025-exec-dry-run/issue.md`
+- `docs/issues/closed/0025-exec-dry-run/issue.md`

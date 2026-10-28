@@ -21,6 +21,7 @@ export interface ExecOptions {
   interactive?: boolean;
   display?: boolean;
   redact?: readonly string[];
+  dryRun?: boolean;
 }
 
 export interface ExecCommand {
@@ -54,11 +55,44 @@ export type ExecFailureReason = ExecFailure["reason"];
 
 export type ExecResult = ExecSuccess | ExecFailure;
 
-export type ExecReturn<O extends ExecOptions> = "reject" extends keyof O
+export interface ExecSkipped {
+  status: "skipped";
+  command: ExecCommand;
+}
+
+type ExecOutcome<O extends ExecOptions> = "reject" extends keyof O
   ? false extends O["reject"]
     ? ExecResult
     : ExecSuccess
   : ExecSuccess;
+
+type SpecifiedDryRun<O> = "dryRun" extends keyof O ? O["dryRun"] : false;
+
+type ReturnsFailure<O extends ExecOptions> = "reject" extends keyof O
+  ? false extends O["reject"]
+    ? true
+    : false
+  : false;
+
+type AbortedFailure = {
+  status: "failed";
+  command: ExecCommand;
+  stdout: string;
+  stderr: string;
+  reason: "aborted";
+};
+
+type DefiniteSkip<O extends ExecOptions> =
+  ReturnsFailure<O> extends true ? ExecSkipped | AbortedFailure : ExecSkipped;
+
+export type ExecReturn<O extends ExecOptions> =
+  true extends SpecifiedDryRun<O>
+    ? false extends SpecifiedDryRun<O>
+      ? ExecSkipped | ExecOutcome<O>
+      : undefined extends SpecifiedDryRun<O>
+        ? ExecSkipped | ExecOutcome<O>
+        : DefiniteSkip<O>
+    : ExecOutcome<O>;
 
 type RejectInheritedInput<O> = O extends { input: string; stdin: "inherit" } ? never : unknown;
 
@@ -91,6 +125,7 @@ const OPTION_KEYS: ReadonlySet<string> = new Set([
   "interactive",
   "display",
   "redact",
+  "dryRun",
 ] satisfies (keyof ExecOptions)[]);
 
 type TerminationCause = "timeout" | "aborted" | "output-limit";
@@ -118,6 +153,7 @@ interface ExecPlan {
   interactive: boolean;
   display: boolean;
   redact: readonly string[];
+  dryRun: boolean;
 }
 
 interface Outcome {
@@ -307,6 +343,7 @@ function parsePlan(file: unknown, args: unknown, options: unknown, context: Exec
       raw.interactive === undefined ? false : readBoolean(raw.interactive, "interactive"),
     display: raw.display === undefined ? true : readBoolean(raw.display, "display"),
     redact,
+    dryRun: raw.dryRun === undefined ? false : readBoolean(raw.dryRun, "dryRun"),
   };
 }
 
@@ -353,6 +390,17 @@ function toResult(
 
 function isSpawnErrno(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "syscall" in error;
+}
+
+function execEvent(plan: ExecPlan, phase: "start" | "skip"): ExecPrintEvent {
+  const { file, args, cwd } = plan.reported;
+  return {
+    type: "exec",
+    phase,
+    command: cwd === undefined ? { file, args } : { file, args, cwd },
+    stdio: commandStdio(plan),
+    interactive: plan.interactive,
+  };
 }
 
 function commandStdio(plan: ExecPlan): ExecStdio {
@@ -529,9 +577,13 @@ async function execute(
   args: unknown,
   options: unknown,
   context: ExecContext,
-): Promise<ExecResult> {
+): Promise<ExecResult | ExecSkipped> {
   const plan = parsePlan(file, args, options, context);
   if (plan.signal.aborted) return complete(plan, emptyFailure(plan, "aborted"));
+  if (plan.dryRun) {
+    if (plan.display) await context.print(execEvent(plan, "skip"));
+    return { status: "skipped", command: plan.reported };
+  }
 
   const stdio = commandStdio(plan);
   const blocked = blockedReason(plan, context, stdio);
@@ -542,16 +594,7 @@ async function execute(
     return complete(plan, emptyFailure(plan, "overlapping"));
   }
   try {
-    if (plan.display) {
-      const { file, args, cwd } = plan.reported;
-      await context.print({
-        type: "exec",
-        phase: "start",
-        command: cwd === undefined ? { file, args } : { file, args, cwd },
-        stdio,
-        interactive: plan.interactive,
-      });
-    }
+    if (plan.display) await context.print(execEvent(plan, "start"));
     return complete(plan, await runPlan(plan));
   } finally {
     if (holdTerminal) context.terminal.release();

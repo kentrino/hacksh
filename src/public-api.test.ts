@@ -20,6 +20,7 @@ import {
   type ExecOptions,
   type ExecResult,
   type ExecReturn,
+  type ExecSkipped,
   type ExecSuccess,
   type Printer,
   type Logger,
@@ -202,7 +203,7 @@ describe("public exec API", () => {
         const reject: boolean = Math.random() > 0.5;
         expectTypeOf(exec("git", [], { reject })).toEqualTypeOf<Promise<ExecResult>>();
         const options: ExecOptions = {};
-        expectTypeOf(exec("git", [], options)).toEqualTypeOf<Promise<ExecResult>>();
+        expectTypeOf(exec("git", [], options)).toEqualTypeOf<Promise<ExecSkipped | ExecResult>>();
         expectTypeOf(
           exec("git", [], {
             input: "data",
@@ -217,7 +218,9 @@ describe("public exec API", () => {
         // @ts-expect-error input cannot be combined with inherited stdin
         void exec("git", [], { input: "data", stdin: "inherit" });
         const inheritedInput: ExecOptions = { input: "data", stdin: "inherit" };
-        expectTypeOf(exec("git", [], inheritedInput)).toEqualTypeOf<Promise<ExecResult>>();
+        expectTypeOf(exec("git", [], inheritedInput)).toEqualTypeOf<
+          Promise<ExecSkipped | ExecResult>
+        >();
         // @ts-expect-error env values must be strings or undefined
         void exec("git", [], { env: { A: 1 } });
         // @ts-expect-error a misspelled option is rejected next to a valid one
@@ -226,6 +229,52 @@ describe("public exec API", () => {
         void exec("git", [], { rejct: false });
         expectTypeOf(exec("git", [], { reject: true })).toEqualTypeOf<Promise<ExecSuccess>>();
         expectTypeOf(exec("git", [], {})).toEqualTypeOf<Promise<ExecSuccess>>();
+        expectTypeOf(exec("git", ["push"], { dryRun: false })).toEqualTypeOf<
+          Promise<ExecSuccess>
+        >();
+        expectTypeOf(exec("git", ["push"], { dryRun: true })).toEqualTypeOf<Promise<ExecSkipped>>();
+        expectTypeOf(exec("git", ["push"], { dryRun: true, reject: false })).toEqualTypeOf<
+          Promise<
+            | ExecSkipped
+            | {
+                status: "failed";
+                command: ExecCommand;
+                stdout: string;
+                stderr: string;
+                reason: "aborted";
+              }
+          >
+        >();
+        const dryRun: boolean = Math.random() > 0.5;
+        expectTypeOf(exec("git", ["push"], { dryRun })).toEqualTypeOf<
+          Promise<ExecSkipped | ExecSuccess>
+        >();
+        expectTypeOf(exec("git", ["push"], { dryRun, reject: false })).toEqualTypeOf<
+          Promise<ExecSkipped | ExecResult>
+        >();
+        const skipped = await exec("git", ["push"], { dryRun: true });
+        expectTypeOf(skipped).toEqualTypeOf<ExecSkipped>();
+        expectTypeOf(skipped.command).toEqualTypeOf<ExecCommand>();
+        // @ts-expect-error a skipped result has no stdout
+        void skipped.stdout;
+        // @ts-expect-error a skipped result has no stderr
+        void skipped.stderr;
+        // @ts-expect-error a skipped result has no exit code
+        void skipped.exitCode;
+        // @ts-expect-error a skipped result is not a success
+        const skippedAsSuccess: ExecSuccess = skipped;
+        void skippedAsSuccess;
+        const branched = await exec("git", ["push"], { dryRun, reject: false });
+        if (branched.status === "skipped") {
+          expectTypeOf(branched).toEqualTypeOf<ExecSkipped>();
+          // @ts-expect-error a skipped branch has no stdout
+          void branched.stdout;
+        } else if (branched.status === "succeeded") {
+          expectTypeOf(branched).toEqualTypeOf<ExecSuccess>();
+          expectTypeOf(branched.exitCode).toEqualTypeOf<0>();
+        } else {
+          expectTypeOf(branched.reason).toEqualTypeOf<ExecFailureReason>();
+        }
 
         const result = await exec("git", [], { reject: false });
         // @ts-expect-error exitCode exists only after narrowing
@@ -273,6 +322,12 @@ describe("public exec API", () => {
     expectTypeOf<ExecResult>().toEqualTypeOf<ExecSuccess | ExecFailure>();
     expectTypeOf<ExecReturn<{ readonly reject: false }>>().toEqualTypeOf<ExecResult>();
     expectTypeOf<ExecReturn<{}>>().toEqualTypeOf<ExecSuccess>();
+    expectTypeOf<ExecReturn<{ readonly dryRun: true }>>().toEqualTypeOf<ExecSkipped>();
+    expectTypeOf<ExecReturn<{ readonly dryRun: false }>>().toEqualTypeOf<ExecSuccess>();
+    expectTypeOf<ExecReturn<{ readonly dryRun: boolean; readonly reject: false }>>().toEqualTypeOf<
+      ExecSkipped | ExecResult
+    >();
+    expectTypeOf<ExecSkipped extends ExecSuccess ? true : false>().toEqualTypeOf<false>();
     expectTypeOf<HackshExecError["result"]>().toEqualTypeOf<ExecFailure>();
     expectTypeOf<ExecCommand>().toEqualTypeOf<{
       file: string;

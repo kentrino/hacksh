@@ -129,7 +129,7 @@ export interface PromptPrintEvent {
 
 export interface ExecPrintEvent {
   type: "exec";
-  phase: "start";
+  phase: "start" | "skip";
   command: Omit<ExecCommand, "cwd"> & { cwd?: string };
   stdio: {
     stdin: "ignore" | "input" | "inherit";
@@ -179,7 +179,7 @@ function formatTextEvent(event: PrintEvent): string {
     case "prompt":
       return event.prompt.message;
     case "exec":
-      return `$ ${formatExecCommand(event.command)}`;
+      return `${event.phase === "skip" ? "#" : "$"} ${formatExecCommand(event.command)}`;
   }
 }
 
