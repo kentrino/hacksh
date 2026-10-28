@@ -23,6 +23,7 @@ interactive input with `prompt`.
 - [Output formats](#output-formats)
 - [Programmatic API and errors](#programmatic-api-and-errors)
   - [Entry points](#entry-points)
+  - [Composable run functions](#composable-run-functions)
   - [Printers and events](#printers-and-events)
   - [Standalone parsing and help](#standalone-parsing-and-help)
   - [Errors](#errors)
@@ -129,6 +130,7 @@ const copy = defineCommand({
   }),
   run({ args }) {
     const [destination, ...files] = args.positionals; // [string, ...string[]]
+    return { destination, files };
   },
 });
 ```
@@ -346,6 +348,8 @@ context API to `node:child_process`, `spawnSync`, or a custom subprocess wrapper
 handler so execution uses the invocation’s environment, cancellation, and printer.
 
 ```ts
+import { HackshExecError } from "hacksh";
+
 const check = defineCommand({
   name: "check-head",
   async run({ exec, logger }) {
@@ -359,7 +363,7 @@ const check = defineCommand({
         return;
       }
       // Missing executables, cancellation, and other failures must still fail the command.
-      throw new Error("Could not inspect HEAD", { cause: head });
+      throw new HackshExecError("Could not inspect HEAD", head);
     }
     logger.info("HEAD is {commit}", { commit: head.stdout });
   },
@@ -482,8 +486,9 @@ holding the exact text, including the newline `println` adds, or
 pretty stdout, except that terminal control sequences are removed as in every JSON string. `json`
 values are normalized like log properties.
 
-hacksh never prints a `run` return value; it is returned to `runCommand` callers only. Output that
-was written before a failure stays written, and the error follows on stderr. Like logger calls,
+hacksh never prints a `run` return value; it is returned to `runCommand` callers only.
+`runMain` reports thrown `HackshError` instances on stderr and rethrows other exceptions.
+Output that was written before a failure stays written. Like logger calls,
 `output` calls do not need to be awaited and are drained before execution finishes. Writing to
 `process.stdout` or `console.log` directly bypasses the printer, the output mode, and any `stdout`
 writer given to `runMain` or `runCommand`.
@@ -606,14 +611,15 @@ later aborts the context's `signal`.
 
 `runMain` listens for `SIGINT` and `SIGTERM` while it runs and removes those listeners before it
 returns or exits. The first signal aborts the invocation with an `AbortError` named after the
-signal; once `run` settles, output is drained and the process exits with 130 for `SIGINT` or 143 for
-`SIGTERM`, even if `run` threw. A second signal while `run` is still pending exits immediately with
-that signal's status.
+signal. When `run` returns, throws a `HackshError`, or rejects with that exact signal reason,
+output is drained and the process exits with 130 for `SIGINT` or 143 for `SIGTERM`. Unrelated
+exceptions and output failures still reject instead of being converted to a signal exit.
+A second signal while the invocation is pending exits immediately with that signal's status.
 
 Throw `HackshExitError(exitCode, message?)` to choose the exit status, an integer from 0 to 255.
-`runMain` prints a non-empty message as an ordinary error and prints nothing when the message is
-omitted; `onError` still receives the error. `runCommand` rethrows it, so library callers read
-`exitCode` from the caught error. Other failures exit with 1, or 130 for a cancelled prompt.
+`runMain` prints a non-empty message as an ordinary CLI error and prints nothing when the message
+is omitted; `onError` still receives the error. `runCommand` rethrows it unchanged.
+Other `HackshError` instances exit with 1, or 130 for a cancelled prompt.
 
 ## Output formats
 
@@ -621,10 +627,9 @@ omitted; `onError` still receives the error. `runCommand` rethrows it, so librar
 Their `output` option accepts `"auto"` (the default), `"pretty"`, or `"json"`. A valid
 `HACKSH_OUTPUT` environment value takes precedence over that option. `auto` selects JSON only when
 `CI` has a non-empty value; redirecting or piping stdout alone retains pretty output. Invalid
-explicit option or environment values never execute the command. `runCommand` rejects with a
-`TypeError`. `runMain` gives that error to `onError` when configured; otherwise it emits the error
-through a supplied printer or as a dedicated JSON error line, drains output, and exits with status
-code `1`. Output values are case-sensitive.
+explicit option or environment values never execute the command. Both entry points reject with a
+`TypeError`; `runMain` does not call `onError`, print a fallback error event, or force an exit.
+Output values are case-sensitive.
 
 ```ts
 await runMain(main, { output: "auto" });
@@ -687,13 +692,19 @@ the semantic events that the command emits.
 
 ### Entry points
 
-`defineCommand` preserves the handler's return type. `runCommand(command, argv, options)` handles
-help and version output without exiting, throws errors to its caller, and returns a promise of the
-awaited handler result, unioned with results from every possible routed descendant and `undefined`
-for help/version. Routing-only commands add no handler result. Async and void handlers retain their
-result types; `runMain` deliberately discards results.
+`defineCommand` preserves the handler's exact return type. Handlers are ordinary functions that
+return values or `void`, synchronously or asynchronously. `runCommand(command, argv, options)`
+returns a promise of the awaited result, unioned with results from every possible routed
+descendant and `undefined` for help/version. Routing-only commands add no handler result.
+Thrown exceptions, argument errors, and output failures reject the promise. `runCommand` never
+exits or automatically prints a return value or error.
 
-`runMain(command)` reads `process.argv`, prints validation or usage errors, and exits with status 1.
+`runMain(command)` reads `process.argv`, discards return values, and only handles thrown
+`HackshError` instances as normal CLI failures. Other exceptions reject without automatic error
+display, `onError`, or process exit. Pending output is drained and signal listeners are removed
+on both success and rejection. Output failures also reject, including while reporting a CLI
+error; they are not hidden by a forced exit. See
+[Cancellation and exit status](#cancellation-and-exit-status) for exit codes.
 Use `argv` to inject arguments. Omitting it uses `process.argv.slice(2)`; an empty array is an
 explicit empty invocation. `runMain` returns `Promise<void>`. A reusable entry point is an ordinary
 local function:
@@ -708,17 +719,72 @@ await mainEntry([]); // explicitly supplies no arguments
 
 Help and the usage appended to validation or routing errors use the invocation's printer.
 Usage events target stdout for help and stderr for errors. Pass `onError` to replace the entire
-default error display, including usage; output written by this application callback remains its
-own responsibility:
+default display of a `HackshError`, including usage. It receives the original error instance;
+output written by this application callback remains its own responsibility. If the callback
+throws or rejects, `runMain` drains output, removes its listeners, and rejects without exiting:
 
 ```ts
 await runMain(main, {
   argv: ["--help"],
   async onError(error) {
-    console.error(`gh-pr-commits: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`gh-pr-commits: ${error.message}`);
   },
 });
 ```
+
+### Composable run functions
+
+Use ordinary functions and `await`; no handler factory or result envelope is required.
+Throw a `HackshError` subclass for an expected CLI failure. Catch only the specific failures
+the caller can recover from and rethrow everything else:
+
+```ts
+import { z } from "zod";
+import { defineCommand, HackshError, type CommandContext } from "hacksh";
+
+class AppError extends HackshError {}
+
+class NotFoundError extends AppError {
+  readonly id: string;
+
+  constructor(id: string) {
+    super(`User ${id} was not found`);
+    this.id = id;
+  }
+}
+
+const users = new Map([["alice", { id: "alice", displayName: "Alice" }]]);
+
+function loadUser(id: string) {
+  const user = users.get(id);
+  if (!user) throw new NotFoundError(id);
+  return user;
+}
+
+const schema = z.object({ id: z.string() });
+
+function run({ args }: CommandContext<typeof schema>) {
+  try {
+    return loadUser(args.id);
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return { id: error.id, displayName: "Guest" };
+    }
+    throw error;
+  }
+}
+
+const command = defineCommand({ args: schema, run });
+```
+
+The context's `args` is the validated, transformed schema output, not raw argv. Domain functions
+such as `loadUser` need not depend on `CommandContext`. Omit the recovery branch when an expected
+failure should reach `runMain` and be displayed there.
+
+`HackshError(message?, options?)` supports the standard `ErrorOptions.cause` and uses the concrete
+subclass name as `error.name`. Application subclasses can add their own fields. A plain `Error`,
+`TypeError`, or non-error thrown value is not classified as an expected CLI failure. Do not
+blanket-wrap unknown exceptions in `HackshError`: doing so would hide that distinction.
 
 ### Printers and events
 
@@ -790,6 +856,8 @@ await showUsage(main, {
 
 ### Errors
 
+- `HackshError` — base class for expected CLI failures. Extend it for application-specific errors;
+  all error classes below inherit from it.
 - `HackshUsageError` — routing and usage failures (such as an unknown subcommand).
 - `HackshValidationError` — argument and option validation failures, whose `issues` identify CLI
   names such as `--repo` or `<PR>` and rejected unknown tokens in `issues[].arg`.

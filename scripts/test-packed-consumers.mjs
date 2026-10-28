@@ -279,11 +279,26 @@ async function verifyConsumer(label, execute) {
       runtime.code === 1 &&
         runtimeEvents.length === 1 &&
         runtimeEvents[0].type === "error" &&
+        runtimeEvents[0].error.name === "AppError" &&
         runtimeEvents[0].error.message === "runtime exploded" &&
+        runtimeEvents[0].error.cause.name === "Error" &&
+        runtimeEvents[0].error.cause.message === "runtime cause" &&
         runtimeEvents[0].error.properties.code === "E_RUNTIME",
       `${label}: ${commandName} structured runtime error failed: ${runtime.stderr}`,
     );
   }
+
+  const unexpected = await execute(["__unexpected-error__"], { HACKSH_OUTPUT: "json" });
+  assert(
+    unexpected.code === 1 &&
+      unexpected.stdout === "" &&
+      unexpected.stderr.includes("TypeError: unexpected consumer bug") &&
+      !unexpected.stderr.includes("UNEXPECTED_ON_ERROR") &&
+      !unexpected.stderr.includes("unexpected rejection was replaced") &&
+      !unexpected.stderr.includes("unexpected rejection was swallowed") &&
+      !unexpected.stderr.split("\n").some((line) => line.startsWith('{"type":')),
+    `${label}: unexpected TypeError did not propagate unchanged: ${unexpected.stdout}${unexpected.stderr}`,
+  );
 
   const structuredVersion = await execute(["--version"], { HACKSH_OUTPUT: "json" });
   assert(
@@ -321,14 +336,13 @@ async function verifyConsumer(label, execute) {
   const invalidMode = await execute(["terminal-zod", "--target", "production"], {
     HACKSH_OUTPUT: "JSON",
   });
-  const invalidEvents = parseLines(invalidMode.stderr);
   assert(
     invalidMode.code === 1 &&
       invalidMode.stdout === "" &&
-      invalidEvents.length === 1 &&
-      invalidEvents[0].type === "error" &&
-      invalidEvents[0].error.message.includes("Invalid HACKSH_OUTPUT value JSON"),
-    `${label}: case-sensitive output setting was not rejected before execution`,
+      invalidMode.stderr.includes("TypeError: Invalid HACKSH_OUTPUT value JSON") &&
+      !invalidMode.stderr.includes("info production") &&
+      !invalidMode.stderr.split("\n").some((line) => line.startsWith('{"type":')),
+    `${label}: invalid output setting did not reject before execution: ${invalidMode.stdout}${invalidMode.stderr}`,
   );
 
   const executed = await execute(["exec"], {}, { spawnsChildren: true });

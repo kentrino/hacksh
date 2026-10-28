@@ -7,7 +7,7 @@ Each invocation resolves one output mode before routing. Pretty is the default; 
 - `mode-pretty` renders marks and the `│` continuation bar.
 - `mode-json-env` selects JSON from `HACKSH_OUTPUT=json`.
 - `mode-json-ci` selects JSON from non-empty `CI`.
-- `mode-invalid` rejects `HACKSH_OUTPUT=JSON` (case-sensitive) with exit 1 and no command output.
+- `mode-invalid` rejects `HACKSH_OUTPUT=JSON` (case-sensitive) with `TypeError` and no command output; an unhandled rejection makes the Node consumer exit 1.
 - `mode-streams` routes results to stdout and logs to stderr.
 - `mode-color` uses ANSI color only for pretty output, per stream, when that stream is a TTY and `NO_COLOR` is empty.
 
@@ -25,7 +25,7 @@ Preconditions:
 
 - **JSON from env.** Run `D --label levels-json --env HACKSH_OUTPUT=json --expect-code 0 -- CLI levels`. stdout is empty; stderr has eight `log` lines (trace, debug, info, warning, error, fatal, info/step, info/success). Every record's `category` is `["demo","levels"]`.
 - **JSON from CI.** Run `D --label levels-ci --env CI=1 --expect-code 0 -- CLI levels`. Same streams and records as above.
-- **Invalid mode.** Run `D --label bad-output --env HACKSH_OUTPUT=JSON --expect-code 1 -- CLI levels`. stdout is empty; stderr is one `error` line whose message is `Invalid HACKSH_OUTPUT value JSON; expected auto, pretty, or json`.
+- **Invalid mode.** Run `D --label bad-output --env HACKSH_OUTPUT=JSON --expect-code 1 -- CLI levels`. stdout is empty; stderr is Node's unhandled `TypeError` diagnostic containing `Invalid HACKSH_OUTPUT value JSON; expected auto, pretty, or json`, not a hacksh JSON error event.
 - **Structured help and errors.** Run `CLI --help` and `CLI deploy cli` with `HACKSH_OUTPUT=json`. Help is one stdout `usage` line; the validation failure is stderr `error` (kind `validation`) then `usage`.
 - **Color.** Drive `levels` through `--pty` with a steps file containing only a comment, once without `NO_COLOR` and once with `--env NO_COLOR=1`. Only the first transcript contains `ESC[`.
 

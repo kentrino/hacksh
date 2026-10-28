@@ -40,7 +40,7 @@ describe("invocation output selection", () => {
 
     await expect(
       runCommand(command, [], { printer: { print: (event) => void events.push(event) } }),
-    ).resolves.toBe("returned only");
+    ).resolves.toEqual("returned only");
     expect(events).toEqual([
       { type: "output", kind: "text", text: "" },
       { type: "output", kind: "text", text: "\n" },
@@ -56,6 +56,7 @@ describe("invocation output selection", () => {
       run({ output }) {
         output.println("first");
         after();
+        return;
       },
     });
 
@@ -74,7 +75,7 @@ describe("invocation output selection", () => {
   });
 
   it("rejects invalid output settings before routing or execution", async () => {
-    const run = vi.fn();
+    const run = vi.fn(() => undefined);
     const command = defineCommand({ run });
 
     await expect(runCommand(command, [], { output: "yaml" as "json", env: {} })).rejects.toThrow(
@@ -100,7 +101,7 @@ describe("invocation output selection", () => {
         output: "pretty",
         printer: { print: (event) => void events.push(event) },
       }),
-    ).resolves.toBe("result");
+    ).resolves.toEqual("result");
 
     const lines: string[] = [];
     await expect(
@@ -110,7 +111,7 @@ describe("invocation output selection", () => {
         stdout: { isTTY: false, write: () => undefined },
         stderr: { write: (value) => void lines.push(value) },
       }),
-    ).resolves.toBe("result");
+    ).resolves.toEqual("result");
 
     expect(run).toHaveBeenCalledTimes(2);
     expect(results).toEqual(["ran", "ran"]);
@@ -125,6 +126,7 @@ describe("invocation output selection", () => {
     const command = defineCommand({
       run({ logger }) {
         logger.success("done");
+        return;
       },
     });
     const colored: string[] = [];
@@ -163,101 +165,68 @@ describe("invocation output selection", () => {
     expect(json[0]).not.toContain("\u001b[");
   });
 
-  it("reports invalid output through a dedicated JSON error printer and never runs", async () => {
-    const stdout: string[] = [];
-    const stderr: string[] = [];
-    const run = vi.fn();
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
+  it.each([
+    { output: "YAML" as "json", env: {}, message: "Invalid output value YAML" },
+    { env: { HACKSH_OUTPUT: "JSON" }, message: "Invalid HACKSH_OUTPUT value JSON" },
+  ])(
+    "rejects invalid output without fallback reporting: $message",
+    async ({ message, ...options }) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const run = vi.fn();
+      const onError = vi.fn();
+      const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+        throw new Error(`exit:${code}`);
+      }) as never);
 
-    await expect(
-      runMain(defineCommand({ run }), {
-        argv: [],
-        output: "YAML" as "json",
-        env: {},
-        stdout: { isTTY: true, write: (value) => void stdout.push(value) },
-        stderr: { write: (value) => void stderr.push(value) },
-      }),
-    ).rejects.toThrow("exit:1");
+      await expect(
+        runMain(defineCommand({ run }), {
+          argv: [],
+          ...options,
+          onError,
+          stdout: { isTTY: true, write: (value) => void stdout.push(value) },
+          stderr: { write: (value) => void stderr.push(value) },
+        }),
+      ).rejects.toMatchObject({ name: "TypeError", message: expect.stringContaining(message) });
 
-    expect(run).not.toHaveBeenCalled();
-    expect(stdout).toEqual([]);
-    expect(stderr).toHaveLength(1);
-    expect(JSON.parse(stderr[0]!)).toMatchObject({
-      type: "error",
-      error: { kind: "error", name: "TypeError", message: expect.stringContaining("YAML") },
-    });
-  });
+      expect(run).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+      expect(stdout).toEqual([]);
+      expect(stderr).toEqual([]);
+    },
+  );
 
-  it("reports invalid output through a supplied printer", async () => {
-    const events: PrintEvent[] = [];
-    const sequence: string[] = [];
-    const run = vi.fn();
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      sequence.push(`exit:${code}`);
-      throw new Error(`exit:${code}`);
-    }) as never);
+  it.each([
+    { output: "yaml" as "json", env: {}, message: "Invalid output value yaml" },
+    { env: { HACKSH_OUTPUT: "JSON" }, message: "Invalid HACKSH_OUTPUT value JSON" },
+  ])(
+    "does not hand invalid configuration to a printer or onError: $message",
+    async ({ message, ...options }) => {
+      const run = vi.fn();
+      const print = vi.fn();
+      const onError = vi.fn(async () => {
+        throw new Error("must not report");
+      });
+      const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+        throw new Error(`exit:${code}`);
+      }) as never);
 
-    await expect(
-      runMain(defineCommand({ run }), {
-        argv: [],
-        env: { HACKSH_OUTPUT: "JSON" },
-        printer: {
-          async print(event) {
-            sequence.push("print:start");
-            await Promise.resolve();
-            events.push(event);
-            sequence.push("print:end");
-          },
-        },
-      }),
-    ).rejects.toThrow("exit:1");
+      await expect(
+        runMain(defineCommand({ run }), {
+          argv: [],
+          ...options,
+          printer: { print },
+          onError,
+        }),
+      ).rejects.toMatchObject({ name: "TypeError", message: expect.stringContaining(message) });
 
-    expect(run).not.toHaveBeenCalled();
-    expect(events).toMatchObject([{ type: "error", error: { kind: "error", name: "TypeError" } }]);
-    expect(sequence).toEqual(["print:start", "print:end", "exit:1"]);
-  });
-
-  it("hands invalid output to onError without executing or default reporting", async () => {
-    const events: PrintEvent[] = [];
-    const run = vi.fn();
-    const onError = vi.fn();
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-
-    await expect(
-      runMain(defineCommand({ run }), {
-        argv: [],
-        output: "yaml" as "json",
-        env: {},
-        printer: { print: (event) => void events.push(event) },
-        onError,
-      }),
-    ).rejects.toThrow("exit:1");
-
-    expect(run).not.toHaveBeenCalled();
-    expect(events).toEqual([]);
-    expect(onError).toHaveBeenCalledWith(expect.any(TypeError));
-  });
-
-  it("preserves an onError rejection for invalid output without forcing exit", async () => {
-    const exit = vi.spyOn(process, "exit");
-    const run = vi.fn();
-    const reportingFailure = new Error("reporting failed");
-
-    await expect(
-      runMain(defineCommand({ run }), {
-        output: "yaml" as "json",
-        env: {},
-        onError: async () => Promise.reject(reportingFailure),
-      }),
-    ).rejects.toBe(reportingFailure);
-
-    expect(run).not.toHaveBeenCalled();
-    expect(exit).not.toHaveBeenCalled();
-  });
+      expect(run).not.toHaveBeenCalled();
+      expect(print).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses the resolved JSON mode for routing and validation errors before run", async () => {
     const stdout: string[] = [];
@@ -265,7 +234,7 @@ describe("invocation output selection", () => {
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
-    const run = vi.fn();
+    const run = vi.fn(() => undefined);
     const command = defineCommand({
       name: "tool",
       args: z.object({ count: z.coerce.number() }),
@@ -313,7 +282,7 @@ describe("invocation output selection", () => {
       {
         get(_target, key) {
           reads.set(key, (reads.get(key) ?? 0) + 1);
-          return undefined;
+          return;
         },
       },
     );

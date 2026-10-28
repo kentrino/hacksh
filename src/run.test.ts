@@ -5,6 +5,7 @@ import {
   parseArgs,
   runCommand,
   runMain,
+  HackshError,
   HackshExitError,
   HackshUsageError,
   HackshValidationError,
@@ -102,12 +103,53 @@ describe("command routing", () => {
     expect(result).toMatchObject({ command: { name: "leaf" }, args: { count: 2 } });
     expect(unnamedLeaf).not.toHaveProperty("name");
 
-    const namedLeaf = defineCommand({ name: "custom", run: ({ command }) => command });
+    const namedLeaf = defineCommand({
+      name: "custom",
+      run: ({ command }) => command,
+    });
     const namedRoot = defineCommand({ subCommands: { alias: namedLeaf } });
     const resolved = await runCommand(namedRoot, ["alias"]);
     expect(resolved).toMatchObject({ name: "custom" });
     expect(resolved).not.toBe(namedLeaf);
     expect(namedLeaf).toMatchObject({ name: "custom" });
+  });
+
+  it("treats failure-shaped objects as ordinary data without automatic output", async () => {
+    const printer = { print: vi.fn() };
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const onError = vi.fn();
+    const data = { ok: false as const, error: new Error("just data") };
+    const sync = defineCommand({ run: () => data });
+    const asyncCommand = defineCommand({ run: async () => data });
+    const result = runCommand(sync, [], { printer });
+    expectTypeOf(result).toEqualTypeOf<Promise<{ ok: false; error: Error } | undefined>>();
+    await expect(result).resolves.toBe(data);
+    await expect(runCommand(asyncCommand, [], { printer })).resolves.toBe(data);
+    await runMain(sync, { argv: [], printer, onError });
+    await runMain(asyncCommand, { argv: [], printer, onError });
+    expect(printer.print).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("rejects thrown errors rather than converting them into returned failures", async () => {
+    const failure = new Error("thrown failure");
+    const printer = { print: vi.fn() };
+    for (const command of [
+      defineCommand({
+        run() {
+          throw failure;
+        },
+      }),
+      defineCommand({
+        async run() {
+          throw failure;
+        },
+      }),
+    ]) {
+      await expect(runCommand(command, [], { printer })).rejects.toBe(failure);
+    }
+    expect(printer.print).not.toHaveBeenCalled();
   });
 });
 
@@ -263,7 +305,12 @@ describe("help and version", () => {
       args: z.object({
         repo: z.string().optional().meta({ description: "Repository", alias: "R" }),
       }),
-      subCommands: { child: defineCommand({ description: "Do work", run: () => undefined }) },
+      subCommands: {
+        child: defineCommand({
+          description: "Do work",
+          run() {},
+        }),
+      },
     });
     await runCommand(root, ["--help"], { output: "pretty" });
     const help = String(log.mock.calls[0]?.[0]);
@@ -328,6 +375,127 @@ describe("help and version", () => {
 });
 
 describe("runMain", () => {
+  it("reports an application error and drains queued output before the default exit", async () => {
+    const sequence: string[] = [];
+    class AppError extends HackshError {}
+    const failure = new AppError("application failed");
+    const events: PrintEvent[] = [];
+    const printer: Printer = {
+      async print(event) {
+        sequence.push(`start:${event.type}`);
+        await Promise.resolve();
+        events.push(event);
+        sequence.push(`end:${event.type}`);
+      },
+    };
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      sequence.push(`exit:${code}`);
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const command = defineCommand({
+      run({ logger }) {
+        logger.info("before failure");
+        throw failure;
+      },
+    });
+    await expect(runMain(command, { argv: [], printer })).rejects.toThrow("exit:1");
+    expect(events).toMatchObject([
+      { type: "log" },
+      { type: "error", error: { name: "AppError", message: "application failed" } },
+    ]);
+    expect(sequence).toEqual(["start:log", "end:log", "start:error", "end:error", "exit:1"]);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
+  it("drains pending output after onError handles an expected failure", async () => {
+    const sequence: string[] = [];
+    class AppError extends HackshError {}
+    const failure = new AppError("not ready");
+    let release!: () => void;
+    let markPrinted!: () => void;
+    let markReported!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const printed = new Promise<void>((resolve) => (markPrinted = resolve));
+    const reported = new Promise<void>((resolve) => (markReported = resolve));
+    const printer: Printer = {
+      async print() {
+        markPrinted();
+        await gate;
+        sequence.push("drained");
+      },
+    };
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      sequence.push(`exit:${code}`);
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const onError = vi.fn(async (error: HackshError) => {
+      expect(error).toBe(failure);
+      sequence.push("reported");
+      markReported();
+    });
+    const command = defineCommand({
+      run({ logger }) {
+        logger.info("pending output");
+        throw failure;
+      },
+    });
+    const main = runMain(command, { argv: [], printer, onError });
+    const rejection = expect(main).rejects.toThrow("exit:1");
+    await printed;
+    await reported;
+    expect(exit).not.toHaveBeenCalled();
+    release();
+    await rejection;
+    expect(sequence).toEqual(["reported", "drained", "exit:1"]);
+    expect(onError).toHaveBeenCalledExactlyOnceWith(failure);
+  });
+
+  it("drains pending output and removes listeners when onError rejects without exiting", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const failure = new HackshError("command failed");
+    const reportingFailure = new HackshError("reporting failed");
+    let release!: () => void;
+    let started!: () => void;
+    let reported!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const printing = new Promise<void>((resolve) => (started = resolve));
+    const reporting = new Promise<void>((resolve) => (reported = resolve));
+    const events: PrintEvent[] = [];
+    const printer: Printer = {
+      async print(event) {
+        started();
+        await gate;
+        events.push(event);
+      },
+    };
+    const onError = vi.fn(async () => {
+      reported();
+      throw reportingFailure;
+    });
+    const baseline = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
+    const command = defineCommand({
+      run({ logger }) {
+        logger.info("pending output");
+        throw failure;
+      },
+    });
+    let settled = false;
+    const rejection = expect(runMain(command, { argv: [], onError, printer }))
+      .rejects.toBe(reportingFailure)
+      .then(() => {
+        settled = true;
+      });
+    await printing;
+    await reporting;
+    expect(settled).toBe(false);
+    release();
+    await rejection;
+    expect(onError).toHaveBeenCalledExactlyOnceWith(failure);
+    expect(exit).not.toHaveBeenCalled();
+    expect(events).toMatchObject([{ type: "log" }]);
+    expect([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]).toEqual(baseline);
+  });
+
   it("routes usage errors through one printer and drains it before exit", async () => {
     const sequence: string[] = [];
     const events: PrintEvent[] = [];
@@ -354,30 +522,104 @@ describe("runMain", () => {
     expect(sequence).toEqual(["start:error", "end:error", "start:usage", "end:usage", "exit:1"]);
   });
 
-  it("routes unexpected errors through the selected printer", async () => {
+  it.each([
+    new Error("unexpected failure"),
+    new TypeError("programming bug"),
+    "primitive failure",
+    42,
+    null,
+    undefined,
+    Object.assign(new Error("not an expected error"), { name: "HackshError" }),
+  ])("rejects unexpected thrown values unchanged: %s", async (failure) => {
+    const print = vi.fn();
+    const onError = vi.fn();
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const baseline = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
+    for (const command of [
+      defineCommand({
+        run() {
+          throw failure;
+        },
+      }),
+      defineCommand({
+        async run() {
+          throw failure;
+        },
+      }),
+    ]) {
+      await expect(runMain(command, { argv: [], printer: { print }, onError })).rejects.toBe(
+        failure,
+      );
+      expect([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]).toEqual(baseline);
+    }
+    expect(print).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("drains pending output before rejecting an unexpected failure and removes listeners", async () => {
+    const failure = new Error("unexpected failure");
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const printing = new Promise<void>((resolve) => (started = resolve));
     const events: PrintEvent[] = [];
-    vi.spyOn(process, "exit").mockImplementation((() => {
-      throw new Error("stopped");
-    }) as never);
-    const failure = new Error("boom");
+    const printer: Printer = {
+      async print(event) {
+        started();
+        await gate;
+        events.push(event);
+      },
+    };
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const onError = vi.fn();
+    const baseline = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
     const command = defineCommand({
-      run() {
+      run({ logger }) {
+        logger.info("pending output");
         throw failure;
       },
     });
+    let settled = false;
+    const main = runMain(command, { argv: [], printer, onError });
+    const rejection = expect(main)
+      .rejects.toBe(failure)
+      .then(() => {
+        settled = true;
+      });
+    await printing;
+    expect(settled).toBe(false);
+    release();
+    await rejection;
+    expect(events).toMatchObject([{ type: "log" }]);
+    expect(onError).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    expect([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]).toEqual(baseline);
+  });
 
+  it("rejects invalid output configuration without running, reporting, or falling back to JSON", async () => {
+    const run = vi.fn();
+    const onError = vi.fn();
+    const print = vi.fn();
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const baseline = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
     await expect(
-      runMain(command, {
+      runMain(defineCommand({ run }), {
         argv: [],
-        printer: { print: (event) => void events.push(event) },
+        output: "invalid" as never,
+        printer: { print },
+        onError,
       }),
-    ).rejects.toThrow("stopped");
-    expect(events).toEqual([
-      {
-        type: "error",
-        error: expect.objectContaining({ name: "Error", message: "boom" }),
-      },
-    ]);
+    ).rejects.toBeInstanceOf(TypeError);
+    expect(run).not.toHaveBeenCalled();
+    expect(print).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr).not.toHaveBeenCalled();
+    expect([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]).toEqual(baseline);
   });
 
   it("summarizes Error causes and custom properties without retaining the thrown object", async () => {
@@ -386,7 +628,7 @@ describe("runMain", () => {
       throw new Error("stopped");
     }) as never);
     const cause = new Error("root cause");
-    const failure = Object.assign(new Error("boom", { cause }), {
+    const failure = Object.assign(new HackshError("boom", { cause }), {
       code: "E_BOOM",
       retryable: false,
     });
@@ -407,7 +649,7 @@ describe("runMain", () => {
       type: "error",
       error: {
         kind: "error",
-        name: "Error",
+        name: "HackshError",
         message: "boom",
         cause: { kind: "error", name: "Error", message: "root cause" },
         properties: { code: "E_BOOM", retryable: false },
@@ -429,7 +671,7 @@ describe("runMain", () => {
       (error: unknown) => error,
     );
     expect(validation).toBeInstanceOf(HackshValidationError);
-    const failure = new Error("wrapped", { cause: validation });
+    const failure = new HackshError("wrapped", { cause: validation });
     (validation as HackshValidationError & { related: Error }).related = failure;
     const events: PrintEvent[] = [];
     vi.spyOn(process, "exit").mockImplementation((() => {
@@ -464,18 +706,29 @@ describe("runMain", () => {
     expect(cause).not.toHaveProperty("issues.0.details.inst");
   });
 
-  it("propagates a printer rejection on a successful main invocation", async () => {
-    const exit = vi.spyOn(process, "exit");
-    const failure = new Error("printer failed");
+  it.each([new Error("printer failed"), new HackshError("printer failed")])(
+    "propagates printer rejection on a successful main invocation: %s",
+    async (failure) => {
+      const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+      const onError = vi.fn();
+      const print = vi.fn(async () => {
+        throw failure;
+      });
+      const baseline = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
 
-    await expect(
-      runMain(defineCommand({ name: "tool" }), {
-        argv: ["--help"],
-        printer: { print: async () => Promise.reject(failure) },
-      }),
-    ).rejects.toBe(failure);
-    expect(exit).not.toHaveBeenCalled();
-  });
+      await expect(
+        runMain(defineCommand({ name: "tool" }), {
+          argv: ["--help"],
+          printer: { print },
+          onError,
+        }),
+      ).rejects.toBe(failure);
+      expect(exit).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      expect(print).toHaveBeenCalledOnce();
+      expect([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]).toEqual(baseline);
+    },
+  );
 
   it("omits hidden commands from usage reported for an unknown command", async () => {
     const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
@@ -504,7 +757,9 @@ describe("runMain", () => {
     const seen: string[] = [];
     const command = defineCommand({
       args: z.object({ value: z.string().default("empty") }),
-      run: ({ args }) => seen.push(args.value),
+      run({ args }) {
+        seen.push(args.value);
+      },
     });
     vi.spyOn(process, "argv", "get").mockReturnValue(["node", "cli", "--value", "process"]);
 
@@ -514,26 +769,10 @@ describe("runMain", () => {
     expect(seen).toEqual(["explicit", "empty", "process"]);
   });
 
-  it("preserves an onError rejection without forcing another exit", async () => {
-    const exit = vi.spyOn(process, "exit");
-    const onError = vi.fn(async () => {
-      throw new Error("reporting failed");
-    });
-    const command = defineCommand({
-      run() {
-        throw new Error("command failed");
-      },
-    });
-
-    await expect(runMain(command, { argv: [], onError })).rejects.toThrow("reporting failed");
-    expect(exit).not.toHaveBeenCalled();
-  });
-
-  it("exits one after onError succeeds even when pending printer output rejects", async () => {
-    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    const failure = new Error("command failed");
+  it("propagates pending printer rejection after onError succeeds without exiting", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const failure = new HackshError("command failed");
+    const printerFailure = new Error("printer failed");
     const onError = vi.fn();
     const command = defineCommand({
       name: "tool",
@@ -546,12 +785,38 @@ describe("runMain", () => {
     await expect(
       runMain(command, {
         argv: [],
-        printer: { print: async () => Promise.reject(new Error("printer failed")) },
+        printer: { print: async () => Promise.reject(printerFailure) },
         onError,
       }),
-    ).rejects.toThrow("exit:1");
+    ).rejects.toBe(printerFailure);
     expect(onError).toHaveBeenCalledWith(failure);
-    expect(exit).toHaveBeenCalledWith(1);
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("propagates rejection from the default error reporter without forcing an exit", async () => {
+    const failure = new HackshError("command failed");
+    const printerFailure = new HackshError("reporter failed");
+    const print = vi.fn(async () => {
+      throw printerFailure;
+    });
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const baseline = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
+    await expect(
+      runMain(
+        defineCommand({
+          run() {
+            throw failure;
+          },
+        }),
+        {
+          argv: [],
+          printer: { print },
+        },
+      ),
+    ).rejects.toBe(printerFailure);
+    expect(print).toHaveBeenCalledOnce();
+    expect(exit).not.toHaveBeenCalled();
+    expect([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]).toEqual(baseline);
   });
 
   it("uses process argv, replaces reporting with async onError, and exits one", async () => {
@@ -564,7 +829,7 @@ describe("runMain", () => {
     const command = defineCommand({
       allowUnknownArgs: true,
       run: () => {
-        throw new Error("boom");
+        throw new HackshError("boom");
       },
     });
     await expect(runMain(command, { onError, printer })).rejects.toThrow("exit:1");
@@ -573,7 +838,7 @@ describe("runMain", () => {
     expect(printer.print).not.toHaveBeenCalled();
   });
 
-  it("prints usage errors and ordinary errors differently", async () => {
+  it("prints usage errors and other expected errors differently", async () => {
     vi.spyOn(process, "argv", "get").mockReturnValue(["node", "cli"]);
     vi.spyOn(process, "exit").mockImplementation((() => {
       throw new Error("stopped");
@@ -591,7 +856,7 @@ describe("runMain", () => {
       runMain(
         defineCommand({
           run: () => {
-            throw new Error("boom");
+            throw new HackshError("boom");
           },
         }),
         { output: "pretty" },
@@ -624,19 +889,19 @@ describe("runMain", () => {
     expect(error).not.toHaveBeenCalledWith("■  Error: usage failed");
 
     error.mockClear();
-    const pretender = new Error("ordinary failed");
-    pretender.name = "HackshPretender";
+    class AppError extends HackshError {}
+    const failure = new AppError("application failed");
     await expect(
       runMain(
         defineCommand({
           run() {
-            throw pretender;
+            throw failure;
           },
         }),
         { argv: [], output: "pretty", env: {} },
       ),
     ).rejects.toThrow("stopped");
-    expect(error).toHaveBeenCalledWith("■  ordinary failed");
+    expect(error).toHaveBeenCalledWith("■  application failed");
   });
 });
 
@@ -746,14 +1011,15 @@ describe("runMain signals", () => {
     const running = new Promise<void>((resolve) => (started = resolve));
     const reasons: unknown[] = [];
     const command = defineCommand({
-      run: ({ signal }) =>
-        new Promise<void>((resolve) => {
+      run({ signal }) {
+        return new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => {
             reasons.push(signal.reason);
             resolve();
           });
           started();
-        }),
+        });
+      },
     });
     return { command, running, reasons };
   }
@@ -784,9 +1050,9 @@ describe("runMain signals", () => {
     let started!: () => void;
     const running = new Promise<void>((resolve) => (started = resolve));
     const command = defineCommand({
-      run() {
+      async run() {
         started();
-        return new Promise<void>((resolve) => (finish = resolve));
+        await new Promise<void>((resolve) => (finish = resolve));
       },
     });
 
@@ -802,27 +1068,97 @@ describe("runMain signals", () => {
     expect(signalListeners()).toEqual(baseline);
   });
 
-  it("exits with the signal code even when run throws and output cannot drain", async () => {
-    throwingExit();
+  it.each([
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ] as const)("handles rejection with its own %s reason without reporting", async (name, code) => {
+    const exit = throwingExit();
     const baseline = signalListeners();
     let started!: () => void;
     const running = new Promise<void>((resolve) => (started = resolve));
+    const print = vi.fn();
+    const onError = vi.fn();
     const command = defineCommand({
-      run: ({ signal }) =>
-        new Promise<void>((_resolve, reject) => {
+      run({ signal }) {
+        return new Promise<never>((_resolve, reject) => {
           signal.addEventListener("abort", () => reject(signal.reason));
           started();
-        }),
+        });
+      },
     });
 
     const main = runMain(command, {
       argv: [],
-      printer: { print: async () => Promise.reject(new Error("printer failed")) },
+      printer: { print },
+      onError,
     });
     await running;
-    process.emit("SIGTERM");
+    process.emit(name);
 
-    await expect(main).rejects.toThrow("exit:143");
+    await expect(main).rejects.toThrow(`exit:${code}`);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(code);
+    expect(print).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(signalListeners()).toEqual(baseline);
+  });
+
+  it.each([
+    new Error("unrelated failure"),
+    new DOMException("unrelated cancellation", "AbortError"),
+    "unrelated primitive",
+  ])("propagates an unrelated rejection during abort: %s", async (failure) => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const baseline = signalListeners();
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const print = vi.fn();
+    const onError = vi.fn();
+    const command = defineCommand({
+      run({ signal }) {
+        return new Promise<never>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(failure));
+          started();
+        });
+      },
+    });
+    const main = runMain(command, { argv: [], printer: { print }, onError });
+    const rejection = expect(main).rejects.toBe(failure);
+    await running;
+    process.emit("SIGINT");
+    await rejection;
+    expect(print).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    expect(signalListeners()).toEqual(baseline);
+  });
+
+  it("propagates a drain failure instead of exiting after signal cancellation", async () => {
+    const failure = new Error("printer failed");
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const baseline = signalListeners();
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const onError = vi.fn();
+    const print = vi.fn(async () => {
+      throw failure;
+    });
+    const command = defineCommand({
+      run({ signal, logger }) {
+        logger.info("pending output");
+        return new Promise<never>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+          started();
+        });
+      },
+    });
+    const main = runMain(command, { argv: [], printer: { print }, onError });
+    const rejection = expect(main).rejects.toBe(failure);
+    await running;
+    process.emit("SIGTERM");
+    await rejection;
+    expect(print).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
     expect(signalListeners()).toEqual(baseline);
   });
 
@@ -831,11 +1167,11 @@ describe("runMain signals", () => {
     const baseline = signalListeners();
     const failing = defineCommand({
       run() {
-        throw new Error("boom");
+        throw new HackshError("boom");
       },
     });
 
-    await runMain(defineCommand({ run: () => undefined }), { argv: [] });
+    await runMain(defineCommand({ run() {} }), { argv: [] });
     expect(signalListeners()).toEqual(baseline);
     await expect(
       runMain(failing, { argv: [], printer: { print: () => undefined } }),
@@ -857,7 +1193,7 @@ describe("runMain signals", () => {
 
     const main = runMain(command, { argv: [], printer: { print: () => undefined } });
     await running;
-    await runMain(defineCommand({ run: () => undefined }), { argv: [] });
+    await runMain(defineCommand({ run() {} }), { argv: [] });
     process.emit("SIGINT");
 
     await expect(main).rejects.toThrow("exit:130");

@@ -57,7 +57,7 @@ describe("interactive prompts", () => {
     await turn();
     input.write("\u001b[B\r");
 
-    await expect(result).resolves.toBe("production");
+    await expect(result).resolves.toEqual("production");
     const prompts = events.filter((event) => event.type === "prompt");
     expect(prompts.map(({ prompt }) => prompt.status)).toEqual(["active", "active", "submitted"]);
     expect(prompts[1]).toMatchObject({
@@ -157,7 +157,7 @@ describe("interactive prompts", () => {
     const input = new TestInput();
     const result = runCommand(
       defineCommand({
-        run: ({ prompt }) => prompt.text({ message: "Value", validate: () => "" }),
+        run: async ({ prompt }) => await prompt.text({ message: "Value", validate: () => "" }),
       }),
       [],
       {
@@ -170,14 +170,14 @@ describe("interactive prompts", () => {
     await turn();
     input.write("accepted\r");
 
-    await expect(result).resolves.toBe("accepted");
+    await expect(result).resolves.toEqual("accepted");
   });
 
   it("always rejects noninteractive prompts, including prompts with defaults", async () => {
     const input = new TestInput();
     const command = defineCommand({
       async run({ prompt }) {
-        return prompt.confirm({ message: "Continue?", initialValue: true });
+        return await prompt.confirm({ message: "Continue?", initialValue: true });
       },
     });
 
@@ -202,7 +202,9 @@ describe("interactive prompts", () => {
     ] as const) {
       const input = new TestInput();
       const events: PrintEvent[] = [];
-      const command = defineCommand({ run: ({ prompt }) => prompt.text({ message: "Value" }) });
+      const command = defineCommand({
+        run: async ({ prompt }) => await prompt.text({ message: "Value" }),
+      });
       const result = runCommand(command, [], {
         stdin: input,
         stdout: terminalOutput,
@@ -224,7 +226,9 @@ describe("interactive prompts", () => {
     const controller = new AbortController();
     const reason = new Error("stop");
     const result = runCommand(
-      defineCommand({ run: ({ prompt }) => prompt.text({ message: "Value" }) }),
+      defineCommand({
+        run: async ({ prompt }) => await prompt.text({ message: "Value" }),
+      }),
       [],
       {
         stdin: input,
@@ -255,9 +259,9 @@ describe("interactive prompts", () => {
     const reason = new Error("stop");
     const result = runCommand(
       defineCommand({
-        run: ({ prompt }) => {
+        run: async ({ prompt }) => {
           controller.abort(reason);
-          return prompt.confirm({ message: "Continue?" });
+          return await prompt.confirm({ message: "Continue?" });
         },
       }),
       [],
@@ -285,6 +289,7 @@ describe("interactive prompts", () => {
         });
         logger.info("first log");
         logger.info("second log");
+        return;
       },
     });
     const result = runCommand(command, [], {
@@ -406,7 +411,9 @@ describe("interactive prompts", () => {
     const input = new TestInput();
     const failure = new Error("printer failed");
     const result = runCommand(
-      defineCommand({ run: ({ prompt }) => prompt.text({ message: "Value" }) }),
+      defineCommand({
+        run: async ({ prompt }) => await prompt.text({ message: "Value" }),
+      }),
       [],
       {
         stdin: input,

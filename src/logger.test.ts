@@ -32,15 +32,14 @@ describe("run logger", () => {
       },
     });
 
-    await expect(
-      runCommand(command, [], {
-        printer: {
-          print(event) {
-            if (event.type === "log") records.push(event.record);
-          },
+    const received = await runCommand(command, [], {
+      printer: {
+        print(event) {
+          if (event.type === "log") records.push(event.record);
         },
-      }),
-    ).resolves.toBe(result);
+      },
+    });
+    expect(received).toBe(result);
 
     expect(records.map(({ level, kind }) => [level, kind])).toEqual([
       ["trace", "message"],
@@ -76,6 +75,7 @@ describe("run logger", () => {
             app: "explicit",
             attempt: 3,
           });
+        return;
       },
     });
     const root = defineCommand({
@@ -119,15 +119,14 @@ describe("run logger", () => {
       },
     });
 
-    await expect(
-      runCommand(command, [], {
-        printer: {
-          print(event) {
-            if (event.type === "log") records.push(event.record);
-          },
+    const received = await runCommand(command, [], {
+      printer: {
+        print(event) {
+          if (event.type === "log") records.push(event.record);
         },
-      }),
-    ).resolves.toBe(result);
+      },
+    });
+    expect(received).toBe(result);
 
     expect(records).toHaveLength(2);
     expect(records.map(({ message }) => message)).toEqual([
@@ -144,6 +143,7 @@ describe("run logger", () => {
     const command = defineCommand({
       run({ logger }) {
         logger.with({ requestId: "req-1" }).error(failure, { retryable: true });
+        return;
       },
     });
 
@@ -191,6 +191,7 @@ describe("run logger", () => {
       defineCommand({
         run({ logger }) {
           logger.info("validation", { validation });
+          return;
         },
       }),
       [],
@@ -238,6 +239,7 @@ describe("run logger", () => {
       defineCommand({
         run({ logger }) {
           logger.info("payment", { money, buffer });
+          return;
         },
       }),
       [],
@@ -290,7 +292,8 @@ describe("run logger", () => {
     await vi.waitFor(() => expect(releaseFirst).toBeTypeOf("function"));
     expect(sequence).toEqual(["start:first"]);
     releaseFirst?.();
-    await expect(invocation).resolves.toBe(result);
+    const received = await invocation;
+    expect(received).toBe(result);
     expect(sequence).toEqual(["start:first", "end:first", "start:second", "end:second"]);
   });
 
