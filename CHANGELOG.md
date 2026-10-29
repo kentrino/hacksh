@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.0](https://github.com/kentrino/hacksh/compare/v0.17.0...v0.18.0) (2026-10-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **prompts:** SelectOptions now takes the complete option item type instead of its value string type. Inferred prompt calls retain literal value return types.
+
+### Features
+
+* **prompts:** add autocomplete and stable item-based sorting ([#59](https://github.com/kentrino/hacksh/issues/59)) ([8a693ec](https://github.com/kentrino/hacksh/commit/8a693ecc0066a6777228f55356a7471f85e7a2d7))
+
 ## [0.17.0](https://github.com/kentrino/hacksh/compare/v0.16.0...v0.17.0) (2026-10-29)
 
 
