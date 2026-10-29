@@ -3,6 +3,9 @@ catalogMode: prefer
 catalog:
   "@types/node": ^24
   "@vitest/coverage-v8": 4.1.10
+  "@xterm/headless": ^6.0.0
+  # 1.1.0 ships a non-executable macOS spawn-helper; build 1.0.0 from source.
+  node-pty: 1.0.0
   typescript: ^7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@0.2.8
   vite-plus: 0.2.8
@@ -20,3 +23,6 @@ peerDependencyRules:
   allowedVersions:
     vite: "*"
     vitest: "*"
+
+allowBuilds:
+  node-pty: true

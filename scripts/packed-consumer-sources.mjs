@@ -321,6 +321,7 @@ import {
   renderUsage,
   runCommand,
   showUsage,
+  type AutocompleteOptions,
   type CommandDef,
   type Exec,
   type ExecCommand,
@@ -466,15 +467,49 @@ const hiddenRoot = defineCommand({
   subCommands: { hiddenZod, hiddenMini },
 });
 const hiddenMetadata: boolean | undefined = hiddenZod.hidden;
+const environmentOptions = [
+  { value: "staging", priority: 2, label: "Staging" },
+  { value: "production", priority: 1, label: "Production" },
+] as const;
 const promptCommand = defineCommand({
   async run({ prompt }) {
     const selected = await prompt.select({
       message: "Environment",
-      options: [{ value: "staging" }, { value: "production" }] as const,
+      options: [
+        { value: "staging", priority: 2 },
+        { value: "production", priority: 1 },
+      ],
       initialValue: "staging",
+      sortBy(item) {
+        const valueExact: Equal<typeof item.value, "staging" | "production"> = true;
+        const priorityExact: Equal<typeof item.priority, 1 | 2> = true;
+        void [valueExact, priorityExact];
+        return item.priority;
+      },
     });
     const inferred: "staging" | "production" = selected;
-    return inferred;
+    const autocompleteOptions: AutocompleteOptions<(typeof environmentOptions)[number]> = {
+      message: "Environment",
+      options: environmentOptions,
+      placeholder: "Type to filter…",
+      sortBy(item) {
+        const itemExact: Equal<typeof item, (typeof environmentOptions)[number]> = true;
+        void itemExact;
+        return item.label;
+      },
+    };
+    const matched = await prompt.autocomplete(autocompleteOptions);
+    const inferredMatch: typeof inferred = matched;
+    const selectedExact: Equal<typeof selected, "staging" | "production"> = true;
+    const matchedExact: Equal<typeof matched, "staging" | "production"> = true;
+    void [selectedExact, matchedExact];
+    void prompt.select({
+      message: "Environment",
+      options: [{ value: "staging" }, { value: "production" }],
+      // @ts-expect-error initialValue must not widen the inferred option values
+      initialValue: "development",
+    });
+    return inferredMatch;
   },
 });
 const promptResult: Promise<"staging" | "production" | undefined> =

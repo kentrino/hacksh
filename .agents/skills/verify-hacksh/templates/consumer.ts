@@ -58,6 +58,36 @@ const ask = defineCommand({
   },
 });
 
+const pick = defineCommand({
+  description: "Autocomplete a language",
+  async run({ prompt, output }) {
+    const value = await prompt.autocomplete({
+      message: "Choose a language",
+      options: [
+        { value: "typescript", label: "TypeScript" },
+        { value: "javascript", label: "JavaScript" },
+        { value: "go", label: "Go" },
+      ],
+    });
+    output.println(value);
+  },
+});
+
+const sorted = defineCommand({
+  description: "Select an environment in sortBy order",
+  async run({ prompt, output }) {
+    const value = await prompt.select({
+      message: "Environment",
+      options: [
+        { value: "production", label: "Production", priority: 20 },
+        { value: "staging", label: "Staging", priority: 10 },
+      ],
+      sortBy: (item) => item.priority,
+    });
+    output.println(value);
+  },
+});
+
 const explode = defineCommand({
   description: "Throw a runtime error",
   run() {
@@ -74,6 +104,8 @@ await runMain(
       deploy,
       levels,
       ask,
+      pick,
+      sorted,
       explode,
       internal: defineCommand({
         hidden: true,

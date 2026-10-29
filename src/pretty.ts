@@ -4,6 +4,7 @@ import { formatExecCommand } from "./exec.ts";
 import type { LogLevel, LogRecord } from "./logger.ts";
 import {
   eventStream,
+  type AutocompletePromptState,
   type OutputPrintEvent,
   type OutputWriter,
   type Printer,
@@ -169,7 +170,7 @@ function eventLines(event: DecoratedEvent): string[] {
       const { prompt } = event;
       if (prompt.status === "submitted") {
         const result =
-          prompt.kind === "select"
+          prompt.kind === "select" || prompt.kind === "autocomplete"
             ? (prompt.choices.find(({ value }) => value === prompt.value)?.label ?? prompt.value)
             : prompt.kind === "confirm"
               ? prompt.value
@@ -208,8 +209,9 @@ function colorize(enabled: boolean, style: TextStyle, text: string): string {
 }
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-const combiningMark = /\p{Mark}/u;
-const pictograph = /\p{Extended_Pictographic}/u;
+const invisibleGrapheme = /^[\p{Mark}\p{Cf}]+$/u;
+const combiningMark = /[\p{Mark}\p{Cf}]/u;
+const emoji = /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u;
 
 function isWideCodePoint(codePoint: number): boolean {
   return (
@@ -228,37 +230,57 @@ function isWideCodePoint(codePoint: number): boolean {
   );
 }
 
-function displayWidth(text: string): number {
-  let width = 0;
+interface TerminalPosition {
+  row: number;
+  column: number;
+}
+
+function terminalPosition(text: string, columns: number | undefined): TerminalPosition {
+  const width =
+    Number.isInteger(columns) && columns !== undefined && columns > 0 ? columns : undefined;
+  let row = 0;
+  let column = 0;
   for (const { segment } of graphemeSegmenter.segment(stripVTControlCharacters(text))) {
+    if (segment === "\n" || segment === "\r\n") {
+      row += 1;
+      column = 0;
+      continue;
+    }
+    if (segment === "\r") {
+      column = 0;
+      continue;
+    }
+    if (invisibleGrapheme.test(segment)) continue;
+    let cells = 0;
     if (segment === "\t") {
-      width += 8 - (width % 8);
-      continue;
+      cells = 8 - (column % 8);
+    } else if (emoji.test(segment) || isWideCodePoint(segment.codePointAt(0)!)) {
+      cells = 2;
+    } else {
+      for (const value of segment) {
+        const point = value.codePointAt(0)!;
+        if (point < 0x20 || (point >= 0x7f && point < 0xa0)) continue;
+        if (!combiningMark.test(value)) cells += 1;
+      }
     }
-    if (
-      pictograph.test(segment) ||
-      Array.from(segment).some((value) => isWideCodePoint(value.codePointAt(0)!))
-    ) {
-      width += 2;
-      continue;
+    if (cells === 0) continue;
+    if (width && column + cells > width) {
+      row += 1;
+      column = 0;
     }
-    for (const value of segment) {
-      const codePoint = value.codePointAt(0)!;
-      if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint < 0xa0)) continue;
-      if (codePoint === 0x200d || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)) continue;
-      if (!combiningMark.test(value)) width += 1;
-    }
+    column += width ? Math.min(cells, width) : cells;
   }
-  return width;
+  return { row, column };
 }
 
 function renderedRows(rendered: string, columns: number | undefined): number {
-  const width =
-    Number.isInteger(columns) && columns !== undefined && columns > 0 ? columns : undefined;
-  return rendered.split("\n").reduce((rows, line) => {
-    if (!width) return rows + 1;
-    return rows + Math.max(1, Math.ceil(displayWidth(line) / width));
-  }, 0);
+  return terminalPosition(rendered, columns).row + 1;
+}
+
+interface ActivePrompt {
+  rendered: string;
+  lines: number;
+  cursor?: TerminalPosition & { visible: boolean };
 }
 
 /** Create the fixed human-readable renderer used for pretty output. */
@@ -270,10 +292,43 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
     typeof options.color === "boolean"
       ? { stdout: options.color, stderr: options.color }
       : options.color;
-  let activePrompt: { rendered: string; lines: number } | undefined;
+  let activePrompt: ActivePrompt | undefined;
+
+  function renderAutocomplete(prompt: AutocompletePromptState, color: boolean): string {
+    const bar = colorize(color, "gray", symbols.bar);
+    const accent = (text: string): string => colorize(color, "cyan", text);
+    const muted = (text: string): string => colorize(color, "gray", text);
+    const input = prompt.phase === "input";
+    const lines = [
+      `${accent(symbols.marks.prompt)}  ${prompt.message}`,
+      `${bar}  ${input ? accent(">") : " "} ${prompt.query || muted(prompt.placeholder ?? "")} `,
+      bar,
+    ];
+    for (const choice of prompt.choices) {
+      lines.push(
+        `${bar}  ${choice.selected ? accent(">") : " "} ${choice.selected ? accent(choice.label) : choice.label}${choice.hint ? ` ${muted(`— ${choice.hint}`)}` : ""}`,
+      );
+    }
+    if (prompt.choices.length === 0) {
+      lines.push(`${bar}    ${muted("No matches. Keep typing or backspace.")}`);
+    }
+    lines.push(bar);
+    lines.push(
+      `${bar}  ${muted(input ? "INPUT · type to filter · ↓ select · Esc cancel" : "SELECT · ↑/↓ move · Enter choose · Esc edit")}`,
+    );
+    if (prompt.error) lines.push(`${bar}  ${prompt.error}`);
+    return lines.join("\n");
+  }
 
   function render(event: DecoratedEvent): string {
     const color = colors[eventStream(event)];
+    if (
+      event.type === "prompt" &&
+      event.prompt.kind === "autocomplete" &&
+      event.prompt.status !== "submitted"
+    ) {
+      return renderAutocomplete(event.prompt, color);
+    }
     const mark = eventMark(event);
     const lines = eventLines(event);
     const firstPrefix = colorize(color, markStyles[mark], symbols.marks[mark]);
@@ -284,28 +339,71 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
   }
 
   function eraseActivePrompt(): string {
-    return activePrompt ? "\u001b[1A\u001b[2K".repeat(activePrompt.lines) : "";
+    if (!activePrompt) return "";
+    if (activePrompt.cursor) {
+      const up = activePrompt.cursor.row > 0 ? `\u001b[${activePrompt.cursor.row}A` : "";
+      return `\u001b[?25l${up}\r\u001b[0J`;
+    }
+    return "\u001b[1A\u001b[2K".repeat(activePrompt.lines);
+  }
+
+  function drawActivePrompt(): string {
+    if (!activePrompt) return "";
+    const { rendered, lines, cursor } = activePrompt;
+    if (!cursor) return `${rendered}\n`;
+    const up = lines - cursor.row;
+    return `${rendered}\n${up > 0 ? `\u001b[${up}A` : ""}\u001b[${cursor.column + 1}G\u001b[?25${cursor.visible ? "h" : "l"}`;
+  }
+
+  function finishActivePrompt(): string {
+    const restore = activePrompt?.cursor ? "\u001b[?25h" : "";
+    activePrompt = undefined;
+    return restore;
   }
 
   return {
     print(event) {
       if (event.type === "output") {
         const erase = eraseActivePrompt();
-        stdout.write(`${erase}${outputText(event)}`);
-        if (activePrompt) stdout.write(`${activePrompt.rendered}\n`);
+        const text = outputText(event);
+        stdout.write(`${erase}${text}`);
+        if (activePrompt) {
+          // Keep a partial output line outside the frame that the next redraw erases.
+          const separator = activePrompt.cursor && text && !text.endsWith("\n") ? "\n" : "";
+          stdout.write(`${separator}${drawActivePrompt()}`);
+        }
         return;
       }
       const rendered = render(event);
       if (event.type === "prompt") {
         const erase = eraseActivePrompt();
         if (event.prompt.status === "closed") {
-          activePrompt = undefined;
-          if (erase) stdout.write(erase);
+          const restore = finishActivePrompt();
+          if (erase || restore) stdout.write(`${erase}${restore}`);
           return;
         }
-        if (event.prompt.status === "submitted") activePrompt = undefined;
-        else activePrompt = { rendered, lines: renderedRows(rendered, stdout.columns) };
-        stdout.write(`${erase}${rendered}\n`);
+        if (event.prompt.status === "submitted") {
+          const restore = finishActivePrompt();
+          stdout.write(`${erase}${restore}${rendered}\n`);
+          return;
+        }
+        const restore =
+          activePrompt?.cursor && event.prompt.kind !== "autocomplete" ? "\u001b[?25h" : "";
+        activePrompt = { rendered, lines: renderedRows(rendered, stdout.columns) };
+        if (event.prompt.kind === "autocomplete") {
+          const { prompt } = event;
+          const cursor = terminalPosition(
+            `${symbols.marks.prompt}  ${prompt.message}\n${symbols.bar}  > ${prompt.query}`,
+            stdout.columns,
+          );
+          // The input's trailing space resolves pending wrap at an exact right edge.
+          if (cursor.column === stdout.columns) {
+            cursor.row += 1;
+            cursor.column = 0;
+          }
+          activePrompt.cursor = { ...cursor, visible: prompt.phase === "input" };
+        }
+        stdout.write(`${erase}${restore}${drawActivePrompt()}`);
         return;
       }
 
@@ -315,10 +413,10 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
         return;
       }
 
-      stdout.write(erase);
-      if (event.type === "error") activePrompt = undefined;
+      const restore = event.type === "error" ? finishActivePrompt() : "";
+      stdout.write(`${erase}${restore}`);
       (eventStream(event) === "stdout" ? stdout : stderr).write(`${rendered}\n`);
-      if (activePrompt) stdout.write(`${activePrompt.rendered}\n`);
+      if (activePrompt) stdout.write(drawActivePrompt());
     },
   };
 }

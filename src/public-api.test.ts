@@ -31,10 +31,11 @@ import {
   type CommandContext,
   type ShowUsageOptions,
 } from "./index.ts";
-import type { Prompter } from "./index.ts";
+import type { AutocompleteOptions, Prompter, SelectOption, SelectOptions } from "./index.ts";
 import type { EmptyArgs } from "./schema.ts";
 import {
   createPrettyPrinter,
+  type AutocompletePromptState,
   type ExecPrintEvent,
   type Printer,
   type HackshErrorKind,
@@ -397,7 +398,9 @@ describe("public logger API", () => {
         expectTypeOf<Logger["error"]>().parameter(0).toEqualTypeOf<string | Error>();
         expectTypeOf(logger.with({ requestId: "1" })).toEqualTypeOf<Logger>();
         expectTypeOf(logger.getChild("child")).toEqualTypeOf<Logger>();
-        expectTypeOf<Extract<keyof Logger, "select" | "confirm" | "text">>().toEqualTypeOf<never>();
+        expectTypeOf<
+          Extract<keyof Logger, "select" | "autocomplete" | "confirm" | "text">
+        >().toEqualTypeOf<never>();
         expectTypeOf(prompt).toEqualTypeOf<Prompter>();
         expectTypeOf(
           prompt.select({
@@ -405,6 +408,21 @@ describe("public logger API", () => {
             options: [{ value: "staging" }, { value: "production" }] as const,
           }),
         ).toEqualTypeOf<Promise<"staging" | "production">>();
+        expectTypeOf(
+          prompt.autocomplete({
+            message: "Language",
+            options: [{ value: "typescript" }, { value: "javascript" }],
+          }),
+        ).toEqualTypeOf<Promise<"typescript" | "javascript">>();
+        expectTypeOf<AutocompleteOptions<SelectOption<"one">>["options"]>().toEqualTypeOf<
+          readonly SelectOption<"one">[]
+        >();
+        expectTypeOf<AutocompleteOptions<SelectOption<"one">>["placeholder"]>().toEqualTypeOf<
+          string | undefined
+        >();
+        expectTypeOf<
+          Extract<keyof AutocompleteOptions<SelectOption<"one">>, "initialValue">
+        >().toEqualTypeOf<never>();
         expectTypeOf(prompt.confirm({ message: "Continue?" })).toEqualTypeOf<Promise<boolean>>();
         expectTypeOf(prompt.text({ message: "Name" })).toEqualTypeOf<Promise<string>>();
       },
@@ -429,12 +447,123 @@ describe("public logger API", () => {
     const inspectPrompt = (state: PromptState): void => {
       if (state.kind === "select") expectTypeOf(state.value).toEqualTypeOf<string>();
       else if (state.kind === "confirm") expectTypeOf(state.value).toEqualTypeOf<boolean>();
-      else expectTypeOf(state.value).toEqualTypeOf<string>();
+      else if (state.kind === "autocomplete") {
+        expectTypeOf(state).toEqualTypeOf<AutocompletePromptState>();
+        expectTypeOf(state.value).toEqualTypeOf<string | undefined>();
+        expectTypeOf(state.query).toEqualTypeOf<string>();
+        expectTypeOf(state.phase).toEqualTypeOf<"input" | "select">();
+      } else expectTypeOf(state.value).toEqualTypeOf<string>();
     };
     expectTypeOf(inspectPrompt).toBeFunction();
     expectTypeOf(
       new HackshPromptError("cancelled", { kind: "text", message: "Name" }, "no"),
     ).toMatchTypeOf<Error>();
+  });
+});
+
+describe("public prompt API", () => {
+  it("infers inline item metadata and literal values without const assertions", () => {
+    defineCommand({
+      run({ prompt }) {
+        expectTypeOf(
+          prompt.select({
+            message: "Environment",
+            options: [
+              { value: "staging", priority: 2 },
+              { value: "production", priority: 1 },
+            ],
+            initialValue: "staging",
+            sortBy(item) {
+              expectTypeOf(item.value).toEqualTypeOf<"staging" | "production">();
+              expectTypeOf(item.priority).toEqualTypeOf<1 | 2>();
+              // @ts-expect-error contextual items have only the supplied metadata
+              void item.missing;
+              return item.priority;
+            },
+          }),
+        ).toEqualTypeOf<Promise<"staging" | "production">>();
+        expectTypeOf(
+          prompt.autocomplete({
+            message: "Language",
+            options: [
+              { value: "typescript", group: "typed" },
+              { value: "javascript", group: "dynamic" },
+            ],
+            sortBy(item) {
+              expectTypeOf(item.value).toEqualTypeOf<"typescript" | "javascript">();
+              expectTypeOf(item.group).toEqualTypeOf<"typed" | "dynamic">();
+              // @ts-expect-error contextual items have only the supplied metadata
+              void item.missing;
+              return item.group;
+            },
+          }),
+        ).toEqualTypeOf<Promise<"typescript" | "javascript">>();
+        const invalidInitialValue = prompt.select({
+          message: "Environment",
+          options: [{ value: "staging" }, { value: "production" }],
+          // @ts-expect-error initialValue cannot add another value to the inferred union
+          initialValue: "development",
+        });
+        expectTypeOf(invalidInitialValue).toEqualTypeOf<Promise<"staging" | "production">>();
+      },
+    });
+  });
+
+  it("preserves readonly whole-item types in options and sort callbacks", () => {
+    const options = [
+      { value: "staging", priority: 2, label: "Staging" },
+      { value: "production", priority: 1, label: "Production" },
+    ] as const;
+    type Item = (typeof options)[number];
+    expectTypeOf<SelectOptions<Item>["options"]>().toEqualTypeOf<readonly Item[]>();
+    expectTypeOf<AutocompleteOptions<Item>["options"]>().toEqualTypeOf<readonly Item[]>();
+    expectTypeOf<SelectOptions<Item>["initialValue"]>().toEqualTypeOf<
+      "staging" | "production" | undefined
+    >();
+    expectTypeOf<NonNullable<SelectOptions<Item>["sortBy"]>>().toEqualTypeOf<
+      (item: Item) => string | number
+    >();
+    expectTypeOf<NonNullable<AutocompleteOptions<Item>["sortBy"]>>().toEqualTypeOf<
+      (item: Item) => string | number
+    >();
+    // @ts-expect-error choice options take whole items, not the former value-only generic
+    type OldSelectOptions = SelectOptions<"staging">;
+    // @ts-expect-error autocomplete options also take whole items
+    type OldAutocompleteOptions = AutocompleteOptions<"staging">;
+    expectTypeOf<OldSelectOptions>().toBeObject();
+    expectTypeOf<OldAutocompleteOptions>().toBeObject();
+
+    defineCommand({
+      run({ prompt }) {
+        expectTypeOf(
+          prompt.select({
+            message: "Environment",
+            options,
+            initialValue: "production",
+            sortBy(item) {
+              expectTypeOf(item).toEqualTypeOf<Item>();
+              return item.priority;
+            },
+          }),
+        ).toEqualTypeOf<Promise<"staging" | "production">>();
+        expectTypeOf(
+          prompt.autocomplete({
+            message: "Environment",
+            options,
+            sortBy(item) {
+              expectTypeOf(item).toEqualTypeOf<Item>();
+              return item.label;
+            },
+          }),
+        ).toEqualTypeOf<Promise<"staging" | "production">>();
+        void prompt.select({
+          message: "Environment",
+          options,
+          // @ts-expect-error readonly inputs cannot be widened by initialValue either
+          initialValue: "development",
+        });
+      },
+    });
   });
 });
 

@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 import type { HackshPromptErrorReason, PromptErrorDetails, PromptKind } from "./errors.ts";
 import { HackshPromptError } from "./errors.ts";
 import type {
+  AutocompletePromptState,
   ConfirmPromptState,
   Printer,
   PromptState,
@@ -19,10 +20,20 @@ export interface SelectOption<T extends string> {
   hint?: string;
 }
 
-export interface SelectOptions<T extends string> {
+interface ChoiceOptions<TItem extends SelectOption<string>> {
   message: string;
-  options: readonly SelectOption<T>[];
-  initialValue?: T;
+  options: readonly TItem[];
+  sortBy?: (item: NoInfer<TItem>) => string | number;
+}
+
+export interface SelectOptions<TItem extends SelectOption<string>> extends ChoiceOptions<TItem> {
+  initialValue?: NoInfer<TItem["value"]>;
+}
+
+export interface AutocompleteOptions<
+  TItem extends SelectOption<string>,
+> extends ChoiceOptions<TItem> {
+  placeholder?: string;
 }
 
 export interface ConfirmOptions {
@@ -37,7 +48,12 @@ export interface TextOptions {
 }
 
 export interface Prompter {
-  select<const T extends string>(options: SelectOptions<T>): Promise<T>;
+  select<const TItem extends SelectOption<string>>(
+    options: SelectOptions<TItem>,
+  ): Promise<TItem["value"]>;
+  autocomplete<const TItem extends SelectOption<string>>(
+    options: AutocompleteOptions<TItem>,
+  ): Promise<TItem["value"]>;
   confirm(options: ConfirmOptions): Promise<boolean>;
   text(options: TextOptions): Promise<string>;
 }
@@ -104,6 +120,84 @@ function validateMessage(kind: PromptKind, message: unknown, choices?: readonly 
   }
 }
 
+function validateChoices<TItem extends SelectOption<string>>(
+  kind: "select" | "autocomplete",
+  options: ChoiceOptions<TItem>,
+): PromptErrorDetails {
+  const choices = Array.isArray(options?.options)
+    ? options.options.map((option) =>
+        typeof option === "object" && option !== null && typeof option.value === "string"
+          ? option.value
+          : "[Invalid choice]",
+      )
+    : [];
+  const prompt = details(kind, options?.message, choices);
+  validateMessage(kind, options?.message, choices);
+  if (!Array.isArray(options.options) || options.options.length === 0) {
+    throw promptError("invalid-options", prompt, `A ${kind} prompt requires at least one choice`);
+  }
+  const seen = new Set<string>();
+  for (const option of options.options) {
+    if (
+      typeof option !== "object" ||
+      option === null ||
+      typeof option.value !== "string" ||
+      option.value.length === 0 ||
+      (option.label !== undefined && typeof option.label !== "string") ||
+      (option.hint !== undefined && typeof option.hint !== "string")
+    ) {
+      throw promptError(
+        "invalid-options",
+        prompt,
+        `${kind === "select" ? "Select" : "Autocomplete"} choices must have valid string values`,
+      );
+    }
+    if (seen.has(option.value)) {
+      throw promptError("invalid-options", prompt, `Duplicate ${kind} choice: ${option.value}`);
+    }
+    seen.add(option.value);
+  }
+  return prompt;
+}
+
+function sortedChoices<TItem extends SelectOption<string>>(
+  options: ChoiceOptions<TItem>,
+  prompt: PromptErrorDetails,
+): readonly TItem[] {
+  const { sortBy } = options;
+  if (sortBy === undefined) return options.options;
+  if (typeof sortBy !== "function") {
+    throw promptError("invalid-options", prompt, "sortBy must be a function");
+  }
+  let keyType: "string" | "number" | undefined;
+  const keyed = options.options.map((item) => {
+    let key: string | number;
+    try {
+      key = sortBy(item);
+    } catch (cause) {
+      throw promptError("input-error", prompt, "Choice sort key could not be computed", cause);
+    }
+    if (typeof key !== "string" && (typeof key !== "number" || Number.isNaN(key))) {
+      throw promptError(
+        "invalid-options",
+        prompt,
+        "sortBy must return a string or a non-NaN number",
+      );
+    }
+    const type = typeof key as "string" | "number";
+    if (keyType !== undefined && keyType !== type) {
+      throw promptError("invalid-options", prompt, "sortBy keys must all have the same type");
+    }
+    keyType = type;
+    return { item, key };
+  });
+  // Array.sort is stable; sorting cached keys never calls user code in the comparator.
+  keyed.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return keyed.map(({ item }) => item);
+}
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 function asInput(value: TerminalInput, prompt: PromptErrorDetails): TerminalInput {
   if (
     typeof value !== "object" ||
@@ -149,6 +243,7 @@ export class PromptController implements Prompter {
     update: (character: string, key: Key) => PromptState | undefined,
     submitted: (value: T) => PromptState,
     closed: () => PromptState,
+    cancelOnEscape: () => boolean = () => true,
   ): Promise<T> {
     if (!this.#interactive) {
       throw promptError(
@@ -209,7 +304,7 @@ export class PromptController implements Prompter {
           key: Key = {},
         ): Promise<void> => {
           if (settled) return;
-          if ((key.ctrl && key.name === "c") || key.name === "escape") {
+          if ((key.ctrl && key.name === "c") || (key.name === "escape" && cancelOnEscape())) {
             fail("cancelled", "Prompt cancelled");
             return;
           }
@@ -331,41 +426,15 @@ export class PromptController implements Prompter {
     }
   }
 
-  async select<const T extends string>(options: SelectOptions<T>): Promise<T> {
-    const choices = Array.isArray(options?.options)
-      ? options.options.map((option) =>
-          typeof option === "object" && option !== null && typeof option.value === "string"
-            ? option.value
-            : "[Invalid choice]",
-        )
-      : [];
-    const prompt = details("select", options?.message, choices);
-    validateMessage("select", options?.message, choices);
-    if (!Array.isArray(options.options) || options.options.length === 0) {
-      throw promptError("invalid-options", prompt, "A select prompt requires at least one choice");
-    }
-    const seen = new Set<string>();
-    for (const option of options.options) {
-      if (
-        typeof option !== "object" ||
-        option === null ||
-        typeof option.value !== "string" ||
-        option.value.length === 0 ||
-        (option.label !== undefined && typeof option.label !== "string") ||
-        (option.hint !== undefined && typeof option.hint !== "string")
-      ) {
-        throw promptError(
-          "invalid-options",
-          prompt,
-          "Select choices must have valid string values",
-        );
-      }
-      if (seen.has(option.value)) {
-        throw promptError("invalid-options", prompt, `Duplicate select choice: ${option.value}`);
-      }
-      seen.add(option.value);
-    }
-    let selected = options.initialValue === undefined ? 0 : choices.indexOf(options.initialValue);
+  async select<const TItem extends SelectOption<string>>(
+    options: SelectOptions<TItem>,
+  ): Promise<TItem["value"]> {
+    const prompt = validateChoices("select", options);
+    const choices = sortedChoices(options, prompt);
+    let selected =
+      options.initialValue === undefined
+        ? 0
+        : choices.findIndex(({ value }) => value === options.initialValue);
     if (selected < 0) {
       throw promptError(
         "invalid-options",
@@ -377,32 +446,94 @@ export class PromptController implements Prompter {
       kind: "select",
       message: options.message,
       status,
-      value: options.options[selected]!.value,
-      choices: options.options.map(({ value, label, hint }, index) => ({
+      value: choices[selected]!.value,
+      choices: choices.map(({ value, label, hint }, index) => ({
         value,
         label: label ?? value,
         ...(hint === undefined ? {} : { hint }),
         selected: index === selected,
       })),
     });
-    const value = await this.#run<T>(
+    const value = await this.#run<TItem["value"]>(
       prompt,
       state(),
       (_character, key) =>
-        key.name === "return" || key.name === "enter"
-          ? options.options[selected]!.value
-          : undefined,
+        key.name === "return" || key.name === "enter" ? choices[selected]!.value : undefined,
       (_character, key) => {
         if (key.name !== "up" && key.name !== "down") return undefined;
-        selected =
-          (selected + (key.name === "up" ? -1 : 1) + options.options.length) %
-          options.options.length;
+        selected = (selected + (key.name === "up" ? -1 : 1) + choices.length) % choices.length;
         return state();
       },
       () => state("submitted"),
       () => state("closed"),
     );
     return value;
+  }
+
+  async autocomplete<const TItem extends SelectOption<string>>(
+    options: AutocompleteOptions<TItem>,
+  ): Promise<TItem["value"]> {
+    const prompt = validateChoices("autocomplete", options);
+    if (options.placeholder !== undefined && typeof options.placeholder !== "string") {
+      throw promptError("invalid-options", prompt, "Autocomplete placeholder must be a string");
+    }
+    const choices = sortedChoices(options, prompt);
+    let query = "";
+    let selected = -1;
+    let filtered = choices;
+    const state = (status: PromptStatus = "active"): AutocompletePromptState => ({
+      kind: "autocomplete",
+      message: options.message,
+      status,
+      query,
+      phase: selected < 0 ? "input" : "select",
+      ...(options.placeholder === undefined ? {} : { placeholder: options.placeholder }),
+      ...(selected < 0 ? {} : { value: filtered[selected]!.value }),
+      choices: filtered.map(({ value, label, hint }, index) => ({
+        value,
+        label: label ?? value,
+        ...(hint === undefined ? {} : { hint }),
+        selected: index === selected,
+      })),
+    });
+    return await this.#run<TItem["value"]>(
+      prompt,
+      state(),
+      (_character, key) =>
+        selected >= 0 && (key.name === "return" || key.name === "enter")
+          ? filtered[selected]!.value
+          : undefined,
+      (character, key) => {
+        if (key.name === "down") {
+          if (selected >= filtered.length - 1) return undefined;
+          selected += 1;
+        } else if (key.name === "up") {
+          if (selected < 0) return undefined;
+          selected -= 1;
+        } else if (key.name === "escape") {
+          selected = -1;
+        } else {
+          if (key.name === "backspace") {
+            const last = graphemeSegmenter.segment(query).containing(query.length - 1);
+            query = last === undefined ? "" : query.slice(0, last.index);
+          } else if (!key.ctrl && !key.meta && character.length > 0 && !/\p{Cc}/u.test(character)) {
+            query += character;
+          } else return undefined;
+          selected = -1;
+          const search = query.toLowerCase();
+          filtered =
+            search.length === 0
+              ? choices
+              : choices.filter(({ value, label }) =>
+                  (label ?? value).toLowerCase().includes(search),
+                );
+        }
+        return state();
+      },
+      () => state("submitted"),
+      () => state("closed"),
+      () => selected < 0,
+    );
   }
 
   async confirm(options: ConfirmOptions): Promise<boolean> {

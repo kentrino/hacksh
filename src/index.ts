@@ -26,6 +26,7 @@ export type {
 export type { Output } from "./command-output.ts";
 export type { Logger } from "./logger.ts";
 export type {
+  AutocompleteOptions,
   ConfirmOptions,
   Prompter,
   SelectOption,
