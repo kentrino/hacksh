@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.17.0](https://github.com/kentrino/hacksh/compare/v0.16.0...v0.17.0) (2026-10-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **errors:** runMain no longer reports unexpected exceptions or invalid output configuration, and onError receives only HackshError instances.
+
+### Features
+
+* **errors:** handle only expected CLI exceptions ([#57](https://github.com/kentrino/hacksh/issues/57)) ([4e9acc9](https://github.com/kentrino/hacksh/commit/4e9acc99e8677b62824532435bca36fc20906dc3))
+
 ## [0.16.0](https://github.com/kentrino/hacksh/compare/v0.15.0...v0.16.0) (2026-10-29)
 
 
