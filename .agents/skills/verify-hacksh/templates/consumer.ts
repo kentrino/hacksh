@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineCommand, runMain } from "../../../src/index.ts";
+import { defineCommand, HackshError, runMain } from "../../../src/index.ts";
 
 const deploy = defineCommand({
   allowUnknownArgs: true,
@@ -61,7 +61,7 @@ const ask = defineCommand({
 const explode = defineCommand({
   description: "Throw a runtime error",
   run() {
-    throw Object.assign(new Error("runtime exploded"), { code: "E_RUNTIME" });
+    throw Object.assign(new HackshError("runtime exploded"), { code: "E_RUNTIME" });
   },
 });
 
@@ -78,7 +78,9 @@ await runMain(
       internal: defineCommand({
         hidden: true,
         description: "Hidden command",
-        run: () => console.log("INTERNAL"),
+        run: () => {
+          console.log("INTERNAL");
+        },
       }),
     },
   }),

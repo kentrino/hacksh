@@ -9,9 +9,11 @@ import {
   parseArgs,
   renderUsage,
   showUsage,
+  HackshError,
   HackshValidationError,
 } from ${JSON.stringify(packageSpecifier)};
 import { createPrettyPrinter, createJsonPrinter } from ${JSON.stringify(packageSpecifier + "/printer")};
+class AppError extends HackshError {}
 async function verifyPhaseTwo(label, phaseCommand) {
   const usage = renderUsage(phaseCommand);
   for (const expected of [
@@ -118,7 +120,9 @@ function terminalCommand(flavor, args) {
     args,
     run({ args: parsed, logger }) {
       if (parsed.target === "explode") {
-        throw Object.assign(new Error("runtime exploded"), { code: "E_RUNTIME" });
+        throw Object.assign(new AppError("runtime exploded", { cause: new Error("runtime cause") }), {
+          code: "E_RUNTIME",
+        });
       }
       const log = logger.with({ flavor, target: parsed.target });
       log.trace("trace {target}");
@@ -287,6 +291,19 @@ if (process.argv.slice(2)[0] === "__standalone-help__") {
   await showUsage(command, { printer: createPrettyPrinter({ color: false }) });
 } else if (process.argv.slice(2)[0] === "__standalone-json-help__") {
   await showUsage(command, { printer: createJsonPrinter() });
+} else if (process.argv.slice(2)[0] === "__unexpected-error__") {
+  const unexpected = new TypeError("unexpected consumer bug");
+  try {
+    await runMain(defineCommand({ run() { throw unexpected; } }), {
+      argv: [],
+      output: "json",
+      onError() { console.error("UNEXPECTED_ON_ERROR"); },
+    });
+  } catch (error) {
+    if (error !== unexpected) throw new Error("unexpected rejection was replaced", { cause: error });
+    throw error;
+  }
+  throw new Error("unexpected rejection was swallowed");
 } else await main();
 `;
 }
@@ -298,6 +315,7 @@ import * as mini from "zod/mini";
 import {
   runMain,
   defineCommand,
+  HackshError,
   HackshExecError,
   parseArgs,
   renderUsage,
@@ -322,6 +340,8 @@ import {
   type PrintEvent,
   type Printer,
 } from "hacksh/printer";
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const schema = z.object({
   positionals: z.tuple([z.enum(["fast", "safe"]).meta({ title: "MODE" })], z.string()),
   count: z.coerce.number(),
@@ -349,21 +369,54 @@ const commandResult: Promise<{
   same: CommandDef<typeof schema>;
   output: z.output<typeof schema>;
 } | undefined> = runCommand(command, ["fast", "--count", "2"]);
+class AppError extends HackshError {
+  readonly detail = "application failure";
+}
+const appError: HackshError = new AppError("failed", { cause: new Error("cause") });
 const numeric = defineCommand({ run: () => 42 });
-const numericResult: Promise<number | undefined> = runCommand(numeric, []);
+const numericExecution = runCommand(numeric, []);
+const numericResult: Promise<number | undefined> = numericExecution;
+const numericExact: Equal<typeof numericExecution, typeof numericResult> = true;
 // @ts-expect-error help/version can return undefined
 const numericOnly: Promise<number> = runCommand(numeric, []);
 const asyncLeaf = defineCommand({ async run() { return true; } });
+const failure = defineCommand({ run(): never { throw appError; } });
 const routed = defineCommand({
   run: () => "root",
-  subCommands: { group: defineCommand({ subCommands: { numeric, asyncLeaf } }) },
+  subCommands: { group: defineCommand({ subCommands: { numeric, asyncLeaf, failure } }) },
 });
-const routedResult: Promise<string | number | boolean | undefined> = runCommand(routed, []);
-// @ts-expect-error a routed child may return a number or boolean
+const routedExecution = runCommand(routed, []);
+const routedResult: Promise<string | number | boolean | undefined> = routedExecution;
+const routedExact: Equal<typeof routedExecution, typeof routedResult> = true;
+// @ts-expect-error a routed child may return another value
 const rootOnly: Promise<string | undefined> = runCommand(routed, []);
-const voidResult: Promise<void> = runCommand(defineCommand({ run() {} }), []);
-const asyncVoidResult: Promise<void> = runCommand(defineCommand({ async run() {} }), []);
-void [commandResult, numericResult, numericOnly, routedResult, rootOnly, voidResult, asyncVoidResult];
+const voidExecution = runCommand(defineCommand({ run() {} }), []);
+const voidResult: Promise<void | undefined> = voidExecution;
+const voidExact: Equal<typeof voidExecution, typeof voidResult> = true;
+const asyncVoidExecution = runCommand(defineCommand({ async run() {} }), []);
+const asyncVoidResult: Promise<void | undefined> = asyncVoidExecution;
+const asyncVoidExact: Equal<typeof asyncVoidExecution, typeof asyncVoidResult> = true;
+const typedCommand: CommandDef<typeof schema, number> = {
+  args: schema,
+  run: ({ args }) => args.count,
+};
+const asyncTypedCommand: CommandDef<typeof schema, Promise<number>> = {
+  args: schema,
+  run: async ({ args }) => args.count,
+};
+const reported: Promise<void> = runMain(failure, {
+  onError(error) {
+    const expected: HackshError = error;
+    if (expected instanceof AppError) {
+      const detail: string = expected.detail;
+      void detail;
+    }
+  },
+});
+void [
+  commandResult, numericResult, numericOnly, routedResult, rootOnly, voidResult, asyncVoidResult,
+  numericExact, routedExact, voidExact, asyncVoidExact, typedCommand, asyncTypedCommand, reported,
+];
 const parsed: Promise<z.output<typeof schema>> = parseArgs(command, [
   "fast",
   "--count",
@@ -424,7 +477,8 @@ const promptCommand = defineCommand({
     return inferred;
   },
 });
-const promptResult: Promise<unknown> = runCommand(promptCommand, [], { output: "json" });
+const promptResult: Promise<"staging" | "production" | undefined> =
+  runCommand(promptCommand, [], { output: "json" });
 const execCommand = defineCommand({
   async run({ exec }) {
     const typedExec: Exec = exec;
@@ -461,7 +515,8 @@ const execCommand = defineCommand({
     const wide = await exec("node", ["-e", "process.exit(3)"], options);
     if (wide.status === "skipped") {
       // @ts-expect-error a skipped result has no stdout
-      return wide.stdout;
+      void wide.stdout;
+      return;
     }
     const result: ExecResult = wide;
     const returned: ExecReturn<{ reject: false }> = result;
@@ -483,7 +538,9 @@ const execCommand = defineCommand({
     if (result.status === "failed") {
       const failure: ExecFailure = result;
       const reason: ExecFailureReason = failure.reason;
-      if (result.reason === "exit-code") return [command, returned, reason, result.exitCode satisfies number, printed, inheritedStdout];
+      if (result.reason === "exit-code") {
+        return [command, returned, reason, result.exitCode satisfies number, printed, inheritedStdout];
+      }
       if (result.reason === "signal") return result.signal satisfies string;
       if (result.reason === "spawn") return result.error satisfies Error;
       if (result.reason === "json-output" || result.reason === "non-interactive" || result.reason === "overlapping") {

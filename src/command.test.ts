@@ -9,9 +9,15 @@ describe("defineCommand", () => {
       run({ args }) {
         expectTypeOf(args).toEqualTypeOf<{ positionals: [number]; label?: string }>();
         args.positionals[0] += 1;
+        return;
       },
     });
-    defineCommand({ run: ({ args }) => expectTypeOf(args).toBeObject() });
+    defineCommand({
+      run: ({ args }) => {
+        expectTypeOf(args).toBeObject();
+        return;
+      },
+    });
   });
 
   it("accepts optional boolean hidden metadata without changing output inference", () => {
@@ -20,6 +26,7 @@ describe("defineCommand", () => {
       args: z.object({ count: z.coerce.number() }),
       run({ args }) {
         expectTypeOf(args).toEqualTypeOf<{ count: number }>();
+        return;
       },
     });
     const visible = defineCommand({ hidden: false });
@@ -141,6 +148,7 @@ defineCommand({
   args: z.object({ positionals: z.tuple([z.string()], z.string()) }),
   run({ args }) {
     expectTypeOf(args).toEqualTypeOf<{ positionals: [string, ...string[]] }>();
+    return;
   },
 });
 

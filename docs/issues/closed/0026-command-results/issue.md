@@ -26,12 +26,12 @@ runCommand は run の戻り値を返すが、runMain はその値を出力し�
 # Decisions
 
 - run の context に `output` を置き、`print(text)`・`println(text?)`・`json(value)` を持たせる。`println` は `print` に改行を足したものとする。呼び出しごとに一つの `output` イベントを出す逐次レコード列とし、結果スキーマは持たない。
-- run の戻り値は `runCommand` の呼び出し元にだけ返し、`runMain` は表示しない。返す値と同じものを出力したい場合は、作者が `output` も呼ぶ。
+- run は通常の値または void を同期・非同期で返し、`runCommand` はその戻り値を呼び出し元に返す。`runMain` は戻り値を表示せず、throw された `HackshError` だけを通常の CLI エラーとして処理する。それ以外の例外は再 throw する。戻り値を出力したい場合は、作者が `output` も呼ぶ。
 - stdout は結果専用とし、`output`・help・version だけを書く。ログは全レベルを stderr に出す。
 - pretty では text をそのまま書き、json は 2 スペースで整形する。JSON では `{"type":"output","kind":"text","text":...}` と `{"type":"output","kind":"json","data":...}` の envelope を使う。text を連結すると、端末制御シーケンスを除いて pretty の stdout と一致する。
 - 色は stdout と stderr それぞれが TTY かどうかで判定する。
-- 空文字列・`null`・同じ値の繰り返しも、それぞれ一つのイベントとして出す。何も呼ばなければ何も出さない。失敗前に書いた結果は取り消さず、エラーを stderr に続けて出す。
-- 書き込みの失敗は drain でまとめて呼び出しの失敗にする。run の処理は止めない。
+- 空文字列・`null`・同じ値の繰り返しも、それぞれ一つのイベントとして出す。何も呼ばなければ何も出さない。失敗前に書いた結果は取り消さず、`HackshError` の診断は stderr に続けて出す。
+- 書き込みの失敗は drain でまとめて呼び出しの失敗にする。run の処理は止めない。`runMain` でも表示中・drain 中の失敗を process.exit で隠さず、呼び出し元へ reject する。
 - 既存の JSON-lines 利用者との互換は保たない。info 以下のログを stdout から読んでいた利用者は stderr から読む。
 
 # Related Files

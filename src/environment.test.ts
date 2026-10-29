@@ -93,7 +93,7 @@ describe("environment-backed options", () => {
       runCommand(root, ["db", "run-migrations"], {
         env: { TOOL_DB_RUN_MIGRATIONS_MAX_RETRIES: "3" },
       }),
-    ).resolves.toBe(3);
+    ).resolves.toEqual(3);
   });
 
   it("reads only explicit names when the root has no name", async () => {
@@ -138,6 +138,7 @@ describe("environment-backed options", () => {
       args: z.object({ port: z.coerce.number().int() }),
       run: () => {
         ran = true;
+        return;
       },
     });
     const issues = await validationIssues(
@@ -153,7 +154,10 @@ describe("environment-backed options", () => {
       name: "my-cli",
       args: z.object({ deployTarget: z.string().optional() }),
       subCommands: {
-        deploy: defineCommand({ args: z.object({ target: z.string() }), run: () => "ran" }),
+        deploy: defineCommand({
+          args: z.object({ target: z.string() }),
+          run: () => "ran",
+        }),
       },
     });
     await expect(runCommand(root, ["deploy"], { env: {} })).rejects.toThrow(

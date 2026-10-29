@@ -385,7 +385,7 @@ describe("context exec", () => {
     });
     await expect(
       runCommand(command, [], { output: "json", stderr: { write: () => undefined } }),
-    ).resolves.toBe("from child");
+    ).resolves.toEqual("from child");
   });
 
   it("binds each invocation to its own env option", async () => {
@@ -417,6 +417,7 @@ describe("context exec", () => {
     const command = defineCommand({
       async run({ exec }) {
         await exec(node, script("process.exit(7)"));
+        return;
       },
     });
     const error = await rejection(
@@ -429,7 +430,7 @@ describe("context exec", () => {
     const invocation = new AbortController();
     const own = new AbortController();
     const command = defineCommand({
-      run: ({ exec }) => exec(node, script(printPidThenWait), { signal: own.signal }),
+      run: async ({ exec }) => await exec(node, script(printPidThenWait), { signal: own.signal }),
     });
     const pending = runCommand(command, [], {
       output: "json",

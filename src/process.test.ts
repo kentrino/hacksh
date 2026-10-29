@@ -33,22 +33,15 @@ describe("real process behavior", () => {
     expect(result.stderr).toContain("USAGE exit-fixture [OPTIONS]");
   });
 
-  it("reports an invalid output environment as one JSON line without executing", () => {
+  it("leaves invalid output configuration to the runtime without executing or JSON reporting", () => {
     const result = spawnSync(process.execPath, ["src/fixtures/exit-cli.ts", "--count", "3"], {
       encoding: "utf8",
       env: { ...process.env, HACKSH_OUTPUT: "JSON" },
     });
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr.trim().split("\n")).toHaveLength(1);
-    expect(JSON.parse(result.stderr)).toMatchObject({
-      type: "error",
-      error: {
-        kind: "error",
-        name: "TypeError",
-        message: expect.stringContaining("Invalid HACKSH_OUTPUT value JSON"),
-      },
-    });
+    expect(result.stderr).toMatch(/^TypeError:/m);
+    expect(result.stderr).not.toContain('{"type":"error"');
   });
 
   async function signalFixture(args: string[], signals: NodeJS.Signals[]): Promise<number | null> {

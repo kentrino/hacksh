@@ -143,7 +143,7 @@ describe("exec display", () => {
       },
     });
 
-    await expect(run(command, { printer: recordPrinter(events) })).resolves.toBe("child-marker");
+    await expect(run(command, { printer: recordPrinter(events) })).resolves.toEqual("child-marker");
     expect(events).toEqual([
       {
         type: "exec",
@@ -166,7 +166,7 @@ describe("exec display", () => {
         stdout: { write: (text: string) => void stdout.push(text) },
         stderr: { write: (text: string) => void stderr.push(text) },
       }),
-    ).resolves.toBe("child-marker");
+    ).resolves.toEqual("child-marker");
     expect(stdout).toEqual([]);
     expect(stderr).toHaveLength(1);
     expect(JSON.parse(stderr[0]!)).toEqual({
@@ -189,7 +189,7 @@ describe("exec display", () => {
       },
     });
 
-    await expect(run(command, { printer: recordPrinter(events) })).resolves.toBe("quiet");
+    await expect(run(command, { printer: recordPrinter(events) })).resolves.toEqual("quiet");
     expect(events).toEqual([]);
   });
 });
@@ -213,6 +213,7 @@ describe("exec redaction", () => {
           ),
           { cwd, redact: [secret, longer] },
         );
+        return;
       },
     });
 
@@ -236,7 +237,7 @@ describe("exec redaction", () => {
     const missing = join(directory, secret);
     const command = defineCommand({
       async run({ exec }) {
-        return exec(missing, [`--token=${secret}`], { redact: [secret], cwd: directory });
+        return await exec(missing, [`--token=${secret}`], { redact: [secret], cwd: directory });
       },
     });
 
@@ -262,6 +263,7 @@ describe("exec redaction", () => {
         defineCommand({
           async run({ exec }) {
             await exec("hacksh-missing-executable", ["plain"], { redact: [] });
+            return;
           },
         }),
       ),
@@ -294,7 +296,7 @@ describe("exec terminal use", () => {
         stdout: { isTTY: true, write: () => undefined },
         stderr: { write: () => undefined },
       }),
-    ).resolves.toBe("beta");
+    ).resolves.toEqual("beta");
   });
 
   it("inherits every stdio stream and still reports the exit code", async () => {
@@ -302,7 +304,7 @@ describe("exec terminal use", () => {
     const marker = join(directory, "ran");
     const command = defineCommand({
       async run({ exec }) {
-        return exec(node, markerScript(marker, "process.exit(0)"), {
+        return await exec(node, markerScript(marker, "process.exit(0)"), {
           stdin: "inherit",
           stdout: "inherit",
           stderr: "inherit",
@@ -322,7 +324,7 @@ describe("exec terminal use", () => {
   it("captures stdout while inheriting stdin and stderr", async () => {
     const command = defineCommand({
       async run({ exec }) {
-        return exec(node, script("process.stdout.write('captured-out')"), {
+        return await exec(node, script("process.stdout.write('captured-out')"), {
           stdin: "inherit",
           stderr: "inherit",
         });
@@ -343,7 +345,7 @@ describe("exec terminal use", () => {
     const stderr: string[] = [];
     const command = defineCommand({
       async run({ exec }) {
-        return exec(node, markerScript(marker), {
+        return await exec(node, markerScript(marker), {
           stdout: "inherit",
           interactive: true,
           reject: false,
@@ -371,6 +373,7 @@ describe("exec terminal use", () => {
         defineCommand({
           async run({ exec }) {
             await exec(node, markerScript(marker), { stdin: "inherit" });
+            return;
           },
         }),
         { output: "json" },
@@ -388,7 +391,7 @@ describe("exec terminal use", () => {
     const events: PrintEvent[] = [];
     const command = defineCommand({
       async run({ exec }) {
-        return exec(node, markerScript(marker), {
+        return await exec(node, markerScript(marker), {
           signal: AbortSignal.abort(),
           stdout: "inherit",
           interactive: true,
@@ -410,7 +413,7 @@ describe("exec terminal use", () => {
     const events: PrintEvent[] = [];
     const command = defineCommand({
       async run({ exec }) {
-        return exec(node, markerScript(marker), { interactive: true, reject: false });
+        return await exec(node, markerScript(marker), { interactive: true, reject: false });
       },
     });
 
@@ -428,6 +431,7 @@ describe("exec terminal use", () => {
         defineCommand({
           async run({ exec }) {
             await exec(node, markerScript(marker), { interactive: true });
+            return;
           },
         }),
       ),
@@ -465,6 +469,7 @@ describe("exec terminal use", () => {
           process.kill(pid, "SIGKILL");
         }
         await first;
+        return;
       },
     });
 
@@ -538,6 +543,7 @@ describe("exec terminal use", () => {
         const after = join(directory, "after");
         await exec(node, markerScript(after), { stdout: "inherit" });
         expect(existsSync(after)).toBe(true);
+        return;
       },
     });
 
@@ -564,7 +570,7 @@ describe("exec dry-run display", () => {
           reject: false,
         });
         if (fetched.status !== "failed") return fetched;
-        return exec(node, markerScript(marker), { dryRun: true, cwd: directory });
+        return await exec(node, markerScript(marker), { dryRun: true, cwd: directory });
       },
     });
 
@@ -586,7 +592,7 @@ describe("exec dry-run display", () => {
     const args = markerScript(marker);
     const command = defineCommand({
       async run({ exec }) {
-        return exec(node, args, {
+        return await exec(node, args, {
           dryRun: true,
           cwd: directory,
           stdin: "inherit",

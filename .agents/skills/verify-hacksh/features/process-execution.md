@@ -225,7 +225,7 @@ Preconditions:
 
 - **Fetch, then skip the write.** Run `D --label rebase-pretty --env NO_COLOR=1 --expect-code 0 -- CLI rebase --target <target>`. stdout's `RESULT` has `fetch` `exit-code`, `exitCode` `1`, `stdout` `main`, `status` `skipped`, `hasStdout` false, `hasExitCode` false, and `file` `main\n`. `command` is the skipped result's redacted command. stderr has a `$` line for the fetch and a `#` line for the write, and no `wrote`. Repeat with `--label rebase-json --env HACKSH_OUTPUT=json`. stderr is two `exec` lines, `phase` `start` then `skip`. The skip event's `command` equals `RESULT.command`, and `stdio.stdin` is `input`. The target file is still `main\n`.
 - **Plan in a non-interactive environment.** Without `--pty`, run `D --label plan-pretty --env NO_COLOR=1 --expect-code 0 -- CLI plan --target <target>`. stderr is one `#` line and no `$` line. `RESULT` has `status` `skipped` and `file` `main\n`. There is no `Command requires an interactive terminal` error. Repeat with `--label plan-json --env HACKSH_OUTPUT=json`. stderr is one `exec` event with `phase` `skip`, `interactive` true, and `stdio` inherit on stdin, stdout, and stderr. stdout has the `RESULT` line and no child output.
-- **Invalid input during dry-run.** Run `D --label dry-run-conflict --env HACKSH_OUTPUT=json --expect-code 1 -- CLI conflict`. stderr is one `error` line whose message contains `input` and `stdin inherit`. There is no `exec` event.
+- **Invalid input during dry-run.** Run `D --label dry-run-conflict --env HACKSH_OUTPUT=json --expect-code 1 -- CLI conflict`. stderr is Node's unhandled `TypeError` diagnostic containing `input` and `stdin inherit`, not a hacksh `error` event. There is no `exec` event.
 
 ## Gotchas
 

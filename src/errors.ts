@@ -8,12 +8,19 @@ export interface HackshIssue {
   issue?: $ZodIssue;
 }
 
-export class HackshUsageError extends Error {
+/** An expected CLI failure that runMain reports; application errors can extend this class. */
+export class HackshError extends Error {
+  constructor(message?: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = new.target.name;
+  }
+}
+
+export class HackshUsageError extends HackshError {
   readonly command: AnyCommandDef;
 
   constructor(message: string, command: AnyCommandDef, options?: ErrorOptions) {
     super(message, options);
-    this.name = "HackshUsageError";
     this.command = command;
   }
 }
@@ -26,7 +33,6 @@ export class HackshValidationError extends HackshUsageError {
       `Invalid arguments:\n${issues.map(({ arg, message }) => `  ${arg}: ${message}`).join("\n")}`,
       command,
     );
-    this.name = "HackshValidationError";
     this.issues = issues;
   }
 }
@@ -50,7 +56,7 @@ export interface PromptErrorDetails {
 }
 
 /** An input request that could not be completed safely. */
-export class HackshPromptError extends Error {
+export class HackshPromptError extends HackshError {
   readonly reason: HackshPromptErrorReason;
   readonly prompt: PromptErrorDetails;
 
@@ -61,19 +67,17 @@ export class HackshPromptError extends Error {
     options?: ErrorOptions,
   ) {
     super(message, options);
-    this.name = "HackshPromptError";
     this.reason = reason;
     this.prompt = prompt;
   }
 }
 
 /** An external command that did not succeed; `result` is not enumerable so error summaries omit child output. */
-export class HackshExecError extends Error {
+export class HackshExecError extends HackshError {
   readonly #result: ExecFailure;
 
   constructor(message: string, result: ExecFailure, options?: ErrorOptions) {
     super(message, options);
-    this.name = "HackshExecError";
     this.#result = result;
   }
 
@@ -83,7 +87,7 @@ export class HackshExecError extends Error {
 }
 
 /** A requested process exit status; `runMain` exits with it and reports only a non-empty message. */
-export class HackshExitError extends Error {
+export class HackshExitError extends HackshError {
   readonly exitCode: number;
 
   constructor(exitCode: number, message?: string, options?: ErrorOptions) {
@@ -91,7 +95,6 @@ export class HackshExitError extends Error {
       throw new TypeError("Exit code must be an integer from 0 to 255");
     }
     super(message, options);
-    this.name = "HackshExitError";
     this.exitCode = exitCode;
   }
 }

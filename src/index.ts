@@ -1,6 +1,7 @@
 export { defineCommand } from "./command.ts";
 export type { CommandContext, CommandDef } from "./command.ts";
 export {
+  HackshError,
   HackshExecError,
   HackshExitError,
   HackshPromptError,

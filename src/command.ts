@@ -52,7 +52,7 @@ export function defineCommand<
   S extends ArgsSchema = EmptyArgs,
   R = never,
   Children extends Record<string, AnyCommandDef> = {},
->(def: CommandDef<S, R, Children>): CommandDef<S, NoInfer<R>, NoInfer<Children>> {
+>(def: CommandDef<S, R, Children>): NoInfer<CommandDef<S, R, Children>> {
   if (def.allowUnknownArgs !== undefined && typeof def.allowUnknownArgs !== "boolean") {
     throw new TypeError("allowUnknownArgs must be a boolean");
   }

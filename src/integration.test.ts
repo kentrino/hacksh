@@ -2,7 +2,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import * as mini from "zod/mini";
-import { defineCommand, runCommand, runMain } from "./index.ts";
+import { defineCommand, HackshError, runCommand, runMain } from "./index.ts";
 import type { PrintEvent } from "./printer-api.ts";
 
 class IntegrationInput extends PassThrough {
@@ -55,7 +55,7 @@ describe("consumer-equivalent commands", () => {
   });
 
   it("supports git-worktree parent options before a subcommand", async () => {
-    const parentRun = vi.fn();
+    const parentRun = vi.fn(() => undefined);
     const command = defineCommand({
       args: z.object({ repo: z.string() }),
       subCommands: {
@@ -106,7 +106,7 @@ describe("consumer-equivalent commands", () => {
       args: mini.object({ value: mini._default(mini.string(), "mini") }),
       run: ({ args }) => args.value,
     });
-    await expect(runCommand(command, [])).resolves.toBe("mini");
+    await expect(runCommand(command, [])).resolves.toEqual("mini");
   });
 
   it.each([
@@ -154,14 +154,16 @@ describe("terminal output integration", () => {
               target: args.target,
               environment,
             });
+            return;
           },
         }),
         prompt: defineCommand({
-          run: ({ prompt }) => prompt.confirm({ message: "Continue?", initialValue: true }),
+          run: async ({ prompt }) =>
+            await prompt.confirm({ message: "Continue?", initialValue: true }),
         }),
         crash: defineCommand({
           run() {
-            throw new Error("runtime failed");
+            throw new HackshError("runtime failed");
           },
         }),
       },
@@ -230,6 +232,7 @@ describe("terminal output integration", () => {
       logger.warn("check output", { target: "dist" });
       output.println("dist/app.js");
       output.json({ files: 1 });
+      return;
     });
     const command = defineCommand({ name: "build", run });
     const prettyStdout: string[] = [];

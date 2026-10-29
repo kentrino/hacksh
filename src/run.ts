@@ -1,7 +1,13 @@
 import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { assertUniqueEnvNames, commandEnvPath, registerCommandPath } from "./environment.ts";
-import { HackshExitError, HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
+import {
+  HackshError,
+  HackshExitError,
+  HackshPromptError,
+  summarizeError,
+  HackshUsageError,
+} from "./errors.ts";
 import { createOutput } from "./command-output.ts";
 import { createExec, type ExecContext } from "./exec.ts";
 import { createLogger } from "./logger.ts";
@@ -13,7 +19,6 @@ import {
   type TokenizedCommandArgs,
 } from "./parser.ts";
 import {
-  createJsonPrinter,
   createPrintQueue,
   resolveOutputMode,
   type OutputFormat,
@@ -222,20 +227,12 @@ export async function runCommand(
 }
 
 export interface RunMainOptions extends OutputOptions {
-  onError?: (error: unknown) => void | Promise<void>;
+  onError?: (error: HackshError) => void | Promise<void>;
   argv?: string[];
   printer?: Printer;
 }
 
-async function drainAndExit(output: PrintQueue, code = 1): Promise<never> {
-  try {
-    await output.drain();
-  } finally {
-    process.exit(code);
-  }
-}
-
-function commandErrorExitCode(error: unknown): number {
+function commandErrorExitCode(error: HackshError): number {
   if (error instanceof HackshExitError) return error.exitCode;
   return error instanceof HackshPromptError && error.reason === "cancelled" ? 130 : 1;
 }
@@ -263,24 +260,7 @@ function listenForExitSignals() {
   };
 }
 
-async function reportOutputSetupError(error: unknown, options: RunMainOptions): Promise<never> {
-  if (options.onError) {
-    await options.onError(error);
-    return drainAndExit(createPrintQueue(options.printer ?? { print: () => undefined }));
-  }
-
-  const output = createPrintQueue(
-    options.printer ??
-      createJsonPrinter({
-        stdout: options.stdout ?? process.stdout,
-        stderr: options.stderr ?? process.stderr,
-      }),
-  );
-  await output.printer.print({ type: "error", error: summarizeError(error) });
-  return drainAndExit(output);
-}
-
-async function reportCommandError(error: unknown, output: PrintQueue): Promise<void> {
+async function reportCommandError(error: HackshError, output: PrintQueue): Promise<void> {
   if (error instanceof HackshExitError && error.message === "") return;
   await output.printer.print({ type: "error", error: summarizeError(error) });
   if (error instanceof HackshUsageError) {
@@ -292,40 +272,37 @@ export async function runMain<S extends ArgsSchema>(
   command: CommandDef<S>,
   options: RunMainOptions = {},
 ): Promise<void> {
-  let output: PreparedOutput;
-  try {
-    output = prepareOutput(options, options.env ?? process.env);
-  } catch (error) {
-    return reportOutputSetupError(error, options);
-  }
+  const output = prepareOutput(options, options.env ?? process.env);
   const signals = listenForExitSignals();
-  const exit = (code: number): Promise<never> => {
-    signals.release();
-    return drainAndExit(output, signals.exitCode() ?? code);
-  };
+  let exitCode: number | undefined;
   try {
-    await executeCommand(
-      command,
-      options.argv ?? process.argv.slice(2),
-      output,
-      options.env,
-      signals.signal,
-      () => findPackageVersion(process.argv[1]),
-    );
-  } catch (error) {
-    if (options.onError) {
-      await options.onError(error);
-      return exit(commandErrorExitCode(error));
-    }
     try {
-      await reportCommandError(error, output);
-    } finally {
-      await exit(commandErrorExitCode(error));
+      await executeCommand(
+        command,
+        options.argv ?? process.argv.slice(2),
+        output,
+        options.env,
+        signals.signal,
+        () => findPackageVersion(process.argv[1]),
+      );
+    } catch (error) {
+      const signalExitCode = signals.exitCode();
+      if (signalExitCode !== undefined && error === signals.signal.reason) {
+        exitCode = signalExitCode;
+      } else {
+        if (!(error instanceof HackshError)) throw error;
+        if (options.onError) await options.onError(error);
+        else await reportCommandError(error, output);
+        exitCode = commandErrorExitCode(error);
+      }
     }
   } finally {
-    signals.release();
+    try {
+      await output.drain();
+    } finally {
+      signals.release();
+    }
   }
-  const signalExitCode = signals.exitCode();
-  if (signalExitCode !== undefined) return drainAndExit(output, signalExitCode);
-  await output.drain();
+  const code = signals.exitCode() ?? exitCode;
+  if (code !== undefined) process.exit(code);
 }

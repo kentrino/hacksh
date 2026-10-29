@@ -9,7 +9,7 @@ describe("unknown argument policy", () => {
     "rejects %s before schema transforms and the handler",
     async (token) => {
       const transform = vi.fn((value: string) => value);
-      const run = vi.fn();
+      const run = vi.fn(() => undefined);
       const command = defineCommand({
         args: z.object({ positionals: z.tuple([z.string().transform(transform)]) }),
         run,
@@ -23,7 +23,7 @@ describe("unknown argument policy", () => {
   );
 
   it("rejects unknown input without a schema and preserves every offending token", async () => {
-    const run = vi.fn();
+    const run = vi.fn(() => undefined);
     const command = defineCommand({ run });
     const error = await runCommand(command, ["--typo", "value", "-x"], { printer }).catch(
       (error: unknown) => error,
@@ -76,7 +76,9 @@ describe("unknown argument policy", () => {
   });
 
   it("inherits through several levels and allows children to override without mutation", async () => {
-    const leaf = defineCommand({ run: ({ input }) => input.unknown });
+    const leaf = defineCommand({
+      run: ({ input }) => input.unknown,
+    });
     const strict = defineCommand({ allowUnknownArgs: false, subCommands: { leaf } });
     const root = defineCommand({
       allowUnknownArgs: true,
@@ -105,7 +107,7 @@ describe("unknown argument policy", () => {
   });
 
   it("gives routed help and root version precedence over unknown argument validation", async () => {
-    const run = vi.fn();
+    const run = vi.fn(() => undefined);
     const command = defineCommand({
       version: "1.0.0",
       subCommands: { child: defineCommand({ run }) },
