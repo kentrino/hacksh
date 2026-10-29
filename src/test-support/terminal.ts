@@ -24,13 +24,16 @@ export const key = {
 export function openAutocomplete(columns = 80) {
   const screen = new xterm.Terminal({ cols: columns, rows: 40, allowProposedApi: true });
   const writeScreen = promisify(screen.write.bind(screen));
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
+  // Node warns, and writes that warning to the PTY, when both are set.
+  delete env.FORCE_COLOR;
   const child = spawn(
     process.execPath,
     [fileURLToPath(new URL("../fixtures/autocomplete-pty-cli.ts", import.meta.url))],
     {
       cols: columns,
       rows: 40,
-      env: { ...process.env, NO_COLOR: "1" },
+      env,
     },
   );
   let output = Promise.resolve();
