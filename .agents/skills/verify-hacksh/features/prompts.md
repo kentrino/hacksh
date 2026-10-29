@@ -5,6 +5,8 @@
 ## Sub-features
 
 - `prompt-select` moves with arrow keys and accepts with Enter.
+- `prompt-autocomplete` filters by a case-insensitive substring, then Down selects the first match and Enter submits it.
+- `prompt-sort` orders `select` and `autocomplete` options with a stable `sortBy` key.
 - `prompt-confirm` accepts `y`, `n`, or Enter (initial value, else No).
 - `prompt-text` shows the placeholder, edits input, and retries on a validation message.
 - `prompt-cancel` cancels on Ctrl-C or Escape with `Prompt cancelled` and exit 130.
@@ -26,7 +28,9 @@ Preconditions:
 - **Full flow.** Write `verify-hacksh.local/scratch/$RUN/ask.steps` with the lines `expect Environment`, `send \r`, `expect Deploy to staging?`, `send y`, `expect Release name`, `send \r`, `expect A release name is required`, `send v9\r`. Run `D --label ask-pty --env NO_COLOR=1 --pty verify-hacksh.local/scratch/$RUN/ask.steps --expect-code 0 -- CLI ask`. The transcript contains `✔  Environment: staging`, `✔  Deploy to staging?: Yes`, `A release name is required`, `✔  Release name: v9`, and `✔  [demo:ask] Releasing v9 to staging`.
 - **Select movement.** Use `send \033[B\r` at `Environment`. The result line is `✔  Environment: production`.
 - **Cancel.** Write a steps file with `expect Environment` and `send \003`. Run with `--expect-code 130`. The transcript contains `■  Prompt cancelled` and `reason: cancelled`.
-- **Non-interactive.** Run `D --label ask-noninteractive --env NO_COLOR=1 --expect-code 1 --timeout 3000 -- CLI ask` without `--pty`. stderr starts with `■  Cannot request select input in non-interactive mode: Environment` and contains `reason: non-interactive`; it must not time out.
+- **Autocomplete.** Run `D --label pick-pty --env NO_COLOR=1 --pty verify-hacksh.local/scratch/$RUN/pick.steps --expect-code 0 -- CLI pick`, with steps `expect Choose a language` and `send go\033[B\r`. The transcript contains `✔  Choose a language: Go` and the submitted value `go`.
+- **Stable sort.** Run `D --label sorted-pty --env NO_COLOR=1 --pty verify-hacksh.local/scratch/$RUN/sorted.steps --expect-code 0 -- CLI sorted`, with steps `expect Environment` and `send \r`. Staging (the lower `sortBy` key) is the initial selection, and the transcript contains `✔  Environment: Staging`.
+- **Non-interactive.** Run `D --label ask-noninteractive --env NO_COLOR=1 --expect-code 1 --timeout 3000 -- CLI ask` without `--pty`. stderr starts with `■  Cannot request select input in non-interactive mode: Environment` and contains `reason: non-interactive`; it must not time out. `CLI pick` without a PTY fails the same way for autocomplete.
 - **Narrow redraw.** Run the full flow with `--columns 20` and a long text answer. Assert final result lines only; the repo's own `pnpm test:prompt-pty` replays the terminal to check erased rows.
 
 ## Gotchas
