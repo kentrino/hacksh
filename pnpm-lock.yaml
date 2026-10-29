@@ -211,6 +211,12 @@ catalogs:
     '@vitest/coverage-v8':
       specifier: 4.1.10
       version: 4.1.10
+    '@xterm/headless':
+      specifier: ^6.0.0
+      version: 6.0.0
+    node-pty:
+      specifier: 1.0.0
+      version: 1.0.0
     typescript:
       specifier: ^7.0.2
       version: 7.0.2
@@ -235,6 +241,12 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      '@xterm/headless':
+        specifier: 'catalog:'
+        version: 6.0.0
+      node-pty:
+        specifier: 'catalog:'
+        version: 1.0.0
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -885,6 +897,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@xterm/headless@6.0.0':
+    resolution: {integrity: sha512-5Yj1QINYCyzrZtf8OFIHi47iQtI+0qYFPHmouEfG8dHNxbZ9Tb9YGSuLcsEwj9Z+OL75GJqPyJbyoFer80a2Hw==}
+
   '@yuku-codegen/binding-darwin-arm64@0.5.48':
     resolution: {integrity: sha512-yo96Oef12WzqnphInfz/eexVse3+kWgfGS5g2S3rFS3dcGn1ENW9xLFDZUP9rh+yP76DOq38wBoFi1+I9+6qBg==}
     cpu: [arm64]
@@ -1187,10 +1202,16 @@ packages:
     resolution: {integrity: sha512-Y3wQdFg2Va6etvQ5I82yUhGdsKrcYox6p7FfL1LbK2J4V01F9TGlepTIhnK24t7koZibmg82KGglhA1XK5IsLQ==}
     engines: {node: '>=10'}
 
+  nan@2.30.0:
+    resolution: {integrity: sha512-P5mokDkSvCGBz6mZDD/2l+w9QoICRXdCyZ9ONGmTePr40oihJg3Kpn0YU3twKd6PJnwSlLBWNQeOT6yWEV2c4A==}
+
   nanoid@3.3.20:
     resolution: {integrity: sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
+
+  node-pty@1.0.0:
+    resolution: {integrity: sha512-wtBMWWS7dFZm/VgqElrTvtfMq4GzJ6+edFI0Y0zyzygUSZMgZdraDUMUhCIvkjhJjme15qWmbyJbtAx4ot4uZA==}
 
   obug@2.2.1:
     resolution: {integrity: sha512-XrsrhT5sybtKI6wakr2SPOlGZWWYbUXZ7a0jT8/QOeAPau+1X/bSegNe5YR75oJmEZQbKningirmGOEJCIk61Q==}
@@ -1787,6 +1808,8 @@ snapshots:
   '@voidzero-dev/vite-plus-win32-x64-msvc@0.2.8':
     optional: true
 
+  '@xterm/headless@6.0.0': {}
+
   '@yuku-codegen/binding-darwin-arm64@0.5.48':
     optional: true
 
@@ -1984,7 +2007,13 @@ snapshots:
 
   mrmime@2.0.1: {}
 
+  nan@2.30.0: {}
+
   nanoid@3.3.20: {}
+
+  node-pty@1.0.0:
+    dependencies:
+      nan: 2.30.0
 
   obug@2.2.1: {}
 

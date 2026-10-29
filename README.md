@@ -528,7 +528,7 @@ finishes. A printer failure rejects the invocation without changing a successful
 
 ### Interactive input
 
-Every `run` context has a `prompt` with `select`, `confirm`, and `text` methods. Interactive input
+Every `run` context has a `prompt` with `select`, `autocomplete`, `confirm`, and `text` methods. Interactive input
 is separate from `logger`: prompts share the invocation's selected printer, serialized output queue,
 terminal lock, output mode, and abort signal.
 
@@ -562,15 +562,57 @@ uses `initialValue` when supplied and otherwise means no. Text displays its plac
 using it as input, supports editing, and repeats the prompt only when `validate` returns a nonempty
 message; `""` means valid. Backspace removes one Unicode code point. Input pasted after a selection
 or confirmation is retained for the next sequential prompt instead of being discarded.
-The built-in prompt API intentionally stops at select, confirm, and text; it does not provide a
-multiselect prompt.
+The built-in prompt API does not provide a multiselect prompt.
+
+Use `autocomplete` for a searchable single choice:
+
+```ts
+const environment = await prompt.autocomplete({
+  message: "Environment",
+  placeholder: "Type to filter…",
+  options: [
+    { value: "production", label: "Production", priority: 20 },
+    { value: "staging", label: "Staging", hint: "safe default", priority: 10 },
+  ],
+  sortBy: (item) => item.priority,
+}); // "production" | "staging"; displays Staging before Production
+```
+
+Autocomplete filters labels (falling back to values) by case-insensitive substring,
+preserving the configured option order rather than ranking matches. An empty query
+shows all options, initially with none selected. Down enters selection at the first
+match; Up/Down move without wrapping. Up at the first match or Escape returns to
+editing. Typing or Backspace while selecting edits the query and returns to input.
+Enter submits only a selected match; it does nothing while editing or with no matches.
+Backspace removes one grapheme cluster. Escape while editing and Ctrl-C cancel.
+The placeholder is display-only, reappears when the query becomes empty, and remains
+until the terminal delivers committed input; OS IME composition is not observable.
+The pretty printer anchors the real cursor at the input end, including wrapped input.
+
+Both `select` and `autocomplete` accept `sortBy: (item) => string | number`. The
+callback receives the complete inferred option item, including custom fields such
+as `priority`; the prompt still returns only its `value`, preserving literal types.
+Without `sortBy`, options retain their definition order. With it, keys are computed
+once per option at prompt startup and sorted ascending, stably: equal keys retain
+definition order, and the original array is never reordered. Autocomplete filtering
+preserves this sorted order without recomputing keys. `initialValue` on select
+chooses a value in the sorted list without changing that order.
+
+Numeric keys use numeric order; strings use locale-independent UTF-16 lexical
+order, not locale-aware collation or numeric-string ordering. All keys in one
+prompt must have the same type. Invalid keys (including `NaN`) or mixed types
+produce `HackshPromptError` with reason `invalid-options`; a thrown callback
+produces `input-error` with the original error as `cause`.
+Explicit option types take the whole item type, for example
+`SelectOptions<{ value: "staging" | "production"; priority: number }>`.
 
 Prompts are allowed only when the resolved mode is interactive: pretty output outside CI with TTY
 stdin and stdout. JSON, CI, and non-TTY invocations throw `HackshPromptError` immediately even if a
 default is available. Its `reason` and `prompt` fields identify why input failed and the prompt's
-`kind`, `message`, and select `choices`. Reasons distinguish `non-interactive`, `cancelled`,
+`kind`, `message`, and select/autocomplete `choices`. Reasons distinguish `non-interactive`, `cancelled`,
 `aborted`, `eof`, `overlapping`, `invalid-options`, `input-error`, and `printer-error`. Ctrl-C and
-Escape cancel; `runMain` reports cancellation and exits with status 130. A prompt that starts or is
+Escape cancel (except Escape from autocomplete selection, which returns to editing);
+`runMain` reports cancellation and exits with status 130. A prompt that starts or is
 waiting after the invocation's `signal` aborts fails with `aborted` and the signal's reason as its
 `cause`. Only one prompt may be active in an invocation. Input listeners and raw terminal mode are
 restored after every outcome.
@@ -877,6 +919,17 @@ await showUsage(main, {
 | `vp pack`              | Build `src/index.ts` into `dist`                      |
 | `vp run ready`         | Run check, test, and build                            |
 | `pnpm test:packed`     | Test the tarball with Node 22.18, host Node, and Deno |
+
+The autocomplete API has PTY tests in `src/autocomplete-pty.test.ts`.
+Run them with `pnpm test run src/autocomplete-pty.test.ts`. They launch
+`src/fixtures/autocomplete-pty-cli.ts`, a CLI using the public `prompt.autocomplete`
+API, and interpret its output with a headless terminal, checking visible choices,
+placeholder transitions, cursor coordinates, and submission/cancellation cleanup.
+For manual terminal verification, run `node src/fixtures/autocomplete-pty-cli.ts`.
+Expected screens use indented multiline strings; ANSI handling stays in
+`src/test-support/terminal.ts`. OS IME composition windows are outside this suite.
+The development-only `node-pty` dependency requires Python and a C/C++ build
+toolchain (Xcode Command Line Tools on macOS).
 
 The packed-consumer test must execute its Node consumer with exactly Node 22.18.0. Run pnpm itself
 under that version, or supply an absolute executable path explicitly:

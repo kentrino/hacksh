@@ -37,7 +37,7 @@ export class HackshValidationError extends HackshUsageError {
   }
 }
 
-export type PromptKind = "select" | "confirm" | "text";
+export type PromptKind = "select" | "autocomplete" | "confirm" | "text";
 
 export type HackshPromptErrorReason =
   | "non-interactive"

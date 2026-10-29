@@ -3,6 +3,7 @@ import {
   createJsonPrinter,
   createPrettyPrinter,
   resolveOutputMode,
+  type AutocompletePromptState,
   type PrintEvent,
 } from "./printer-api.ts";
 
@@ -147,6 +148,119 @@ describe("output mode", () => {
 });
 
 describe("pretty printer", () => {
+  it("renders autocomplete phases and restores its query cursor after interleaved output", () => {
+    const output = sharedTerminal();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    const prompt: AutocompletePromptState = {
+      kind: "autocomplete",
+      message: "Language",
+      status: "active",
+      query: "",
+      placeholder: "Type to filter…",
+      phase: "input",
+      choices: [{ value: "rust", label: "Rust", hint: "Systems", selected: false }],
+    };
+    void printer.print({ type: "prompt", prompt });
+    const inputFrame = output.chunks[0]!;
+    expect(inputFrame).toBe(
+      "?  Language\n│  > Type to filter… \n│\n│    Rust — Systems\n│\n" +
+        "│  INPUT · type to filter · ↓ select · Esc cancel\n\u001b[5A\u001b[6G\u001b[?25h",
+    );
+    const erase = "\u001b[?25l\u001b[1A\r\u001b[0J";
+    void printer.print({
+      type: "log",
+      record: {
+        kind: "message",
+        level: "info",
+        category: [],
+        message: "still working",
+        rawMessage: "still working",
+        timestamp: 1,
+        properties: {},
+      },
+    });
+    expect(output.chunks.slice(1)).toEqual([erase, "●  still working\n", inputFrame]);
+    void printer.print({ type: "output", kind: "text", text: "result\n" });
+    expect(output.chunks.slice(-2)).toEqual([`${erase}result\n`, inputFrame]);
+    void printer.print({ type: "output", kind: "text", text: "partial" });
+    expect(output.chunks.slice(-2)).toEqual([`${erase}partial`, `\n${inputFrame}`]);
+
+    const selected: AutocompletePromptState = {
+      ...prompt,
+      phase: "select",
+      value: "rust",
+      choices: [{ ...prompt.choices[0]!, selected: true }],
+    };
+    void printer.print({ type: "prompt", prompt: selected });
+    const selectedFrame = output.chunks.at(-1)!.slice(erase.length);
+    expect(selectedFrame).toContain("│    Type to filter… \n│\n│  > Rust — Systems");
+    expect(selectedFrame).toContain("SELECT · ↑/↓ move · Enter choose · Esc edit");
+    expect(selectedFrame.endsWith("\u001b[6G\u001b[?25l")).toBe(true);
+    void printer.print({ type: "output", kind: "text", text: "selected\n" });
+    expect(output.chunks.slice(-2)).toEqual([`${erase}selected\n`, selectedFrame]);
+    void printer.print({ type: "prompt", prompt: { ...selected, status: "submitted" } });
+    expect(output.chunks.at(-1)).toBe(`${erase}\u001b[?25h✔  Language: Rust\n`);
+    void printer.print({ type: "output", kind: "text", text: "done" });
+    expect(output.chunks.at(-1)).toBe("done");
+  });
+
+  it.each([
+    ["fullwidth before the margin", 10, "abcd界", 2, 3],
+    ["pending wrap at the margin", 10, "abcde", 2, 1],
+    ["combining and emoji graphemes", 80, "a\u0301👨‍👩‍👧‍👦🇯🇵1️⃣", 1, 13],
+    ["multiline wrapped header", 10, "x", 4, 7],
+  ] as const)("anchors autocomplete for %s", (name, columns, query, row, column) => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({
+      color: true,
+      unicode: true,
+      stdout: { ...output.writers.stdout, columns },
+      stderr: output.writers.stderr,
+    });
+    const prompt: AutocompletePromptState = {
+      kind: "autocomplete",
+      message: name === "multiline wrapped header" ? "Long title here\nAnother long title" : "Pick",
+      status: "active",
+      phase: "input",
+      query,
+      choices: [],
+    };
+    void printer.print({ type: "prompt", prompt });
+    expect(output.stdout[0]).toContain("No matches. Keep typing or backspace.");
+    expect(output.stdout[0]!.endsWith(`\u001b[${column}G\u001b[?25h`)).toBe(true);
+    void printer.print({ type: "prompt", prompt: { ...prompt, status: "closed" } });
+    expect(output.stdout[1]).toBe(`\u001b[?25l\u001b[${row}A\r\u001b[0J\u001b[?25h`);
+  });
+
+  it("restores a hidden autocomplete cursor when an error removes its frame", () => {
+    const output = sharedTerminal();
+    const printer = createPrettyPrinter({ color: false, unicode: false, ...output.writers });
+    void printer.print({
+      type: "prompt",
+      prompt: {
+        kind: "autocomplete",
+        message: "Language",
+        status: "active",
+        phase: "select",
+        query: "r",
+        value: "rust",
+        choices: [{ value: "rust", label: "Rust", selected: true }],
+      },
+    });
+    expect(output.chunks[0]).toContain("|    r \n|\n|  > Rust");
+    expect(output.chunks[0]!.endsWith("\u001b[?25l")).toBe(true);
+    void printer.print({
+      type: "error",
+      error: { kind: "error", name: "Error", message: "failed" },
+    });
+    expect(output.chunks.slice(-2)).toEqual([
+      "\u001b[?25l\u001b[1A\r\u001b[0J\u001b[?25h",
+      "x  failed\n",
+    ]);
+    void printer.print({ type: "output", kind: "text", text: "after\n" });
+    expect(output.chunks.at(-1)).toBe("after\n");
+  });
+
   it("redraws select, confirm, and text states in place and collapses submitted results", () => {
     const output = memoryWriters();
     const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });

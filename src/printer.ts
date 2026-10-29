@@ -128,7 +128,20 @@ export interface TextPromptState extends PromptStateBase {
   placeholder?: string;
 }
 
-export type PromptState = SelectPromptState | ConfirmPromptState | TextPromptState;
+export interface AutocompletePromptState extends PromptStateBase {
+  kind: "autocomplete";
+  query: string;
+  placeholder?: string;
+  phase: "input" | "select";
+  choices: readonly PromptChoiceState[];
+  value?: string;
+}
+
+export type PromptState =
+  | SelectPromptState
+  | ConfirmPromptState
+  | TextPromptState
+  | AutocompletePromptState;
 
 export interface PromptPrintEvent {
   type: "prompt";
