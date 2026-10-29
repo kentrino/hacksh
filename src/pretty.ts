@@ -9,6 +9,7 @@ import {
   type OutputWriter,
   type Printer,
   type PrintEvent,
+  type PromptState,
   type StreamColors,
   type TerminalOutput,
 } from "./printer.ts";
@@ -24,17 +25,20 @@ type PrettyMark =
   | "version"
   | "errorEvent"
   | "prompt"
+  | "wait"
   | "exec"
   | "execSkip";
 type TextStyle = Parameters<typeof styleText>[0];
 
 interface PrettySymbols {
   bar: string;
+  spinner: readonly string[];
   marks: Record<PrettyMark, string>;
 }
 
 const unicodeSymbols: PrettySymbols = {
   bar: "│",
+  spinner: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
   marks: {
     trace: "·",
     debug: "◆",
@@ -48,6 +52,7 @@ const unicodeSymbols: PrettySymbols = {
     version: "●",
     errorEvent: "■",
     prompt: "?",
+    wait: "│",
     exec: "$",
     execSkip: "#",
   },
@@ -55,6 +60,7 @@ const unicodeSymbols: PrettySymbols = {
 
 const asciiSymbols: PrettySymbols = {
   bar: "|",
+  spinner: ["|", "/", "-", "\\"],
   marks: {
     trace: ".",
     debug: ":",
@@ -68,6 +74,7 @@ const asciiSymbols: PrettySymbols = {
     version: "i",
     errorEvent: "x",
     prompt: "?",
+    wait: "|",
     exec: "$",
     execSkip: "#",
   },
@@ -86,6 +93,7 @@ const markStyles: Record<PrettyMark, TextStyle> = {
   version: "blue",
   errorEvent: "red",
   prompt: "cyan",
+  wait: "gray",
   exec: "gray",
   execSkip: "gray",
 };
@@ -151,7 +159,10 @@ function eventMark(event: DecoratedEvent): PrettyMark {
   if (event.type === "usage") return "usage";
   if (event.type === "version") return "version";
   if (event.type === "error") return "errorEvent";
-  if (event.type === "prompt") return event.prompt.status === "submitted" ? "success" : "prompt";
+  if (event.type === "prompt") {
+    if (event.prompt.kind === "wait") return "wait";
+    return event.prompt.status === "submitted" ? "success" : "prompt";
+  }
   if (event.type === "exec") return event.phase === "skip" ? "execSkip" : "exec";
   return event.record.kind === "message" ? event.record.level : event.record.kind;
 }
@@ -168,6 +179,7 @@ function eventLines(event: DecoratedEvent): string[] {
       return logLines(event.record);
     case "prompt": {
       const { prompt } = event;
+      if (prompt.kind === "wait") return prompt.message.split("\n");
       if (prompt.status === "submitted") {
         const result =
           prompt.kind === "select" || prompt.kind === "autocomplete"
@@ -278,6 +290,7 @@ function renderedRows(rendered: string, columns: number | undefined): number {
 }
 
 interface ActivePrompt {
+  kind: PromptState["kind"];
   rendered: string;
   lines: number;
   cursor?: TerminalPosition & { visible: boolean };
@@ -331,7 +344,10 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
     }
     const mark = eventMark(event);
     const lines = eventLines(event);
-    const firstPrefix = colorize(color, markStyles[mark], symbols.marks[mark]);
+    const firstPrefix =
+      event.type === "prompt" && event.prompt.kind === "wait" && event.prompt.frame !== undefined
+        ? colorize(color, "cyan", symbols.spinner[event.prompt.frame % symbols.spinner.length]!)
+        : colorize(color, markStyles[mark], symbols.marks[mark]);
     const barPrefix = colorize(color, "gray", symbols.bar);
     return lines
       .map((line, index) => `${index === 0 ? firstPrefix : barPrefix}${line ? `  ${line}` : ""}`)
@@ -344,7 +360,8 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
       const up = activePrompt.cursor.row > 0 ? `\u001b[${activePrompt.cursor.row}A` : "";
       return `\u001b[?25l${up}\r\u001b[0J`;
     }
-    return "\u001b[1A\u001b[2K".repeat(activePrompt.lines);
+    const reset = activePrompt.kind === "wait" ? "\r\u001b[2K" : "";
+    return `${reset}${"\u001b[1A\u001b[2K".repeat(activePrompt.lines)}`;
   }
 
   function drawActivePrompt(): string {
@@ -357,8 +374,10 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
 
   function finishActivePrompt(): string {
     const restore = activePrompt?.cursor ? "\u001b[?25h" : "";
+    const rail =
+      activePrompt?.kind === "wait" ? `${colorize(colors.stdout, "gray", symbols.bar)}\n` : "";
     activePrompt = undefined;
-    return restore;
+    return `${restore}${rail}`;
   }
 
   return {
@@ -369,9 +388,20 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
         stdout.write(`${erase}${text}`);
         if (activePrompt) {
           // Keep a partial output line outside the frame that the next redraw erases.
-          const separator = activePrompt.cursor && text && !text.endsWith("\n") ? "\n" : "";
+          const separator =
+            (activePrompt.cursor || activePrompt.kind === "wait") && text && !text.endsWith("\n")
+              ? "\n"
+              : "";
           stdout.write(`${separator}${drawActivePrompt()}`);
         }
+        return;
+      }
+      if (
+        event.type === "prompt" &&
+        event.prompt.kind === "wait" &&
+        event.prompt.frame === undefined
+      ) {
+        if (event.prompt.status !== "closed") stdout.write(`${render(event)}\n`);
         return;
       }
       const rendered = render(event);
@@ -389,7 +419,11 @@ export function createPrettyPrinter(options: PrettyPrinterOptions): Printer {
         }
         const restore =
           activePrompt?.cursor && event.prompt.kind !== "autocomplete" ? "\u001b[?25h" : "";
-        activePrompt = { rendered, lines: renderedRows(rendered, stdout.columns) };
+        activePrompt = {
+          kind: event.prompt.kind,
+          rendered,
+          lines: renderedRows(rendered, stdout.columns),
+        };
         if (event.prompt.kind === "autocomplete") {
           const { prompt } = event;
           const cursor = terminalPosition(

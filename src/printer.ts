@@ -137,11 +137,18 @@ export interface AutocompletePromptState extends PromptStateBase {
   value?: string;
 }
 
+/** Waiting for callback completion; frame is present only for animated output. */
+export interface WaitPromptState extends PromptStateBase {
+  kind: "wait";
+  frame?: number;
+}
+
 export type PromptState =
   | SelectPromptState
   | ConfirmPromptState
   | TextPromptState
-  | AutocompletePromptState;
+  | AutocompletePromptState
+  | WaitPromptState;
 
 export interface PromptPrintEvent {
   type: "prompt";
