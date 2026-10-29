@@ -139,11 +139,11 @@ describe("exec display", () => {
     const command = defineCommand({
       async run({ exec }) {
         const captured = await exec(node, args, { cwd: directory, input: "hello" });
-        return captured.stdout;
+        expect(captured.stdout).toBe("child-marker");
       },
     });
 
-    await expect(run(command, { printer: recordPrinter(events) })).resolves.toEqual("child-marker");
+    await run(command, { printer: recordPrinter(events) });
     expect(events).toEqual([
       {
         type: "exec",
@@ -157,7 +157,7 @@ describe("exec display", () => {
     const jsonCommand = defineCommand({
       async run({ exec }) {
         const captured = await exec(node, args);
-        return captured.stdout;
+        expect(captured.stdout).toBe("child-marker");
       },
     });
     await expect(
@@ -166,7 +166,7 @@ describe("exec display", () => {
         stdout: { write: (text: string) => void stdout.push(text) },
         stderr: { write: (text: string) => void stderr.push(text) },
       }),
-    ).resolves.toEqual("child-marker");
+    ).resolves.toBe(0);
     expect(stdout).toEqual([]);
     expect(stderr).toHaveLength(1);
     expect(JSON.parse(stderr[0]!)).toEqual({
@@ -185,11 +185,11 @@ describe("exec display", () => {
         const result = await exec(node, script("process.stdout.write('quiet')"), {
           display: false,
         });
-        return result.stdout;
+        expect(result.stdout).toBe("quiet");
       },
     });
 
-    await expect(run(command, { printer: recordPrinter(events) })).resolves.toEqual("quiet");
+    await run(command, { printer: recordPrinter(events) });
     expect(events).toEqual([]);
   });
 });
@@ -237,7 +237,7 @@ describe("exec redaction", () => {
     const missing = join(directory, secret);
     const command = defineCommand({
       async run({ exec }) {
-        return await exec(missing, [`--token=${secret}`], { redact: [secret], cwd: directory });
+        await exec(missing, [`--token=${secret}`], { redact: [secret], cwd: directory });
       },
     });
 
@@ -286,7 +286,7 @@ describe("exec terminal use", () => {
           ),
           { input: "beta\nalpha\n", interactive: true },
         );
-        return result.stdout;
+        expect(result.stdout).toBe("beta");
       },
     });
 
@@ -296,7 +296,7 @@ describe("exec terminal use", () => {
         stdout: { isTTY: true, write: () => undefined },
         stderr: { write: () => undefined },
       }),
-    ).resolves.toEqual("beta");
+    ).resolves.toBe(0);
   });
 
   it("inherits every stdio stream and still reports the exit code", async () => {
@@ -304,39 +304,41 @@ describe("exec terminal use", () => {
     const marker = join(directory, "ran");
     const command = defineCommand({
       async run({ exec }) {
-        return await exec(node, markerScript(marker, "process.exit(0)"), {
+        const result = await exec(node, markerScript(marker, "process.exit(0)"), {
           stdin: "inherit",
           stdout: "inherit",
           stderr: "inherit",
         });
+        expect(result).toMatchObject({
+          status: "succeeded",
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+        });
       },
     });
 
-    await expect(run(command)).resolves.toMatchObject({
-      status: "succeeded",
-      exitCode: 0,
-      stdout: "",
-      stderr: "",
-    });
+    await run(command);
     expect(existsSync(marker)).toBe(true);
   });
 
   it("captures stdout while inheriting stdin and stderr", async () => {
     const command = defineCommand({
       async run({ exec }) {
-        return await exec(node, script("process.stdout.write('captured-out')"), {
+        const result = await exec(node, script("process.stdout.write('captured-out')"), {
           stdin: "inherit",
           stderr: "inherit",
+        });
+        expect(result).toMatchObject({
+          status: "succeeded",
+          stdout: "captured-out",
+          stderr: "",
+          exitCode: 0,
         });
       },
     });
 
-    await expect(run(command)).resolves.toMatchObject({
-      status: "succeeded",
-      stdout: "captured-out",
-      stderr: "",
-      exitCode: 0,
-    });
+    await run(command);
   });
 
   it("refuses inherited streams in JSON mode without spawning", async () => {
@@ -345,10 +347,16 @@ describe("exec terminal use", () => {
     const stderr: string[] = [];
     const command = defineCommand({
       async run({ exec }) {
-        return await exec(node, markerScript(marker), {
+        const result = await exec(node, markerScript(marker), {
           stdout: "inherit",
           interactive: true,
           reject: false,
+        });
+        expect(result).toMatchObject({
+          status: "failed",
+          reason: "json-output",
+          stdout: "",
+          stderr: "",
         });
       },
     });
@@ -359,12 +367,7 @@ describe("exec terminal use", () => {
         stdout: { write: () => undefined },
         stderr: { write: (text: string) => void stderr.push(text) },
       }),
-    ).resolves.toMatchObject({
-      status: "failed",
-      reason: "json-output",
-      stdout: "",
-      stderr: "",
-    });
+    ).resolves.toBe(0);
     expect(stderr).toEqual([]);
     await expectUnspawned(marker);
 
@@ -391,18 +394,22 @@ describe("exec terminal use", () => {
     const events: PrintEvent[] = [];
     const command = defineCommand({
       async run({ exec }) {
-        return await exec(node, markerScript(marker), {
+        const result = await exec(node, markerScript(marker), {
           signal: AbortSignal.abort(),
           stdout: "inherit",
           interactive: true,
           reject: false,
         });
+        expect(result).toMatchObject({
+          status: "failed",
+          reason: "aborted",
+          stdout: "",
+          stderr: "",
+        });
       },
     });
 
-    await expect(
-      run(command, { output: "json", printer: recordPrinter(events) }),
-    ).resolves.toMatchObject({ status: "failed", reason: "aborted", stdout: "", stderr: "" });
+    await expect(run(command, { output: "json", printer: recordPrinter(events) })).resolves.toBe(0);
     expect(events).toEqual([]);
     await expectUnspawned(marker);
   });
@@ -413,16 +420,17 @@ describe("exec terminal use", () => {
     const events: PrintEvent[] = [];
     const command = defineCommand({
       async run({ exec }) {
-        return await exec(node, markerScript(marker), { interactive: true, reject: false });
+        const result = await exec(node, markerScript(marker), { interactive: true, reject: false });
+        expect(result).toMatchObject({
+          status: "failed",
+          reason: "non-interactive",
+          stdout: "",
+          stderr: "",
+        });
       },
     });
 
-    await expect(run(command, { printer: recordPrinter(events) })).resolves.toMatchObject({
-      status: "failed",
-      reason: "non-interactive",
-      stdout: "",
-      stderr: "",
-    });
+    await run(command, { printer: recordPrinter(events) });
     expect(events).toEqual([]);
     await expectUnspawned(marker);
 
@@ -569,15 +577,15 @@ describe("exec dry-run display", () => {
         const fetched = await exec(node, script("process.stdout.write('main'); process.exit(2)"), {
           reject: false,
         });
-        if (fetched.status !== "failed") return fetched;
-        return await exec(node, markerScript(marker), { dryRun: true, cwd: directory });
+        expect(fetched.status).toBe("failed");
+        const skipped = await exec(node, markerScript(marker), { dryRun: true, cwd: directory });
+        expect(skipped).toMatchObject({ status: "skipped", command: { cwd: directory } });
       },
     });
 
-    const skipped = await run(command, {
+    await run(command, {
       stderr: { write: (text: string) => void stderr.push(text) },
     });
-    expect(skipped).toMatchObject({ status: "skipped", command: { cwd: directory } });
     const text = stderr.join("");
     expect(text).toContain("$  ");
     expect(text).toContain("#  ");
@@ -592,7 +600,7 @@ describe("exec dry-run display", () => {
     const args = markerScript(marker);
     const command = defineCommand({
       async run({ exec }) {
-        return await exec(node, args, {
+        const skipped = await exec(node, args, {
           dryRun: true,
           cwd: directory,
           stdin: "inherit",
@@ -600,17 +608,17 @@ describe("exec dry-run display", () => {
           stderr: "inherit",
           interactive: true,
         });
+        expect(skipped).toEqual({
+          status: "skipped",
+          command: { file: node, args, cwd: directory },
+        });
       },
     });
 
-    const skipped = await run(command, {
+    await run(command, {
       output: "json",
       stdout: { write: () => undefined },
       stderr: { write: (text: string) => void stderr.push(text) },
-    });
-    expect(skipped).toEqual({
-      status: "skipped",
-      command: { file: node, args, cwd: directory },
     });
     expect(stderr).toHaveLength(1);
     expect(JSON.parse(stderr[0]!)).toEqual({

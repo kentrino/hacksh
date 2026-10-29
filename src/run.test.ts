@@ -13,24 +13,28 @@ import {
 } from "./index.ts";
 import type { PrintEvent, Printer } from "./printer-api.ts";
 
-afterEach(() => vi.restoreAllMocks());
+const initialExitCode = process.exitCode;
+afterEach(() => {
+  vi.restoreAllMocks();
+  process.exitCode = initialExitCode;
+});
 
 describe("command routing", () => {
   it("routes hidden commands normally", async () => {
-    const hiddenRun = vi.fn(() => "hidden result");
+    const hiddenRun = vi.fn(() => 7);
     const root = defineCommand({
       subCommands: {
         internal: defineCommand({ hidden: true, run: hiddenRun }),
       },
     });
 
-    await expect(runCommand(root, ["internal"])).resolves.toBe("hidden result");
+    await expect(runCommand(root, ["internal"])).resolves.toBe(7);
     expect(hiddenRun).toHaveBeenCalledOnce();
   });
 
   it("validates the parent prefix, skips option values, and runs only the child", async () => {
     const parentRun = vi.fn();
-    const childRun = vi.fn(({ input }: { input: { argv: string[] } }) => input.argv.join(" "));
+    const childRun = vi.fn();
     const child = defineCommand({
       args: z.object({ name: z.string() }),
       run: childRun,
@@ -42,22 +46,39 @@ describe("command routing", () => {
       run: parentRun,
     });
 
-    await expect(runCommand(root, ["--repo", "x", "new", "--name", "foo"])).resolves.toBe(
-      "--name foo",
-    );
-    await expect(runCommand(root, ["-R", "x", "new", "--name", "bar"])).resolves.toBe("--name bar");
-    await expect(runCommand(root, ["-Rx", "new", "--name", "baz"])).resolves.toBe("--name baz");
+    for (const argv of [
+      ["--repo", "x", "new", "--name", "foo"],
+      ["-R", "x", "new", "--name", "bar"],
+      ["-Rx", "new", "--name", "baz"],
+    ]) {
+      await expect(runCommand(root, argv)).resolves.toBe(0);
+    }
+    for (const [index, name] of ["foo", "bar", "baz"].entries()) {
+      expect(childRun).toHaveBeenNthCalledWith(
+        index + 1,
+        expect.objectContaining({
+          args: { name },
+          input: expect.objectContaining({ argv: ["--name", name] }),
+        }),
+      );
+    }
     expect(parentRun).not.toHaveBeenCalled();
     expect(childRun).toHaveBeenCalledTimes(3);
   });
 
   it("runs the parent only when no subcommand is selected", async () => {
+    const parentRun = vi.fn();
+    const childRun = vi.fn();
     const root = defineCommand({
-      subCommands: { child: defineCommand({ run: () => "child" }) },
-      run: () => "parent",
+      subCommands: { child: defineCommand({ run: childRun }) },
+      run: parentRun,
     });
-    await expect(runCommand(root, [])).resolves.toBe("parent");
-    await expect(runCommand(root, ["child"])).resolves.toBe("child");
+    await expect(runCommand(root, [])).resolves.toBe(0);
+    expect(parentRun).toHaveBeenCalledOnce();
+    expect(childRun).not.toHaveBeenCalled();
+    await expect(runCommand(root, ["child"])).resolves.toBe(0);
+    expect(parentRun).toHaveBeenCalledOnce();
+    expect(childRun).toHaveBeenCalledOnce();
   });
 
   it("rejects unknown and missing commands with usage errors", async () => {
@@ -78,19 +99,20 @@ describe("command routing", () => {
       run({ command, args }) {
         expectTypeOf(command).toEqualTypeOf<CommandDef<typeof rootArgs>>();
         expectTypeOf(args).toEqualTypeOf<{ rootValue: string }>();
-        rootRun();
-        return command;
+        rootRun(command, args);
       },
     });
-    await expect(runCommand(root, [])).resolves.toBe(root);
+    await expect(runCommand(root, [])).resolves.toBe(0);
+    expect(rootRun).toHaveBeenCalledExactlyOnceWith(root, { rootValue: "root" });
 
     const leafArgs = z.object({ count: z.coerce.number() });
+    const leafRun = vi.fn();
     const unnamedLeaf = defineCommand({
       args: leafArgs,
       run({ command, args }) {
         expectTypeOf(command).toEqualTypeOf<CommandDef<typeof leafArgs>>();
         expectTypeOf(args).toEqualTypeOf<{ count: number }>();
-        return { command, args };
+        leafRun(command, args);
       },
     });
     const nested = defineCommand({
@@ -99,37 +121,24 @@ describe("command routing", () => {
         group: defineCommand({ subCommands: { leaf: unnamedLeaf } }),
       },
     });
-    const result = await runCommand(nested, ["group", "leaf", "--count", "2"]);
-    expect(result).toMatchObject({ command: { name: "leaf" }, args: { count: 2 } });
+    await expect(runCommand(nested, ["group", "leaf", "--count", "2"])).resolves.toBe(0);
+    expect(leafRun).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "leaf" }), {
+      count: 2,
+    });
     expect(unnamedLeaf).not.toHaveProperty("name");
 
+    const namedRun = vi.fn();
     const namedLeaf = defineCommand({
       name: "custom",
-      run: ({ command }) => command,
+      run: ({ command }) => {
+        namedRun(command);
+      },
     });
     const namedRoot = defineCommand({ subCommands: { alias: namedLeaf } });
-    const resolved = await runCommand(namedRoot, ["alias"]);
-    expect(resolved).toMatchObject({ name: "custom" });
-    expect(resolved).not.toBe(namedLeaf);
+    await expect(runCommand(namedRoot, ["alias"])).resolves.toBe(0);
+    expect(namedRun).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "custom" }));
+    expect(namedRun.mock.calls[0]?.[0]).not.toBe(namedLeaf);
     expect(namedLeaf).toMatchObject({ name: "custom" });
-  });
-
-  it("treats failure-shaped objects as ordinary data without automatic output", async () => {
-    const printer = { print: vi.fn() };
-    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
-    const onError = vi.fn();
-    const data = { ok: false as const, error: new Error("just data") };
-    const sync = defineCommand({ run: () => data });
-    const asyncCommand = defineCommand({ run: async () => data });
-    const result = runCommand(sync, [], { printer });
-    expectTypeOf(result).toEqualTypeOf<Promise<{ ok: false; error: Error } | undefined>>();
-    await expect(result).resolves.toBe(data);
-    await expect(runCommand(asyncCommand, [], { printer })).resolves.toBe(data);
-    await runMain(sync, { argv: [], printer, onError });
-    await runMain(asyncCommand, { argv: [], printer, onError });
-    expect(printer.print).not.toHaveBeenCalled();
-    expect(onError).not.toHaveBeenCalled();
-    expect(exit).not.toHaveBeenCalled();
   });
 
   it("rejects thrown errors rather than converting them into returned failures", async () => {
@@ -153,14 +162,101 @@ describe("command routing", () => {
   });
 });
 
+describe("returned exit status", () => {
+  it.each([0, 1, 42, 255])("returns status %i from sync and async handlers", async (code) => {
+    const printer = { print: vi.fn() };
+    for (const command of [
+      defineCommand({ run: () => code }),
+      defineCommand({ run: async () => code }),
+    ]) {
+      const result = runCommand(command, [], { printer });
+      expectTypeOf(result).toEqualTypeOf<Promise<number>>();
+      await expect(result).resolves.toBe(code);
+    }
+    expect(printer.print).not.toHaveBeenCalled();
+  });
+
+  it("normalizes synchronous and asynchronous undefined results to zero", async () => {
+    for (const command of [defineCommand({ run() {} }), defineCommand({ async run() {} })]) {
+      const result = runCommand(command, []);
+      expectTypeOf(result).toEqualTypeOf<Promise<number>>();
+      await expect(result).resolves.toBe(0);
+    }
+  });
+
+  it("returns the asynchronous routed leaf status instead of running its ancestors", async () => {
+    const parentRun = vi.fn(() => 3);
+    const leafRun = vi.fn(async () => 29);
+    const command = defineCommand({
+      run: parentRun,
+      subCommands: {
+        group: defineCommand({
+          run: parentRun,
+          subCommands: { leaf: defineCommand({ run: leafRun }) },
+        }),
+      },
+    });
+    await expect(runCommand(command, ["group", "leaf"])).resolves.toBe(29);
+    expect(leafRun).toHaveBeenCalledOnce();
+    expect(parentRun).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "negative integer", value: -1 },
+    { label: "above maximum", value: 256 },
+    { label: "fraction", value: 1.5 },
+    { label: "NaN", value: Number.NaN },
+    { label: "positive infinity", value: Number.POSITIVE_INFINITY },
+    { label: "negative infinity", value: Number.NEGATIVE_INFINITY },
+    { label: "null", value: null },
+    { label: "string", value: "0" },
+    { label: "boolean", value: false },
+    { label: "object", value: { ok: false, error: new Error("not an exit status") } },
+    { label: "array", value: [] },
+    { label: "bigint", value: 0n },
+    { label: "symbol", value: Symbol("status") },
+    { label: "function", value: () => 0 },
+  ])("rejects $label returns from sync and async JavaScript handlers", async ({ value }) => {
+    const printer = { print: vi.fn() };
+    // JavaScript consumers can return values excluded by the TypeScript contract.
+    for (const command of [
+      defineCommand({ run: () => value as never }),
+      defineCommand({ run: async () => value as never }),
+    ]) {
+      await expect(runCommand(command, [], { printer })).rejects.toBeInstanceOf(TypeError);
+    }
+    expect(printer.print).not.toHaveBeenCalled();
+  });
+
+  it.each([new HackshError("expected failure"), "failure", null, undefined])(
+    "propagates thrown and rejected values unchanged: %s",
+    async (failure) => {
+      for (const command of [
+        defineCommand({
+          run() {
+            throw failure;
+          },
+        }),
+        defineCommand({
+          async run() {
+            throw failure;
+          },
+        }),
+      ]) {
+        await expect(runCommand(command, [])).rejects.toBe(failure);
+      }
+    },
+  );
+});
+
 describe("help and version", () => {
   it("routes help and version through the invocation printer as structured events", async () => {
     const events: PrintEvent[] = [];
     const printer: Printer = { print: (event) => void events.push(event) };
     const command = defineCommand({ name: "tool", version: "1.2.3" });
 
-    await runCommand(command, ["--help"], { printer });
-    await runCommand(command, ["--version"], { printer });
+    await expect(runCommand(command, ["--help"], { printer })).resolves.toBe(0);
+    await expect(runCommand(command, ["--version"], { printer })).resolves.toBe(0);
 
     expect(events).toMatchObject([
       { type: "usage", usage: { name: "tool", version: "1.2.3" }, stream: "stdout" },
@@ -191,19 +287,21 @@ describe("help and version", () => {
       run({ logger }) {
         logger.info("first");
         logger.info("second");
+        return 23;
       },
     });
 
     let completed = false;
-    const invocation = runCommand(command, [], { printer }).then(() => {
+    const invocation = runCommand(command, [], { printer }).then((code) => {
       completed = true;
+      return code;
     });
     await vi.waitFor(() => expect(releaseFirst).toBeTypeOf("function"));
     expect(calls).toEqual(["start:log"]);
     expect(completed).toBe(false);
 
     releaseFirst?.();
-    await invocation;
+    await expect(invocation).resolves.toBe(23);
     expect(calls).toEqual(["start:log", "end:log", "start:log", "end:log"]);
   });
 
@@ -244,10 +342,11 @@ describe("help and version", () => {
 
   it("scopes boolean syntax issues across children and builtin bypasses", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const childRun = vi.fn();
     const child = defineCommand({
       args: z.object({ childFlag: z.boolean().catch(false) }),
       allowUnknownArgs: true,
-      run: ({ input }) => input.unknown,
+      run: childRun,
     });
     const root = defineCommand({
       name: "root",
@@ -266,13 +365,16 @@ describe("help and version", () => {
     ).rejects.toMatchObject({
       issues: [{ arg: "--child-flag", message: "expects true or false" }],
     });
-    await expect(runCommand(root, ["child", "--enabled=no"])).resolves.toEqual(["--enabled=no"]);
+    await expect(runCommand(root, ["child", "--enabled=no"])).resolves.toBe(0);
+    expect(childRun).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ input: expect.objectContaining({ unknown: ["--enabled=no"] }) }),
+    );
     await expect(
       runCommand(root, ["--enabled=no", "child", "--help"], { output: "pretty" }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(0);
     await expect(
       runCommand(root, ["--enabled=no", "--version"], { output: "pretty" }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(0);
     expect(log.mock.calls.at(-1)?.[0]).toBe("●  1.0.0");
   });
 
@@ -322,7 +424,7 @@ describe("help and version", () => {
 
   it("keeps long builtins and lets aliases override short builtins", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const run = vi.fn(({ args }) => args);
+    const run = vi.fn();
     const root = defineCommand({
       name: "tool",
       version: "1.2.3",
@@ -343,38 +445,179 @@ describe("help and version", () => {
   });
 
   it("treats version as a root-only builtin", async () => {
-    const childRun = vi.fn(({ input }) => input.unknown);
+    const childRun = vi.fn();
     const root = defineCommand({
       version: "1.0.0",
       subCommands: { child: defineCommand({ allowUnknownArgs: true, run: childRun }) },
     });
-    await expect(runCommand(root, ["child", "--version"])).resolves.toEqual(["--version"]);
+    await expect(runCommand(root, ["child", "--version"])).resolves.toBe(0);
+    expect(childRun).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ input: expect.objectContaining({ unknown: ["--version"] }) }),
+    );
   });
 
   it("ignores root and child builtin spellings after the passthrough separator", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const rootRun = vi.fn(({ input }) => input.passthrough);
+    const rootRun = vi.fn();
     const root = defineCommand({ name: "root", version: "1.0.0", run: rootRun });
-    await expect(runCommand(root, ["--", "--help", "-v"])).resolves.toEqual(["--help", "-v"]);
-    expect(rootRun).toHaveBeenCalledOnce();
+    await expect(runCommand(root, ["--", "--help", "-v"])).resolves.toBe(0);
+    expect(rootRun).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ passthrough: ["--help", "-v"] }),
+      }),
+    );
     expect(log).not.toHaveBeenCalled();
 
-    const childRun = vi.fn(({ input }) => input.passthrough);
+    const childRun = vi.fn();
     const withChild = defineCommand({
       name: "root",
       version: "1.0.0",
       subCommands: { child: defineCommand({ allowUnknownArgs: true, run: childRun }) },
     });
-    await expect(runCommand(withChild, ["child", "--", "--help", "-v"])).resolves.toEqual([
-      "--help",
-      "-v",
-    ]);
-    expect(childRun).toHaveBeenCalledOnce();
+    await expect(runCommand(withChild, ["child", "--", "--help", "-v"])).resolves.toBe(0);
+    expect(childRun).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ passthrough: ["--help", "-v"] }),
+      }),
+    );
     expect(log).not.toHaveBeenCalled();
   });
 });
 
 describe("runMain", () => {
+  it.each([undefined, 0])("sets exitCode to zero without forcing exit for %s", async (code) => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const printer = { print: vi.fn() };
+    const onError = vi.fn();
+    for (const command of [
+      defineCommand({ run: () => code }),
+      defineCommand({ run: async () => code }),
+    ]) {
+      process.exitCode = 19;
+      await expect(runMain(command, { argv: [], printer, onError })).resolves.toBeUndefined();
+      expect(process.exitCode).toBe(0);
+    }
+    expect(exit).not.toHaveBeenCalled();
+    expect(printer.print).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it.each(["--help", "--version"])(
+    "sets exitCode to zero after %s without forcing exit",
+    async (arg) => {
+      const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+      const run = vi.fn(() => 12);
+      const printer = { print: vi.fn() };
+      process.exitCode = 19;
+      await runMain(defineCommand({ name: "tool", version: "1.0.0", run }), {
+        argv: [arg],
+        printer,
+      });
+      expect(process.exitCode).toBe(0);
+      expect(exit).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalled();
+      expect(printer.print).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([0, 31])("drains output before applying returned status %i", async (code) => {
+    const sequence: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const printing = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const printer: Printer = {
+      async print() {
+        started();
+        await gate;
+        sequence.push("drained");
+      },
+    };
+    const stopped = new Error("process exited");
+    const exit = vi.spyOn(process, "exit").mockImplementation(((status?: number) => {
+      sequence.push(`exit:${status}`);
+      throw stopped;
+    }) as never);
+    const onError = vi.fn();
+    const command = defineCommand({
+      subCommands: {
+        child: defineCommand({
+          async run({ logger }) {
+            logger.info("pending output");
+            return code;
+          },
+        }),
+      },
+    });
+    process.exitCode = 19;
+    const main = runMain(command, { argv: ["child"], printer, onError });
+    const completion =
+      code === 0 ? expect(main).resolves.toBeUndefined() : expect(main).rejects.toBe(stopped);
+    await printing;
+    expect(exit).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(19);
+    release();
+    await completion;
+    if (code === 0) {
+      expect(process.exitCode).toBe(0);
+      expect(exit).not.toHaveBeenCalled();
+      expect(sequence).toEqual(["drained"]);
+    } else {
+      expect(exit).toHaveBeenCalledExactlyOnceWith(code);
+      expect(sequence).toEqual(["drained", `exit:${code}`]);
+    }
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("propagates a printer failure instead of applying a returned nonzero status", async () => {
+    const failure = new Error("printer failed");
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const onError = vi.fn();
+    const command = defineCommand({
+      run({ logger }) {
+        logger.info("pending output");
+        return 23;
+      },
+    });
+    await expect(
+      runMain(command, {
+        argv: [],
+        printer: {
+          async print() {
+            throw failure;
+          },
+        },
+        onError,
+      }),
+    ).rejects.toBe(failure);
+    expect(exit).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("propagates invalid handler returns without treating them as application errors", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const printer = { print: vi.fn() };
+    const onError = vi.fn();
+    const baseline = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
+    for (const run of [() => 256, async () => null as never]) {
+      await expect(
+        runMain(defineCommand({ run }), {
+          argv: [],
+          printer,
+          onError,
+        }),
+      ).rejects.toBeInstanceOf(TypeError);
+    }
+    expect(exit).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(printer.print).not.toHaveBeenCalled();
+    expect([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]).toEqual(baseline);
+  });
+
   it("reports an application error and drains queued output before the default exit", async () => {
     const sequence: string[] = [];
     class AppError extends HackshError {}
@@ -929,6 +1172,22 @@ describe("HackshExitError", () => {
     }
   });
 
+  it("preserves an explicit forced exit for HackshExitError zero", async () => {
+    const stopped = new Error("process exited");
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw stopped;
+    }) as never);
+    const printer = { print: vi.fn() };
+    const command = defineCommand({
+      run() {
+        throw new HackshExitError(0);
+      },
+    });
+    await expect(runMain(command, { argv: [], printer })).rejects.toBe(stopped);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+    expect(printer.print).not.toHaveBeenCalled();
+  });
+
   it("sets the runMain exit code and reports only a non-empty message", async () => {
     vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
@@ -972,7 +1231,7 @@ describe("invocation signal", () => {
         expect(signal.aborted).toBe(false);
         seen.push(signal);
         await gate;
-        return signal.aborted;
+        expect(signal.aborted).toBe(signal === seen[0]);
       },
     });
 
@@ -982,8 +1241,8 @@ describe("invocation signal", () => {
     controller.abort();
     release();
 
-    await expect(linked).resolves.toBe(true);
-    await expect(separate).resolves.toBe(false);
+    await expect(linked).resolves.toBe(0);
+    await expect(separate).resolves.toBe(0);
   });
 
   it("rejects with the reason of an already aborted signal without running", async () => {

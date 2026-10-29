@@ -15,7 +15,6 @@ describe("run logger", () => {
   it("emits every level and info kind as structured, interpolated records", async () => {
     vi.spyOn(Date, "now").mockReturnValue(1_797_000_000_000);
     const records: LogRecord[] = [];
-    const result = { unchanged: true };
     const command = defineCommand({
       name: "tool",
       run({ logger }) {
@@ -28,18 +27,16 @@ describe("run logger", () => {
         logger.fatal("fatal", { value: 6 });
         logger.step("step", { value: 7 });
         logger.success("success", { value: 8 });
-        return result;
       },
     });
 
-    const received = await runCommand(command, [], {
+    await runCommand(command, [], {
       printer: {
         print(event) {
           if (event.type === "log") records.push(event.record);
         },
       },
     });
-    expect(received).toBe(result);
 
     expect(records.map(({ level, kind }) => [level, kind])).toEqual([
       ["trace", "message"],
@@ -99,7 +96,7 @@ describe("run logger", () => {
     });
   });
 
-  it("keeps records and the run result when placeholder values cannot be converted", async () => {
+  it("keeps records when placeholder values cannot be converted", async () => {
     const records: LogRecord[] = [];
     const nullPrototypeValue = Object.create(null) as object;
     const nullPrototypeProperties = Object.assign(Object.create(null), {
@@ -110,23 +107,20 @@ describe("run logger", () => {
         throw new Error("cannot format");
       },
     };
-    const result = { unchanged: true };
     const command = defineCommand({
       run({ logger }) {
         logger.info("Null prototype: {value}", nullPrototypeProperties);
         logger.info("Throwing conversion: {value}", { value: throwingValue });
-        return result;
       },
     });
 
-    const received = await runCommand(command, [], {
+    await runCommand(command, [], {
       printer: {
         print(event) {
           if (event.type === "log") records.push(event.record);
         },
       },
     });
-    expect(received).toBe(result);
 
     expect(records).toHaveLength(2);
     expect(records.map(({ message }) => message)).toEqual([
@@ -260,16 +254,14 @@ describe("run logger", () => {
     });
   });
 
-  it("serializes log writes and drains them before preserving the run result", async () => {
+  it("serializes log writes and drains them before completing the invocation", async () => {
     const sequence: string[] = [];
     let releaseFirst: (() => void) | undefined;
-    const result = { status: "complete" };
     const invocation = runCommand(
       defineCommand({
         run({ logger }) {
           logger.info("first");
           logger.info("second");
-          return result;
         },
       }),
       [],
@@ -292,8 +284,7 @@ describe("run logger", () => {
     await vi.waitFor(() => expect(releaseFirst).toBeTypeOf("function"));
     expect(sequence).toEqual(["start:first"]);
     releaseFirst?.();
-    const received = await invocation;
-    expect(received).toBe(result);
+    await invocation;
     expect(sequence).toEqual(["start:first", "end:first", "start:second", "end:second"]);
   });
 
@@ -302,7 +293,6 @@ describe("run logger", () => {
     const command = defineCommand({
       run({ logger }) {
         logger.info("queued");
-        return "run result";
       },
     });
 

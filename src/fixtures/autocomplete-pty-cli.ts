@@ -22,7 +22,7 @@ await runMain(
       } catch (error) {
         if (!(error instanceof HackshPromptError) || error.reason !== "cancelled") throw error;
         process.stdout.write("×  Cancelled\n");
-        process.exitCode = 130;
+        return 130;
       }
     },
   }),

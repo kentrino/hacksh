@@ -44,7 +44,7 @@ describe("interactive prompts", () => {
           initialValue: "staging",
         });
         expectTypeOf(value).toEqualTypeOf<"staging" | "production">();
-        return value;
+        expect(value).toBe("production");
       },
     });
 
@@ -57,7 +57,7 @@ describe("interactive prompts", () => {
     await turn();
     input.write("\u001b[B\r");
 
-    await expect(result).resolves.toEqual("production");
+    await result;
     const prompts = events.filter((event) => event.type === "prompt");
     expect(prompts.map(({ prompt }) => prompt.status)).toEqual(["active", "active", "submitted"]);
     expect(prompts[1]).toMatchObject({
@@ -79,7 +79,7 @@ describe("interactive prompts", () => {
           placeholder: "three letters",
           validate: (value) => (value.length < 3 ? "Too short" : undefined),
         });
-        return { confirmed, text };
+        expect({ confirmed, text }).toEqual({ confirmed: true, text: "xhi" });
       },
     });
 
@@ -94,7 +94,7 @@ describe("interactive prompts", () => {
     await turn();
     input.write("x\rhi\r");
 
-    await expect(result).resolves.toEqual({ confirmed: true, text: "xhi" });
+    await result;
     expect(events).toContainEqual({
       type: "prompt",
       prompt: expect.objectContaining({
@@ -117,7 +117,7 @@ describe("interactive prompts", () => {
       async run({ prompt }) {
         const letters = await prompt.text({ message: "Letters" });
         const unicode = await prompt.text({ message: "Unicode" });
-        return { letters, unicode };
+        expect({ letters, unicode }).toEqual({ letters: "fF", unicode: "A" });
       },
     });
     const result = runCommand(command, [], {
@@ -129,7 +129,7 @@ describe("interactive prompts", () => {
     await turn();
     input.write("fF\u001bOP\rA😀\u007f\r");
 
-    await expect(result).resolves.toEqual({ letters: "fF", unicode: "A" });
+    await result;
   });
 
   it("preserves pasted type-ahead for the next prompt", async () => {
@@ -138,7 +138,7 @@ describe("interactive prompts", () => {
       async run({ prompt }) {
         const confirmed = await prompt.confirm({ message: "Continue?" });
         const name = await prompt.text({ message: "Name" });
-        return { confirmed, name };
+        expect({ confirmed, name }).toEqual({ confirmed: true, name: "name" });
       },
     });
     const result = runCommand(command, [], {
@@ -150,14 +150,17 @@ describe("interactive prompts", () => {
     await turn();
     input.write("yname\r");
 
-    await expect(result).resolves.toEqual({ confirmed: true, name: "name" });
+    await result;
   });
 
   it("treats an empty validation message as valid", async () => {
     const input = new TestInput();
     const result = runCommand(
       defineCommand({
-        run: async ({ prompt }) => await prompt.text({ message: "Value", validate: () => "" }),
+        run: async ({ prompt }) => {
+          const value = await prompt.text({ message: "Value", validate: () => "" });
+          expect(value).toBe("accepted");
+        },
       }),
       [],
       {
@@ -170,14 +173,14 @@ describe("interactive prompts", () => {
     await turn();
     input.write("accepted\r");
 
-    await expect(result).resolves.toEqual("accepted");
+    await result;
   });
 
   it("always rejects noninteractive prompts, including prompts with defaults", async () => {
     const input = new TestInput();
     const command = defineCommand({
       async run({ prompt }) {
-        return await prompt.confirm({ message: "Continue?", initialValue: true });
+        await prompt.confirm({ message: "Continue?", initialValue: true });
       },
     });
 
@@ -203,7 +206,9 @@ describe("interactive prompts", () => {
       const input = new TestInput();
       const events: PrintEvent[] = [];
       const command = defineCommand({
-        run: async ({ prompt }) => await prompt.text({ message: "Value" }),
+        run: async ({ prompt }) => {
+          await prompt.text({ message: "Value" });
+        },
       });
       const result = runCommand(command, [], {
         stdin: input,
@@ -227,7 +232,9 @@ describe("interactive prompts", () => {
     const reason = new Error("stop");
     const result = runCommand(
       defineCommand({
-        run: async ({ prompt }) => await prompt.text({ message: "Value" }),
+        run: async ({ prompt }) => {
+          await prompt.text({ message: "Value" });
+        },
       }),
       [],
       {
@@ -261,7 +268,7 @@ describe("interactive prompts", () => {
       defineCommand({
         run: async ({ prompt }) => {
           controller.abort(reason);
-          return await prompt.confirm({ message: "Continue?" });
+          await prompt.confirm({ message: "Continue?" });
         },
       }),
       [],
@@ -412,7 +419,9 @@ describe("interactive prompts", () => {
     const failure = new Error("printer failed");
     const result = runCommand(
       defineCommand({
-        run: async ({ prompt }) => await prompt.text({ message: "Value" }),
+        run: async ({ prompt }) => {
+          await prompt.text({ message: "Value" });
+        },
       }),
       [],
       {
@@ -469,7 +478,7 @@ describe("autocomplete prompts", () => {
             ],
           });
           expectTypeOf(value).toEqualTypeOf<"ts" | "js" | "script" | "script-value">();
-          return value;
+          expect(value).toBe("js");
         },
       }),
       [],
@@ -482,7 +491,7 @@ describe("autocomplete prompts", () => {
     );
     await turn();
     input.write("ScRiPt\u001b[B\u001b[B\r");
-    await expect(result).resolves.toBe("js");
+    await result;
     const states = events.flatMap((event) =>
       event.type === "prompt" && event.prompt.kind === "autocomplete" ? [event.prompt] : [],
     );

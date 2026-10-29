@@ -90,131 +90,107 @@ describe("argument metadata types", () => {
 });
 
 describe("public command execution API", () => {
-  it("preserves synchronous and asynchronous handler values", async () => {
+  it("accepts synchronous and asynchronous integer exit codes", async () => {
     const schema = z.object({ count: z.coerce.number() });
     const sync = defineCommand({
       args: schema,
       run: ({ args }) => args.count,
     });
-    expectTypeOf(sync).toEqualTypeOf<CommandDef<typeof schema, number, {}>>();
+    expectTypeOf(sync).toEqualTypeOf<CommandDef<typeof schema, {}>>();
     const result = runCommand(sync, ["--count", "3"]);
-    expectTypeOf(result).toEqualTypeOf<Promise<number | undefined>>();
+    expectTypeOf(result).toEqualTypeOf<Promise<number>>();
     await expect(result).resolves.toBe(3);
 
     const asyncCommand = defineCommand({
       async run() {
-        return { status: "complete" as const };
+        return 255;
       },
     });
-    expectTypeOf(asyncCommand).toEqualTypeOf<
-      CommandDef<EmptyArgs, Promise<{ status: "complete" }>, {}>
-    >();
+    expectTypeOf(asyncCommand).toEqualTypeOf<CommandDef<EmptyArgs, {}>>();
     const asyncResult = runCommand(asyncCommand, []);
-    expectTypeOf(asyncResult).toEqualTypeOf<Promise<{ status: "complete" } | undefined>>();
-    await expect(asyncResult).resolves.toEqual({ status: "complete" });
+    expectTypeOf(asyncResult).toEqualTypeOf<Promise<number>>();
+    await expect(asyncResult).resolves.toBe(255);
   });
 
-  it("preserves a handler's union return type", async () => {
-    const command = defineCommand({
-      args: z.object({
-        numeric: z.boolean().default(false),
-        count: z.number().default(42),
-        label: z.string().default("text"),
-      }),
-      run: ({ args }) => (args.numeric ? args.count : args.label),
-    });
-    const result = runCommand(command, []);
-    expectTypeOf(result).toEqualTypeOf<Promise<number | string | undefined>>();
-    await expect(result).resolves.toBe("text");
-    await expect(runCommand(command, ["--numeric"])).resolves.toBe(42);
-  });
-
-  it("includes every routed value without inventing one for routing-only commands", async () => {
+  it("returns numeric exit codes through nested routing", async () => {
     const leaf = defineCommand({
       async run() {
-        return true;
+        return 7;
       },
     });
     const group = defineCommand({ subCommands: { leaf }, run: () => 42 });
-    const root = defineCommand({ subCommands: { group }, run: () => "root" });
+    const root = defineCommand({ subCommands: { group }, run: () => 0 });
     const result = runCommand(root, ["group", "leaf"]);
-    expectTypeOf(result).toEqualTypeOf<Promise<string | number | boolean | undefined>>();
-    await expect(result).resolves.toBe(true);
+    expectTypeOf(result).toEqualTypeOf<Promise<number>>();
+    await expect(result).resolves.toBe(7);
     await expect(runCommand(root, ["group"])).resolves.toBe(42);
-    await expect(runCommand(root, [])).resolves.toBe("root");
+    await expect(runCommand(root, [])).resolves.toBe(0);
 
     const routingOnly = defineCommand({ subCommands: { group } });
-    expectTypeOf(routingOnly).toEqualTypeOf<
-      CommandDef<EmptyArgs, never, { group: typeof group }>
-    >();
+    expectTypeOf(routingOnly).toEqualTypeOf<CommandDef<EmptyArgs, { group: typeof group }>>();
     const routedResult = runCommand(routingOnly, ["group", "leaf"]);
-    expectTypeOf(routedResult).toEqualTypeOf<Promise<number | boolean | undefined>>();
-    await expect(routedResult).resolves.toBe(true);
+    expectTypeOf(routedResult).toEqualTypeOf<Promise<number>>();
+    await expect(routedResult).resolves.toBe(7);
 
     const inline = defineCommand({
       subCommands: { group: { subCommands: { leaf: { run: () => 7 } } } },
     });
     const inlineResult = runCommand(inline, ["group", "leaf"]);
-    expectTypeOf(inlineResult).toEqualTypeOf<Promise<number | undefined>>();
+    expectTypeOf(inlineResult).toEqualTypeOf<Promise<number>>();
     await expect(inlineResult).resolves.toBe(7);
-
-    const nestedDefinition = defineCommand({
-      run: () => "root",
-      subCommands: { group: defineCommand({ subCommands: { leaf } }) },
-    });
-    const nestedResult = runCommand(nestedDefinition, ["group", "leaf"]);
-    expectTypeOf(nestedResult).toEqualTypeOf<Promise<string | boolean | undefined>>();
-    await expect(nestedResult).resolves.toBe(true);
   });
 
-  it("accepts sync and async void handlers and includes undefined builtin results", async () => {
+  it("normalizes sync and async void handlers and builtin results to zero", async () => {
     const sync = defineCommand({ run() {} });
     const asyncCommand = defineCommand({ async run() {} });
-    expectTypeOf(sync).toEqualTypeOf<CommandDef<EmptyArgs, void, {}>>();
-    expectTypeOf(asyncCommand).toEqualTypeOf<CommandDef<EmptyArgs, Promise<void>, {}>>();
+    expectTypeOf(sync).toEqualTypeOf<CommandDef<EmptyArgs, {}>>();
+    expectTypeOf(asyncCommand).toEqualTypeOf<CommandDef<EmptyArgs, {}>>();
     const syncResult = runCommand(sync, []);
     const asyncResult = runCommand(asyncCommand, []);
-    expectTypeOf(syncResult).toEqualTypeOf<Promise<void | undefined>>();
-    expectTypeOf(asyncResult).toEqualTypeOf<Promise<void | undefined>>();
-    await expect(syncResult).resolves.toBeUndefined();
-    await expect(asyncResult).resolves.toBeUndefined();
+    expectTypeOf(syncResult).toEqualTypeOf<Promise<number>>();
+    expectTypeOf(asyncResult).toEqualTypeOf<Promise<number>>();
+    await expect(syncResult).resolves.toBe(0);
+    await expect(asyncResult).resolves.toBe(0);
 
     const command = defineCommand({ version: "1.0.0", run: () => 42 });
     const events: PrintEvent[] = [];
     const printer: Printer = { print: (event) => void events.push(event) };
     const help = runCommand(command, ["--help"], { printer });
-    expectTypeOf(help).toEqualTypeOf<Promise<number | undefined>>();
-    await expect(help).resolves.toBeUndefined();
-    await expect(runCommand(command, ["--version"], { printer })).resolves.toBeUndefined();
+    expectTypeOf(help).toEqualTypeOf<Promise<number>>();
+    await expect(help).resolves.toBe(0);
+    await expect(runCommand(command, ["--version"], { printer })).resolves.toBe(0);
     expect(events.map(({ type }) => type)).toEqual(["usage", "version"]);
     const empty = defineCommand({});
-    expectTypeOf(empty).toEqualTypeOf<CommandDef<EmptyArgs, never, {}>>();
+    expectTypeOf(empty).toEqualTypeOf<CommandDef<EmptyArgs, {}>>();
     const emptyHelp = runCommand(empty, ["--help"], { printer });
-    expectTypeOf(emptyHelp).toEqualTypeOf<Promise<undefined>>();
-    await expect(emptyHelp).resolves.toBeUndefined();
+    expectTypeOf(emptyHelp).toEqualTypeOf<Promise<number>>();
+    await expect(emptyHelp).resolves.toBe(0);
   });
 
   it("accepts ordinary annotated and satisfies handlers with validated arguments", async () => {
     const schema = z.object({ count: z.coerce.number().int().positive() });
-    const annotated = ({ args }: CommandContext<typeof schema>): { doubled: number } => {
+    const captured: { doubled?: number; label?: string } = {};
+    const annotated = ({ args }: CommandContext<typeof schema>): void => {
       expectTypeOf(args).toEqualTypeOf<{ count: number }>();
-      return { doubled: args.count * 2 };
+      captured.doubled = args.count * 2;
     };
     const precise = (({ args }) => {
       expectTypeOf(args).toEqualTypeOf<{ count: number }>();
-      return { label: String(args.count) };
-    }) satisfies NonNullable<CommandDef<typeof schema, { label: string }>["run"]>;
-    expectTypeOf(precise).returns.toEqualTypeOf<{ label: string }>();
+      captured.label = String(args.count);
+    }) satisfies NonNullable<CommandDef<typeof schema>["run"]>;
+    expectTypeOf(precise).returns.toEqualTypeOf<void>();
     const annotatedResult = runCommand(defineCommand({ args: schema, run: annotated }), [
       "--count",
       "3",
     ]);
-    expectTypeOf(annotatedResult).toEqualTypeOf<Promise<{ doubled: number } | undefined>>();
-    await expect(annotatedResult).resolves.toEqual({ doubled: 6 });
+    expectTypeOf(annotatedResult).toEqualTypeOf<Promise<number>>();
+    await expect(annotatedResult).resolves.toBe(0);
+    expect(captured.doubled).toBe(6);
     const preciseCommand = defineCommand({ args: schema, run: precise });
     const preciseResult = runCommand(preciseCommand, ["--count", "4"]);
-    expectTypeOf(preciseResult).toEqualTypeOf<Promise<{ label: string } | undefined>>();
-    await expect(preciseResult).resolves.toEqual({ label: "4" });
+    expectTypeOf(preciseResult).toEqualTypeOf<Promise<number>>();
+    await expect(preciseResult).resolves.toBe(0);
+    expect(captured.label).toBe("4");
     await expect(runCommand(preciseCommand, ["--count=-1"])).rejects.toBeInstanceOf(
       HackshValidationError,
     );
@@ -231,12 +207,18 @@ describe("public command execution API", () => {
       return args.count;
     };
     const next = vi.fn((count: number) => String(count * 2));
-    const composed = async (context: CommandContext<typeof schema>) => next(parse(context));
+    const captured: string[] = [];
+    const composed = async (context: CommandContext<typeof schema>) => {
+      captured.push(next(parse(context)));
+    };
     const recovered = async (context: CommandContext<typeof schema>) => {
       try {
         return await composed(context);
       } catch (error) {
-        if (error instanceof AppError) return "fallback";
+        if (error instanceof AppError) {
+          captured.push("fallback");
+          return;
+        }
         throw error;
       }
     };
@@ -244,18 +226,35 @@ describe("public command execution API", () => {
     await expect(runCommand(command, ["--count=-1"])).rejects.toBe(failure);
     expect(next).not.toHaveBeenCalled();
     const recoveringCommand = defineCommand({ args: schema, run: recovered });
-    await expect(runCommand(recoveringCommand, ["--count=-1"])).resolves.toBe("fallback");
+    await expect(runCommand(recoveringCommand, ["--count=-1"])).resolves.toBe(0);
+    expect(captured).toEqual(["fallback"]);
     await expect(runCommand(recoveringCommand, ["--count=0"])).rejects.toBe(unexpected);
     expect(next).not.toHaveBeenCalled();
-    await expect(runCommand(command, ["--count", "3"])).resolves.toBe("6");
+    await expect(runCommand(command, ["--count", "3"])).resolves.toBe(0);
+    expect(captured).toEqual(["fallback", "6"]);
     expect(next).toHaveBeenCalledExactlyOnceWith(3);
   });
 
-  it("types arbitrary command returns and expected error callbacks", () => {
+  it("types exit-code handlers and expected error callbacks", () => {
     expectTypeOf<NonNullable<CommandDef["run"]>>().toEqualTypeOf<
-      (context: CommandContext<EmptyArgs>) => unknown
+      (context: CommandContext<EmptyArgs>) => number | void | Promise<number | void>
     >();
-    expectTypeOf<NonNullable<CommandDef<EmptyArgs, number>["run"]>>().returns.toBeNumber();
+    // @ts-expect-error handlers cannot return application objects
+    defineCommand({ run: () => ({ status: "complete" }) });
+    // @ts-expect-error handlers cannot return strings
+    defineCommand({ run: () => "complete" });
+    defineCommand({
+      // @ts-expect-error asynchronous handlers cannot return application objects
+      async run() {
+        return { status: "complete" };
+      },
+    });
+    defineCommand({
+      // @ts-expect-error asynchronous handlers cannot return strings
+      async run() {
+        return "complete";
+      },
+    });
     expectTypeOf<NonNullable<RunMainOptions["onError"]>>()
       .parameter(0)
       .toEqualTypeOf<HackshError>();
@@ -267,6 +266,7 @@ describe("public command execution API", () => {
   });
 
   it("exposes validated args and separate invocation input channels", async () => {
+    let captured: unknown;
     const command = defineCommand({
       allowUnknownArgs: true,
       args: z.object({ count: z.coerce.number() }),
@@ -280,11 +280,12 @@ describe("public command execution API", () => {
         expectTypeOf<
           Extract<keyof typeof context, "cmd" | "rawArgs" | "extraArgs" | "passthrough">
         >().toEqualTypeOf<never>();
-        return { args: context.args, input: context.input };
+        captured = { args: context.args, input: context.input };
       },
     });
     const argv = ["--count", "2", "--unknown", "--", "--forwarded"];
-    await expect(runCommand(command, argv)).resolves.toEqual({
+    await expect(runCommand(command, argv)).resolves.toBe(0);
+    expect(captured).toEqual({
       args: { count: 2 },
       input: { argv, unknown: ["--unknown"], passthrough: ["--forwarded"] },
     });
@@ -729,13 +730,15 @@ describe("public exec API", () => {
         stderr: "",
         exitCode: 0,
       }) as never;
+    let branch: string | undefined;
     const command = defineCommand({
       async run({ exec }) {
-        return (await exec("git", ["branch", "--show-current"])).stdout;
+        branch = (await exec("git", ["branch", "--show-current"])).stdout;
       },
     });
     const context = { exec: fake } as Parameters<NonNullable<typeof command.run>>[0];
-    await expect(command.run?.(context)).resolves.toBe("main");
+    await command.run?.(context);
+    expect(branch).toBe("main");
   });
 });
 

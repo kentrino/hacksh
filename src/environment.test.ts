@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import {
   defineCommand,
@@ -9,7 +9,7 @@ import {
 } from "./index.ts";
 import type { PrintEvent, Printer } from "./printer-api.ts";
 
-function deployTree() {
+function deployTree(capture: (args: object) => void = () => undefined) {
   const deploy = defineCommand({
     args: z.object({
       target: z.string(),
@@ -17,13 +17,17 @@ function deployTree() {
       token: z.string().meta({ env: "GITHUB_TOKEN" }),
       debug: z.boolean().optional().meta({ env: false }),
     }),
-    run: ({ args }) => args,
+    run: ({ args }) => {
+      capture(args);
+    },
   });
   return defineCommand({
     name: "my-cli",
     args: z.object({ verbose: z.boolean().default(false) }),
     subCommands: { deploy },
-    run: ({ args }) => args,
+    run: ({ args }) => {
+      capture(args);
+    },
   });
 }
 
@@ -40,7 +44,9 @@ describe("environment-backed options", () => {
   const base = { MY_CLI_DEPLOY_TARGET: "prod", GITHUB_TOKEN: "t" };
 
   it("reads options from command-path names and explicit names", async () => {
-    await expect(runCommand(deployTree(), ["deploy"], { env: base })).resolves.toEqual({
+    const capture = vi.fn();
+    await runCommand(deployTree(capture), ["deploy"], { env: base });
+    expect(capture).toHaveBeenCalledWith({
       target: "prod",
       token: "t",
       dryRun: false,
@@ -49,12 +55,14 @@ describe("environment-backed options", () => {
 
   it("prefers CLI arguments, including explicit negation, over the environment", async () => {
     const env = { ...base, MY_CLI_DEPLOY_DRY_RUN: "true" };
-    await expect(
-      runCommand(deployTree(), ["deploy", "--target=stg", "--no-dry-run"], { env }),
-    ).resolves.toMatchObject({ target: "stg", dryRun: false });
-    await expect(runCommand(deployTree(), ["deploy"], { env })).resolves.toMatchObject({
-      dryRun: true,
-    });
+    const capture = vi.fn();
+    const root = deployTree(capture);
+    await runCommand(root, ["deploy", "--target=stg", "--no-dry-run"], { env });
+    expect(capture).toHaveBeenLastCalledWith(
+      expect.objectContaining({ target: "stg", dryRun: false }),
+    );
+    await runCommand(root, ["deploy"], { env });
+    expect(capture).toHaveBeenLastCalledWith(expect.objectContaining({ dryRun: true }));
   });
 
   it("ignores replaced and disabled automatic names", async () => {
@@ -64,15 +72,16 @@ describe("environment-backed options", () => {
       MY_CLI_DEPLOY_DEBUG: "true",
       GITHUB_TOKEN: "explicit",
     };
-    const args = await runCommand(deployTree(), ["deploy"], { env });
-    expect(args).toEqual({ target: "prod", token: "explicit", dryRun: false });
+    const capture = vi.fn();
+    await runCommand(deployTree(capture), ["deploy"], { env });
+    expect(capture).toHaveBeenCalledWith({ target: "prod", token: "explicit", dryRun: false });
   });
 
   it("validates parent options from their own names", async () => {
-    const root = deployTree();
-    await expect(runCommand(root, [], { env: { MY_CLI_VERBOSE: "true" } })).resolves.toEqual({
-      verbose: true,
-    });
+    const capture = vi.fn();
+    const root = deployTree(capture);
+    await runCommand(root, [], { env: { MY_CLI_VERBOSE: "true" } });
+    expect(capture).toHaveBeenCalledWith({ verbose: true });
     const issues = await validationIssues(
       runCommand(root, ["deploy"], { env: { ...base, MY_CLI_VERBOSE: "1" } }),
     );
@@ -83,7 +92,9 @@ describe("environment-backed options", () => {
     const leaf = defineCommand({
       name: "display-name",
       args: z.object({ maxRetries: z.coerce.number() }),
-      run: ({ args }) => args.maxRetries,
+      run: ({ args }) => {
+        expect(args.maxRetries).toBe(3);
+      },
     });
     const root = defineCommand({
       name: "tool",
@@ -93,7 +104,7 @@ describe("environment-backed options", () => {
       runCommand(root, ["db", "run-migrations"], {
         env: { TOOL_DB_RUN_MIGRATIONS_MAX_RETRIES: "3" },
       }),
-    ).resolves.toEqual(3);
+    ).resolves.toBe(0);
   });
 
   it("reads only explicit names when the root has no name", async () => {
@@ -104,26 +115,33 @@ describe("environment-backed options", () => {
             a: z.string().optional(),
             b: z.string().optional().meta({ env: "B_VALUE" }),
           }),
-          run: ({ args }) => args,
+          run: ({ args }) => {
+            expect(args).toEqual({ b: "y" });
+          },
         }),
       },
     });
     await expect(
       runCommand(root, ["sub"], { env: { SUB_A: "x", A: "x", B_VALUE: "y" } }),
-    ).resolves.toEqual({ b: "y" });
+    ).resolves.toBe(0);
   });
 
   it("treats an empty value as set and leaves unset values to defaults", async () => {
+    const capture = vi.fn();
     const command = defineCommand({
       name: "tool",
       args: z.object({ label: z.string().default("fallback"), quiet: z.boolean().default(false) }),
-      run: ({ args }) => args,
+      run: ({ args }) => {
+        capture(args);
+      },
     });
-    await expect(runCommand(command, [], { env: { TOOL_LABEL: "" } })).resolves.toEqual({
+    await runCommand(command, [], { env: { TOOL_LABEL: "" } });
+    expect(capture).toHaveBeenLastCalledWith({
       label: "",
       quiet: false,
     });
-    await expect(runCommand(command, [], { env: {} })).resolves.toEqual({
+    await runCommand(command, [], { env: {} });
+    expect(capture).toHaveBeenLastCalledWith({
       label: "fallback",
       quiet: false,
     });
@@ -156,7 +174,7 @@ describe("environment-backed options", () => {
       subCommands: {
         deploy: defineCommand({
           args: z.object({ target: z.string() }),
-          run: () => "ran",
+          run: () => undefined,
         }),
       },
     });
@@ -167,11 +185,14 @@ describe("environment-backed options", () => {
 
   it("keeps concurrent invocations and process.env separate", async () => {
     const before = { ...process.env };
-    const results = await Promise.all([
-      runCommand(deployTree(), ["deploy"], { env: { ...base, MY_CLI_DEPLOY_TARGET: "a" } }),
-      runCommand(deployTree(), ["deploy"], { env: { ...base, MY_CLI_DEPLOY_TARGET: "b" } }),
+    const first = vi.fn();
+    const second = vi.fn();
+    await Promise.all([
+      runCommand(deployTree(first), ["deploy"], { env: { ...base, MY_CLI_DEPLOY_TARGET: "a" } }),
+      runCommand(deployTree(second), ["deploy"], { env: { ...base, MY_CLI_DEPLOY_TARGET: "b" } }),
     ]);
-    expect(results).toMatchObject([{ target: "a" }, { target: "b" }]);
+    expect(first).toHaveBeenCalledWith(expect.objectContaining({ target: "a" }));
+    expect(second).toHaveBeenCalledWith(expect.objectContaining({ target: "b" }));
     expect(process.env).toEqual(before);
   });
 

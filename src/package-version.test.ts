@@ -8,6 +8,7 @@ import { findPackageVersion } from "./package-version.ts";
 
 let root: string;
 const originalArgv = process.argv;
+const originalExitCode = process.exitCode;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "hacksh-version-"));
@@ -19,6 +20,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   process.argv = originalArgv;
+  process.exitCode = originalExitCode;
   await rm(root, { recursive: true, force: true });
 });
 

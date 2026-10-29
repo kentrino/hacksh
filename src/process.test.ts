@@ -13,6 +13,63 @@ describe("real process behavior", () => {
     expect(result.stderr).toBe("");
   });
 
+  it.each([0, 7, 255])("uses the returned exit status %i without error reporting", (code) => {
+    const result = spawnSync(
+      process.execPath,
+      ["src/fixtures/exit-cli.ts", "--count", "3", "--exit-code", String(code)],
+      { encoding: "utf8" },
+    );
+    expect(result.status).toBe(code);
+    expect(result.stdout).toBe("3\n");
+    expect(result.stderr).toBe("");
+  });
+
+  it("allows pending work to finish naturally after returning zero", () => {
+    const result = spawnSync(
+      process.execPath,
+      ["src/fixtures/exit-cli.ts", "--count", "3", "--exit-code", "0", "--deferred-output"],
+      { encoding: "utf8" },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("3\ncompleted\n");
+    expect(result.stderr).toBe("");
+  });
+
+  it("reports HackshError and exits one", () => {
+    const result = spawnSync(
+      process.execPath,
+      ["src/fixtures/exit-cli.ts", "--count", "3", "--fail"],
+      { encoding: "utf8" },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("fixture failed");
+    expect(result.stderr).not.toContain("USAGE");
+  });
+
+  it.each([0, 9])("preserves explicit HackshExitError status %i without a message", (code) => {
+    const result = spawnSync(
+      process.execPath,
+      ["src/fixtures/exit-cli.ts", "--count", "3", "--throw-exit-code", String(code)],
+      { encoding: "utf8" },
+    );
+    expect(result.status).toBe(code);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+  });
+
+  it("leaves an invalid returned exit status to the runtime", () => {
+    const result = spawnSync(
+      process.execPath,
+      ["src/fixtures/exit-cli.ts", "--count", "3", "--exit-code", "1.5"],
+      { encoding: "utf8" },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("3\n");
+    expect(result.stderr).toMatch(/^TypeError:/m);
+    expect(result.stderr).not.toContain("USAGE");
+  });
+
   it("prints help to stdout and exits zero", () => {
     const result = spawnSync(process.execPath, ["src/fixtures/exit-cli.ts", "--help"], {
       encoding: "utf8",

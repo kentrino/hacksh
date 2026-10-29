@@ -8,7 +8,9 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("invocation output selection", () => {
   it("does not reserve output-format command arguments", async () => {
-    const run = vi.fn(({ args }) => args);
+    const run = vi.fn(({ args }) => {
+      expect(args).toEqual({ output: "file", json: true, logFormat: "compact" });
+    });
     const command = defineCommand({
       args: z.object({
         output: z.string(),
@@ -22,11 +24,11 @@ describe("invocation output selection", () => {
       runCommand(command, ["--output", "file", "--json", "--log-format", "compact"], {
         output: "pretty",
       }),
-    ).resolves.toEqual({ output: "file", json: true, logFormat: "compact" });
+    ).resolves.toBe(0);
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("writes every output call as its own event and never prints the run result", async () => {
+  it("writes every output call as its own event", async () => {
     const events: PrintEvent[] = [];
     const command = defineCommand({
       run({ output }) {
@@ -34,13 +36,12 @@ describe("invocation output selection", () => {
         output.println();
         output.json(null);
         output.json(null);
-        return "returned only";
       },
     });
 
     await expect(
       runCommand(command, [], { printer: { print: (event) => void events.push(event) } }),
-    ).resolves.toEqual("returned only");
+    ).resolves.toBe(0);
     expect(events).toEqual([
       { type: "output", kind: "text", text: "" },
       { type: "output", kind: "text", text: "\n" },
@@ -92,7 +93,6 @@ describe("invocation output selection", () => {
     const run = vi.fn(({ logger }) => {
       logger.info("same {mode}", { mode: "code" });
       results.push("ran");
-      return "result";
     });
     const command = defineCommand({ run });
     const events: PrintEvent[] = [];
@@ -101,7 +101,7 @@ describe("invocation output selection", () => {
         output: "pretty",
         printer: { print: (event) => void events.push(event) },
       }),
-    ).resolves.toEqual("result");
+    ).resolves.toBe(0);
 
     const lines: string[] = [];
     await expect(
@@ -111,7 +111,7 @@ describe("invocation output selection", () => {
         stdout: { isTTY: false, write: () => undefined },
         stderr: { write: (value) => void lines.push(value) },
       }),
-    ).resolves.toEqual("result");
+    ).resolves.toBe(0);
 
     expect(run).toHaveBeenCalledTimes(2);
     expect(results).toEqual(["ran", "ran"]);

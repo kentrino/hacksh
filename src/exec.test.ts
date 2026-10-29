@@ -380,25 +380,26 @@ describe("context exec", () => {
     const command = defineCommand({
       async run({ exec }) {
         const { stdout } = await exec(node, script("process.stdout.write('from child\\n')"));
-        return stdout;
+        expect(stdout).toBe("from child");
       },
     });
     await expect(
       runCommand(command, [], { output: "json", stderr: { write: () => undefined } }),
-    ).resolves.toEqual("from child");
+    ).resolves.toBe(0);
   });
 
   it("binds each invocation to its own env option", async () => {
+    const results: string[] = [];
     const command = defineCommand({
       async run({ exec }) {
         const { stdout } = await exec(
           node,
           script("setTimeout(() => process.stdout.write(process.env.INVOCATION ?? 'unset'), 100)"),
         );
-        return stdout;
+        results.push(stdout);
       },
     });
-    const results = await Promise.all([
+    await Promise.all([
       runCommand(command, [], {
         output: "json",
         env: { INVOCATION: "first" },
@@ -410,7 +411,7 @@ describe("context exec", () => {
         stderr: { write: () => undefined },
       }),
     ]);
-    expect(results).toEqual(["first", "second"]);
+    expect(results.sort()).toEqual(["first", "second"]);
   });
 
   it("propagates a thrown HackshExecError from runCommand", async () => {
@@ -430,7 +431,9 @@ describe("context exec", () => {
     const invocation = new AbortController();
     const own = new AbortController();
     const command = defineCommand({
-      run: async ({ exec }) => await exec(node, script(printPidThenWait), { signal: own.signal }),
+      run: async ({ exec }) => {
+        await exec(node, script(printPidThenWait), { signal: own.signal });
+      },
     });
     const pending = runCommand(command, [], {
       output: "json",

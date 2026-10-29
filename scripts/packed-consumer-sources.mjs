@@ -363,48 +363,53 @@ const command = defineCommand({
       enabled: boolean;
       format?: "json" | "yaml";
     } = args;
-    return { same, output };
+    void [same, output];
   },
 });
-const commandResult: Promise<{
-  same: CommandDef<typeof schema>;
-  output: z.output<typeof schema>;
-} | undefined> = runCommand(command, ["fast", "--count", "2"]);
+const commandResult: Promise<number> = runCommand(command, ["fast", "--count", "2"]);
 class AppError extends HackshError {
   readonly detail = "application failure";
 }
 const appError: HackshError = new AppError("failed", { cause: new Error("cause") });
 const numeric = defineCommand({ run: () => 42 });
 const numericExecution = runCommand(numeric, []);
-const numericResult: Promise<number | undefined> = numericExecution;
+const numericResult: Promise<number> = numericExecution;
 const numericExact: Equal<typeof numericExecution, typeof numericResult> = true;
-// @ts-expect-error help/version can return undefined
-const numericOnly: Promise<number> = runCommand(numeric, []);
-const asyncLeaf = defineCommand({ async run() { return true; } });
+const asyncLeaf = defineCommand({ async run() { return 7; } });
 const failure = defineCommand({ run(): never { throw appError; } });
 const routed = defineCommand({
-  run: () => "root",
+  run: () => 0,
   subCommands: { group: defineCommand({ subCommands: { numeric, asyncLeaf, failure } }) },
 });
 const routedExecution = runCommand(routed, []);
-const routedResult: Promise<string | number | boolean | undefined> = routedExecution;
+const routedResult: Promise<number> = routedExecution;
 const routedExact: Equal<typeof routedExecution, typeof routedResult> = true;
-// @ts-expect-error a routed child may return another value
-const rootOnly: Promise<string | undefined> = runCommand(routed, []);
 const voidExecution = runCommand(defineCommand({ run() {} }), []);
-const voidResult: Promise<void | undefined> = voidExecution;
+const voidResult: Promise<number> = voidExecution;
 const voidExact: Equal<typeof voidExecution, typeof voidResult> = true;
 const asyncVoidExecution = runCommand(defineCommand({ async run() {} }), []);
-const asyncVoidResult: Promise<void | undefined> = asyncVoidExecution;
+const asyncVoidResult: Promise<number> = asyncVoidExecution;
 const asyncVoidExact: Equal<typeof asyncVoidExecution, typeof asyncVoidResult> = true;
-const typedCommand: CommandDef<typeof schema, number> = {
+const typedCommand: CommandDef<typeof schema> = {
   args: schema,
   run: ({ args }) => args.count,
 };
-const asyncTypedCommand: CommandDef<typeof schema, Promise<number>> = {
+const asyncTypedCommand: CommandDef<typeof schema> = {
   args: schema,
   run: async ({ args }) => args.count,
 };
+const typedRoot: CommandDef<typeof schema, { numeric: typeof numeric }> = {
+  args: schema,
+  subCommands: { numeric },
+};
+// @ts-expect-error handlers cannot return application objects
+defineCommand({ run: () => ({ status: "complete" }) });
+// @ts-expect-error handlers cannot return strings
+defineCommand({ run: () => "complete" });
+// @ts-expect-error asynchronous handlers cannot return application objects
+defineCommand({ async run() { return { status: "complete" }; } });
+// @ts-expect-error asynchronous handlers cannot return strings
+defineCommand({ async run() { return "complete"; } });
 const reported: Promise<void> = runMain(failure, {
   onError(error) {
     const expected: HackshError = error;
@@ -415,8 +420,8 @@ const reported: Promise<void> = runMain(failure, {
   },
 });
 void [
-  commandResult, numericResult, numericOnly, routedResult, rootOnly, voidResult, asyncVoidResult,
-  numericExact, routedExact, voidExact, asyncVoidExact, typedCommand, asyncTypedCommand, reported,
+  commandResult, numericResult, routedResult, voidResult, asyncVoidResult,
+  numericExact, routedExact, voidExact, asyncVoidExact, typedCommand, asyncTypedCommand, typedRoot, reported,
 ];
 const parsed: Promise<z.output<typeof schema>> = parseArgs(command, [
   "fast",
@@ -448,7 +453,7 @@ const hiddenZod = defineCommand({
   args: hiddenSchema,
   run({ args }) {
     const output: z.output<typeof hiddenSchema> = args;
-    return output;
+    void output;
   },
 });
 const hiddenMiniSchema = mini.object({
@@ -460,7 +465,7 @@ const hiddenMini = defineCommand({
   args: hiddenMiniSchema,
   run({ args }) {
     const output: { mode: "fast" | "safe"; enabled: boolean } = args;
-    return output;
+    void output;
   },
 });
 const hiddenRoot = defineCommand({
@@ -509,10 +514,10 @@ const promptCommand = defineCommand({
       // @ts-expect-error initialValue must not widen the inferred option values
       initialValue: "development",
     });
-    return inferredMatch;
+    void inferredMatch;
   },
 });
-const promptResult: Promise<"staging" | "production" | undefined> =
+const promptResult: Promise<number> =
   runCommand(promptCommand, [], { output: "json" });
 const execCommand = defineCommand({
   async run({ exec }) {
@@ -574,15 +579,15 @@ const execCommand = defineCommand({
       const failure: ExecFailure = result;
       const reason: ExecFailureReason = failure.reason;
       if (result.reason === "exit-code") {
-        return [command, returned, reason, result.exitCode satisfies number, printed, inheritedStdout];
+        void [command, returned, reason, result.exitCode satisfies number, printed, inheritedStdout];
       }
-      if (result.reason === "signal") return result.signal satisfies string;
-      if (result.reason === "spawn") return result.error satisfies Error;
+      if (result.reason === "signal") void (result.signal satisfies string);
+      if (result.reason === "spawn") void (result.error satisfies Error);
       if (result.reason === "json-output" || result.reason === "non-interactive" || result.reason === "overlapping") {
-        return result.stdout;
+        void (result.stdout satisfies string);
       }
     }
-    return result.stdout;
+    void (result.stdout satisfies string);
   },
 });
 const execFailure = (error: unknown): ExecFailure | undefined =>
