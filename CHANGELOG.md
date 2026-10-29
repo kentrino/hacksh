@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.16.0](https://github.com/kentrino/hacksh/compare/v0.15.0...v0.16.0) (2026-10-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **output:** trace/debug/info logs move from stdout to stderr, and OutputMode.color is now { stdout, stderr }.
+
+### Features
+
+* **output:** write command results through context output ([#55](https://github.com/kentrino/hacksh/issues/55)) ([e3c25ac](https://github.com/kentrino/hacksh/commit/e3c25ac5db93a2aa232cd21a72449f4694ce9354))
+
 ## [0.15.0](https://github.com/kentrino/hacksh/compare/v0.14.0...v0.15.0) (2026-10-28)
 
 
