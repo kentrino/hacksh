@@ -22,6 +22,7 @@ export type {
   ExecSkipped,
   ExecSuccess,
 } from "./exec.ts";
+export type { Output } from "./command-output.ts";
 export type { Logger } from "./logger.ts";
 export type {
   ConfirmOptions,

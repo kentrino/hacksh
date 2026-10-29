@@ -250,7 +250,7 @@ describe("run logger", () => {
     expect(log.record.properties.buffer).toBe(buffer);
 
     const lines: string[] = [];
-    const printer = createJsonPrinter({ stdout: { write: (value) => void lines.push(value) } });
+    const printer = createJsonPrinter({ stderr: { write: (value) => void lines.push(value) } });
     await printer.print(log);
     expect(JSON.parse(lines[0]!).record.properties).toMatchObject({
       money: "$2.50",

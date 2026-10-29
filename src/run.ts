@@ -2,6 +2,7 @@ import type { ArgsSchema } from "./schema.ts";
 import type { AnyCommandDef, CommandDef } from "./command.ts";
 import { assertUniqueEnvNames, commandEnvPath, registerCommandPath } from "./environment.ts";
 import { HackshExitError, HackshPromptError, summarizeError, HackshUsageError } from "./errors.ts";
+import { createOutput } from "./command-output.ts";
 import { createExec, type ExecContext } from "./exec.ts";
 import { createLogger } from "./logger.ts";
 import { findPackageVersion } from "./package-version.ts";
@@ -127,6 +128,7 @@ async function executeCommand<S extends ArgsSchema>(
       unknown: parsed.extraArgs,
       passthrough: parsed.passthrough,
     },
+    output: createOutput(printer),
     logger: createLogger(printer, category),
     prompt: new PromptController({
       interactive: output.interactive,
@@ -168,6 +170,7 @@ function prepareOutput(
     env,
     inputIsTTY: input.isTTY,
     outputIsTTY: (options.stdout ?? process.stdout).isTTY,
+    errorOutputIsTTY: (options.stderr ?? process.stderr).isTTY,
   });
   return {
     ...createPrintQueue(selectOutputPrinter(options, options.printer, mode)),

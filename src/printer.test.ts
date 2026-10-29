@@ -43,19 +43,60 @@ function effectiveTerminalLines(chunks: readonly string[]): string[] {
   return lines;
 }
 
+function sharedTerminal() {
+  const chunks: string[] = [];
+  const write = (value: string) => void chunks.push(value);
+  return { chunks, writers: { stdout: { write }, stderr: { write } } };
+}
+
+const noColor = { stdout: false, stderr: false };
+const allColor = { stdout: true, stderr: true };
+
 describe("output mode", () => {
   it.each([
-    ["auto outside CI on terminals", {}, "auto", true, true, ["pretty", true, true]],
-    ["auto in CI", { CI: "1" }, "auto", true, true, ["json", false, false]],
-    ["auto with non-empty false CI", { CI: "false" }, "auto", true, true, ["json", false, false]],
-    ["auto through a pipe", {}, "auto", true, false, ["pretty", false, false]],
-    ["explicit JSON", {}, "json", true, true, ["json", false, false]],
-    ["explicit pretty in CI", { CI: "1" }, "pretty", true, true, ["pretty", false, true]],
-    ["empty NO_COLOR", { NO_COLOR: "" }, "pretty", true, true, ["pretty", true, true]],
-    ["non-empty NO_COLOR", { NO_COLOR: "1" }, "pretty", true, true, ["pretty", true, false]],
-    ["input is not a TTY", {}, "pretty", false, true, ["pretty", false, true]],
-  ] as const)("resolves %s", (_name, env, output, inputIsTTY, outputIsTTY, expected) => {
-    expect(resolveOutputMode({ env, output, inputIsTTY, outputIsTTY })).toEqual({
+    ["auto outside CI on terminals", {}, "auto", [true, true, true], ["pretty", true, allColor]],
+    ["auto in CI", { CI: "1" }, "auto", [true, true, true], ["json", false, noColor]],
+    [
+      "auto with non-empty false CI",
+      { CI: "false" },
+      "auto",
+      [true, true, true],
+      ["json", false, noColor],
+    ],
+    [
+      "auto with stdout through a pipe",
+      {},
+      "auto",
+      [true, false, true],
+      ["pretty", false, { stdout: false, stderr: true }],
+    ],
+    [
+      "auto with stderr redirected",
+      {},
+      "auto",
+      [true, true, false],
+      ["pretty", true, { stdout: true, stderr: false }],
+    ],
+    ["explicit JSON", {}, "json", [true, true, true], ["json", false, noColor]],
+    [
+      "explicit pretty in CI",
+      { CI: "1" },
+      "pretty",
+      [true, true, true],
+      ["pretty", false, allColor],
+    ],
+    ["empty NO_COLOR", { NO_COLOR: "" }, "pretty", [true, true, true], ["pretty", true, allColor]],
+    [
+      "non-empty NO_COLOR",
+      { NO_COLOR: "1" },
+      "pretty",
+      [true, true, true],
+      ["pretty", true, noColor],
+    ],
+    ["input is not a TTY", {}, "pretty", [false, true, true], ["pretty", false, allColor]],
+  ] as const)("resolves %s", (_name, env, output, ttys, expected) => {
+    const [inputIsTTY, outputIsTTY, errorOutputIsTTY] = ttys;
+    expect(resolveOutputMode({ env, output, inputIsTTY, outputIsTTY, errorOutputIsTTY })).toEqual({
       format: expected[0],
       interactive: expected[1],
       color: expected[2],
@@ -69,8 +110,9 @@ describe("output mode", () => {
         env: { CI: "1", HACKSH_OUTPUT: "json" },
         inputIsTTY: true,
         outputIsTTY: true,
+        errorOutputIsTTY: true,
       }),
-    ).toEqual({ format: "json", interactive: false, color: false });
+    ).toEqual({ format: "json", interactive: false, color: noColor });
   });
 
   it("rejects explicit invalid configuration", () => {
@@ -93,8 +135,14 @@ describe("output mode", () => {
     );
 
     expect(
-      resolveOutputMode({ env, output: "pretty", inputIsTTY: true, outputIsTTY: true }),
-    ).toEqual({ format: "pretty", interactive: true, color: true });
+      resolveOutputMode({
+        env,
+        output: "pretty",
+        inputIsTTY: true,
+        outputIsTTY: true,
+        errorOutputIsTTY: true,
+      }),
+    ).toEqual({ format: "pretty", interactive: true, color: allColor });
   });
 });
 
@@ -180,7 +228,7 @@ describe("pretty printer", () => {
   });
 
   it("removes and redraws an active prompt around interleaved logs", () => {
-    const output = memoryWriters();
+    const output = sharedTerminal();
     const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
     void printer.print({
       type: "prompt",
@@ -203,14 +251,66 @@ describe("pretty printer", () => {
       prompt: { kind: "confirm", message: "Continue?", status: "submitted", value: true },
     });
 
-    expect(effectiveTerminalLines(output.stdout)).toEqual([
+    expect(effectiveTerminalLines(output.chunks)).toEqual([
       "●  background update",
       "✔  Continue?: Yes",
     ]);
   });
 
-  it("closes an unsuccessful prompt before later logs", () => {
+  it("removes and redraws an active prompt around command output", () => {
     const output = memoryWriters();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "confirm", message: "Continue?", status: "active", value: false },
+    });
+    void printer.print({ type: "output", kind: "text", text: "result\n" });
+    void printer.print({
+      type: "prompt",
+      prompt: { kind: "confirm", message: "Continue?", status: "submitted", value: true },
+    });
+
+    expect(effectiveTerminalLines(output.stdout)).toEqual(["result", "✔  Continue?: Yes"]);
+  });
+
+  it("writes command output undecorated: text as given and JSON indented", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({ color: true, unicode: true, ...output.writers });
+    void printer.print({ type: "output", kind: "text", text: "a\tb" });
+    void printer.print({ type: "output", kind: "text", text: "\n" });
+    void printer.print({ type: "output", kind: "json", data: { n: 1n, list: [1] } });
+
+    expect(output.stdout).toEqual(["a\tb", "\n", '{\n  "n": "1",\n  "list": [\n    1\n  ]\n}\n']);
+    expect(output.stderr).toEqual([]);
+  });
+
+  it("colors each stream by its own flag", () => {
+    const output = memoryWriters();
+    const printer = createPrettyPrinter({
+      color: { stdout: false, stderr: true },
+      unicode: true,
+      ...output.writers,
+    });
+    void printer.print({ type: "version", version: "1.2.3" });
+    void printer.print({
+      type: "log",
+      record: {
+        level: "info",
+        kind: "message",
+        category: [],
+        message: "hi",
+        rawMessage: "hi",
+        properties: {},
+        timestamp: 1,
+      },
+    });
+
+    expect(output.stdout).toEqual(["●  1.2.3\n"]);
+    expect(output.stderr[0]).toContain("\u001b[");
+  });
+
+  it("closes an unsuccessful prompt before later logs", () => {
+    const output = sharedTerminal();
     const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
     void printer.print({
       type: "prompt",
@@ -235,7 +335,7 @@ describe("pretty printer", () => {
       });
     }
 
-    expect(effectiveTerminalLines(output.stdout)).toEqual(["●  first log", "●  second log"]);
+    expect(effectiveTerminalLines(output.chunks)).toEqual(["●  first log", "●  second log"]);
   });
 
   it("counts wrapped, multiline, ANSI, and wide-character terminal rows", () => {
@@ -318,17 +418,16 @@ describe("pretty printer", () => {
         }),
     );
 
-    expect(output.stdout).toEqual([
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toEqual([
       "·  trace:message\n",
       "◆  debug:message\n",
       "●  info:message\n",
-      "◇  info:step\n",
-      "✔  info:success\n",
-    ]);
-    expect(output.stderr).toEqual([
       "▲  warning:message\n",
       "■  error:message\n",
       "✖  fatal:message\n",
+      "◇  info:step\n",
+      "✔  info:success\n",
     ]);
   });
 
@@ -353,7 +452,7 @@ describe("pretty printer", () => {
       },
     });
 
-    expect(output.stdout).toEqual([
+    expect(output.stderr).toEqual([
       "+  [deploy:upload] Uploaded files\n" +
         "|  Waiting for confirmation\n" +
         "|    multi\n" +
@@ -473,12 +572,14 @@ describe("JSON printer", () => {
         text: "USAGE tool",
         stream: "stderr",
       },
+      { type: "output", kind: "text", text: "line\n" },
+      { type: "output", kind: "json", data: { count: 2n } },
     ];
 
     for (const event of events) void printer.print(event);
 
-    expect(stdout).toHaveLength(3);
-    expect(stderr).toHaveLength(3);
+    expect(stdout).toHaveLength(4);
+    expect(stderr).toHaveLength(4);
     for (const line of [...stdout, ...stderr]) {
       expect(line.endsWith("\n")).toBe(true);
       expect(line.trim().split("\n")).toHaveLength(1);
@@ -486,16 +587,18 @@ describe("JSON printer", () => {
       expect(() => JSON.parse(line)).not.toThrow();
     }
     expect(JSON.parse(stdout[0]!)).toMatchObject({ type: "usage", text: "USAGE tool" });
+    expect(JSON.parse(stdout[2]!)).toEqual({ type: "output", kind: "text", text: "line\n" });
+    expect(JSON.parse(stdout[3]!)).toEqual({ type: "output", kind: "json", data: { count: "2" } });
     expect(JSON.parse(stderr[0]!)).toMatchObject({
       type: "log",
-      record: { level: "warning", properties: {} },
+      record: { level: "info", kind: "success", properties: { count: 2 } },
     });
   });
 
   it("normalizes cycles, BigInt, Error causes, unsupported values, and hostile properties", () => {
     const lines: string[] = [];
     const printer = createJsonPrinter({
-      stdout: { write: (value) => void lines.push(value) },
+      stderr: { write: (value) => void lines.push(value) },
     });
     const cycle: Record<string, unknown> = { big: 12n, missing: undefined };
     cycle.self = cycle;
@@ -542,7 +645,7 @@ describe("JSON printer", () => {
 
   it("normalizes URL, Buffer, typed arrays, toJSON, ANSI keys, and properties independently", () => {
     const lines: string[] = [];
-    const printer = createJsonPrinter({ stdout: { write: (value) => void lines.push(value) } });
+    const printer = createJsonPrinter({ stderr: { write: (value) => void lines.push(value) } });
     const failure = Object.assign(new Error("partial"), { safe: "kept" });
     Object.defineProperty(failure, "hostile", {
       enumerable: true,
@@ -601,7 +704,7 @@ describe("JSON printer", () => {
 
   it("keeps a parseable event line when an exotic value resists inspection", () => {
     const lines: string[] = [];
-    const printer = createJsonPrinter({ stdout: { write: (value) => void lines.push(value) } });
+    const printer = createJsonPrinter({ stderr: { write: (value) => void lines.push(value) } });
     const hostile = new Proxy(
       {},
       {

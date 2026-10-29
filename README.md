@@ -2,7 +2,8 @@
 
 Define a type-safe command-line interface with a Zod 4 object schema. The same schema parses and
 validates arguments, infers the value passed to `run`, and generates help. Run external commands
-with the context’s `exec`, use its `logger` for progress, and request interactive input with `prompt`.
+with the context’s `exec`, write results with `output`, use its `logger` for progress, and request
+interactive input with `prompt`.
 
 - [Install](#install)
 - [Quick start](#quick-start)
@@ -15,6 +16,7 @@ with the context’s `exec`, use its `logger` for progress, and request interact
 - [Subcommands](#subcommands)
 - [The run context](#the-run-context)
   - [External commands](#external-commands)
+  - [Command output](#command-output)
   - [Structured logging](#structured-logging)
   - [Interactive input](#interactive-input)
   - [Cancellation and exit status](#cancellation-and-exit-status)
@@ -53,14 +55,14 @@ const main = defineCommand({
     ]),
     repo: z.string().optional().meta({ description: "Repository directory", alias: "C" }),
   }),
-  async run({ args, exec }) {
+  async run({ args, exec, output }) {
     const [ref] = args.positionals;
     const { stdout } = await exec(
       "git",
       ["show", "--no-patch", "--format=%h %s", "--end-of-options", ref],
       { cwd: args.repo },
     );
-    console.log(stdout);
+    output.println(stdout);
   },
 });
 
@@ -77,8 +79,8 @@ git-summary --version
 `args` is inferred from the Zod schema, and `exec` runs external commands with an argument array,
 captures output with one final newline removed, throws on failure, and observes invocation
 cancellation. See [Arguments](#arguments) for option and positional rules,
-[The run context](#the-run-context) for `exec`, `logger`, `prompt`, and `signal`, and
-[Output formats](#output-formats) for how direct `stdout` writes interact with pretty and JSON output.
+[The run context](#the-run-context) for `exec`, `output`, `logger`, `prompt`, and `signal`, and
+[Output formats](#output-formats) for how results and logs are split between stdout and stderr.
 
 ## Arguments
 
@@ -251,9 +253,9 @@ Use that explicit boundary when forwarding arguments to another executable:
 ```ts
 const forward = defineCommand({
   name: "git-forward",
-  async run({ exec, input }) {
+  async run({ exec, input, output }) {
     const { stdout } = await exec("git", input.passthrough);
-    console.log(stdout);
+    output.println(stdout);
   },
 });
 // git-forward -- status --short
@@ -329,7 +331,8 @@ Every `run` handler receives a `CommandContext` with:
 - `command` — the resolved command definition. An unnamed subcommand is represented by a completed
   copy whose `name` is its key; the original definition is not mutated.
 - `exec` — runs external commands under the invocation's environment, printer, and cancellation.
-- `logger` — emits structured log records through the invocation's printer.
+- `output` — writes the command's results to stdout through the invocation's printer.
+- `logger` — emits structured log records to stderr through the invocation's printer.
 - `prompt` — requests interactive `select`, `confirm`, or `text` input.
 - `signal` — an `AbortSignal` for the invocation.
 
@@ -454,6 +457,37 @@ reads the whole environment to start a process.
 To test a command without starting processes, call its `run` with a context whose `exec` is your own
 function of type `Exec`.
 
+### Command output
+
+Every `run` context has an `output` for the data the command produces, kept apart from progress
+and diagnostics on `logger`. `print(text)` writes text exactly as given, `println(text)` adds a
+newline, and `json(value)` writes a JSON value.
+
+```ts
+const report = defineCommand({
+  name: "report",
+  async run({ logger, output }) {
+    logger.step("Collecting commits");
+    output.print(renderTable(rows)); // already ends with a newline
+    output.println(`${rows.length} rows`);
+    output.json({ rows });
+  },
+});
+```
+
+In pretty output, text goes to stdout unchanged and `json` values are indented with two spaces.
+In JSON output, each call writes one line on stdout: `{"type":"output","kind":"text","text":...}`
+holding the exact text, including the newline `println` adds, or
+`{"type":"output","kind":"json","data":...}`. Concatenating the `text` values reproduces the
+pretty stdout, except that terminal control sequences are removed as in every JSON string. `json`
+values are normalized like log properties.
+
+hacksh never prints a `run` return value; it is returned to `runCommand` callers only. Output that
+was written before a failure stays written, and the error follows on stderr. Like logger calls,
+`output` calls do not need to be awaited and are drained before execution finishes. Writing to
+`process.stdout` or `console.log` directly bypasses the printer, the output mode, and any `stdout`
+writer given to `runMain` or `runCommand`.
+
 ### Structured logging
 
 Every `run` context has a `logger`. Its `trace`, `debug`, `info`, `warn`, `error`, and `fatal`
@@ -539,7 +573,7 @@ Failed prompts emit a non-visible `closed` prompt state through the same printer
 so callers that catch cancellation, EOF, input, or printer errors do not leave stale terminal UI.
 
 Active pretty prompts redraw in place rather than appending a block for every key. A completed
-prompt collapses to one result line. If a logger event arrives while a prompt is active, the
+prompt collapses to one result line. If a logger or output event arrives while a prompt is active, the
 printer removes the prompt, renders the event, and then redraws the current prompt state.
 Physical rows are calculated from explicit newlines, ANSI-free Unicode display width, and
 `stdout.columns`, including terminal wrapping. When a custom output writer does not expose a
@@ -597,24 +631,25 @@ await runMain(main, { output: "auto" });
 // HACKSH_OUTPUT=json my-cli --help overrides the configured preference.
 ```
 
-Direct stdout writes (such as `console.log`) write the command’s data to stdout and are not
-converted to JSON by hacksh’s output mode. Logger events go through the printer; their stream
-depends on the level, so informational logs also share stdout by default.
+stdout carries the command's results: `output` events, help, and version. Every log level, errors,
+and `exec` events go to stderr, so a pipe such as `my-cli | jq` receives only results while logs
+remain visible on the terminal. Direct writes such as `console.log` bypass the printer and are not
+converted to JSON.
 
 The resolved `OutputMode` has `format`, `interactive`, and `color` fields. Interaction is enabled
-only for pretty output outside CI when both stdin and stdout are TTYs. Color is enabled only for
-pretty output to a stdout TTY when `NO_COLOR` is empty or absent. These decisions are independent: an
-explicit pretty format in CI can use color, but remains noninteractive. `env`, `stdin`, `stdout`,
+only for pretty output outside CI when both stdin and stdout are TTYs. `color` has a `stdout` and a
+`stderr` flag; each is enabled only for pretty output when that stream is a TTY and `NO_COLOR` is
+empty or absent, so logs stay colored on the terminal when stdout is redirected. These decisions
+are independent: an explicit pretty format in CI can use color, but remains noninteractive. `env`,
+`stdin`, `stdout`,
 and `stderr` can be supplied in execution options for embedded or tested invocations.
 Custom `stdin` values implement the readable-stream operations `on`, `removeListener`, `resume`,
 and `pause`; `isTTY`, `isRaw`, `readableFlowing`, and `setRawMode` describe optional terminal
 capabilities. A stream without those readable operations fails with an `input-error` if prompting
 is attempted.
 
-JSON output contains exactly one `PrintEvent` object per line. Help and version events and
-trace/debug/info logs go to stdout; errors, warning/error/fatal logs, and `exec` events go to
-stderr. Usage attached
-to an error retains its `stderr` stream. Every log level is emitted by default. JSON strings have
+JSON output contains exactly one `PrintEvent` object per line, on the streams described above.
+Usage attached to an error retains its `stderr` stream. Every log level is emitted by default. JSON strings have
 terminal control sequences removed, and the printer never serializes executable command or Zod
 schema objects.
 
@@ -643,8 +678,8 @@ block. All six log levels are displayed by default.
 ```
 
 Pretty output uses Unicode symbols by default. Set `unicode: false` on `runMain` or `runCommand` for
-ASCII marks and bars. Color is still resolved from the selected output mode: it requires pretty
-output and a stdout TTY, and any non-empty `NO_COLOR` disables it. Unicode selection does not affect
+ASCII marks and bars. Color is still resolved from the selected output mode: each event is colored
+only when its stream is a TTY, and any non-empty `NO_COLOR` disables it. Unicode selection does not affect
 JSON output. An invocation does not add automatic start or end messages; the renderer presents only
 the semantic events that the command emits.
 
@@ -709,18 +744,19 @@ await runCommand(main, ["--help"], { printer });
 // events[0] is { type: "usage", usage, text, stream: "stdout" }
 ```
 
-The current events are `usage`, `version`, `error`, `log`, `prompt`, and `exec`. Usage events include the resolved
+The current events are `usage`, `version`, `error`, `log`, `prompt`, `output`, and `exec`. Usage events include the resolved
 command's schema-free name, version, description, synopsis, arguments, options, and visible child
 commands, plus rendered text and the intended `stdout` or `stderr` stream. Version events include
 the version string. Error events contain a schema-free summary with an explicit `kind`, structured
 validation issues, standard `Error` fields, custom enumerable properties, and recursively
 canonical causes; log events contain the structured record described above. Prompt events contain
-the prompt kind, status, current value or choices, placeholder, and validation message. Printer calls are serialized, may be asynchronous, and are
+the prompt kind, status, current value or choices, placeholder, and validation message. Output
+events carry `kind: "text"` with `text` or `kind: "json"` with `data`. Printer calls are serialized, may be asynchronous, and are
 drained before `runCommand` or `runMain` completes or exits. A printer rejection rejects
 `runCommand`.
 
 Use `createPrettyPrinter({ color, unicode, stdout, stderr })` to reuse the built-in human-readable
-renderer with custom writable targets, or `createJsonPrinter({ stdout, stderr })` to reuse the
+renderer with custom writable targets; `color` is one boolean or a `{ stdout, stderr }` pair, or `createJsonPrinter({ stdout, stderr })` to reuse the
 built-in JSON-lines behavior. The pretty renderer has no public theme API; replacing the fixed
 presentation requires a custom `Printer`. `resolveOutputMode(...)` exposes the selection contract
 for wrappers and presentation or prompting layers.

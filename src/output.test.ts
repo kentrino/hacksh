@@ -26,6 +26,53 @@ describe("invocation output selection", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("writes every output call as its own event and never prints the run result", async () => {
+    const events: PrintEvent[] = [];
+    const command = defineCommand({
+      run({ output }) {
+        output.print("");
+        output.println();
+        output.json(null);
+        output.json(null);
+        return "returned only";
+      },
+    });
+
+    await expect(
+      runCommand(command, [], { printer: { print: (event) => void events.push(event) } }),
+    ).resolves.toBe("returned only");
+    expect(events).toEqual([
+      { type: "output", kind: "text", text: "" },
+      { type: "output", kind: "text", text: "\n" },
+      { type: "output", kind: "json", data: null },
+      { type: "output", kind: "json", data: null },
+    ]);
+  });
+
+  it("rejects the invocation when writing output fails, after run completes", async () => {
+    const broken = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    const after = vi.fn();
+    const command = defineCommand({
+      run({ output }) {
+        output.println("first");
+        after();
+      },
+    });
+
+    await expect(
+      runCommand(command, [], {
+        output: "json",
+        env: {},
+        stdout: {
+          write: () => {
+            throw broken;
+          },
+        },
+      }),
+    ).rejects.toBe(broken);
+    expect(after).toHaveBeenCalledOnce();
+  });
+
   it("rejects invalid output settings before routing or execution", async () => {
     const run = vi.fn();
     const command = defineCommand({ run });
@@ -60,10 +107,8 @@ describe("invocation output selection", () => {
       runCommand(command, [], {
         output: "json",
         env: {},
-        stdout: {
-          isTTY: false,
-          write: (value) => void lines.push(value),
-        },
+        stdout: { isTTY: false, write: () => undefined },
+        stderr: { write: (value) => void lines.push(value) },
       }),
     ).resolves.toBe("result");
 
@@ -86,22 +131,26 @@ describe("invocation output selection", () => {
     const ascii: string[] = [];
     const json: string[] = [];
 
+    const stdout = { isTTY: true, write: () => undefined };
     await runCommand(command, [], {
       output: "pretty",
       env: {},
-      stdout: { isTTY: true, write: (text) => void colored.push(text) },
+      stdout,
+      stderr: { isTTY: true, write: (text) => void colored.push(text) },
     });
     await runCommand(command, [], {
       output: "pretty",
       unicode: false,
       env: { NO_COLOR: "1" },
-      stdout: { isTTY: true, write: (text) => void ascii.push(text) },
+      stdout,
+      stderr: { isTTY: true, write: (text) => void ascii.push(text) },
     });
     await runCommand(command, [], {
       output: "json",
       unicode: false,
       env: {},
-      stdout: { isTTY: true, write: (text) => void json.push(text) },
+      stdout,
+      stderr: { isTTY: true, write: (text) => void json.push(text) },
     });
 
     expect(colored[0]).toContain("\u001b[");
@@ -317,6 +366,9 @@ describe("invocation output selection", () => {
   it("does not insert blank rows while interleaving default-writer logs", () => {
     const bytes: string[] = [];
     vi.spyOn(console, "log").mockImplementation((value) => {
+      bytes.push(`${String(value)}\n`);
+    });
+    vi.spyOn(console, "error").mockImplementation((value) => {
       bytes.push(`${String(value)}\n`);
     });
     vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {

@@ -23,6 +23,7 @@ import {
   type ExecSkipped,
   type ExecSuccess,
   type Logger,
+  type Output,
   type RunCommandOptions,
   type RunMainOptions,
   type CommandDef,
@@ -288,7 +289,11 @@ describe("public parsing API", () => {
 describe("public logger API", () => {
   it("infers logger types on the command context and print event", () => {
     defineCommand({
-      run({ logger, prompt }) {
+      run({ logger, output, prompt }) {
+        expectTypeOf(output).toEqualTypeOf<Output>();
+        expectTypeOf<Output["print"]>().toEqualTypeOf<(text: string) => void>();
+        expectTypeOf<Output["println"]>().toEqualTypeOf<(text?: string) => void>();
+        expectTypeOf<Output["json"]>().toEqualTypeOf<(value: unknown) => void>();
         expectTypeOf(logger).toEqualTypeOf<Logger>();
         expectTypeOf(logger.category).toEqualTypeOf<readonly string[]>();
         expectTypeOf<Logger["info"]>().parameter(0).toEqualTypeOf<string>();
@@ -540,11 +545,11 @@ describe("public usage API", () => {
     expectTypeOf<OutputMode>().toEqualTypeOf<{
       format: "pretty" | "json";
       interactive: boolean;
-      color: boolean;
+      color: { stdout: boolean; stderr: boolean };
     }>();
     expectTypeOf<RunCommandOptions["unicode"]>().toEqualTypeOf<boolean | undefined>();
     expectTypeOf<PrettyPrinterOptions>().toEqualTypeOf<{
-      color: boolean;
+      color: boolean | { stdout: boolean; stderr: boolean };
       unicode: boolean;
       stdout?: TerminalOutput;
       stderr?: { write(text: string): unknown };

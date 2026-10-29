@@ -225,9 +225,11 @@ describe("terminal output integration", () => {
   });
 
   it("runs identical logger code through pretty and JSON printers", async () => {
-    const run = vi.fn(({ logger }) => {
+    const run = vi.fn(({ logger, output }) => {
       logger.info("built {count}", { count: 2 });
       logger.warn("check output", { target: "dist" });
+      output.println("dist/app.js");
+      output.json({ files: 1 });
     });
     const command = defineCommand({ name: "build", run });
     const prettyStdout: string[] = [];
@@ -248,15 +250,16 @@ describe("terminal output integration", () => {
     });
 
     expect(run).toHaveBeenCalledTimes(2);
-    expect(prettyStdout.join("")).toContain("built 2");
+    expect(prettyStdout.join("")).toBe('dist/app.js\n{\n  "files": 1\n}\n');
+    expect(prettyStderr.join("")).toContain("built 2");
     expect(prettyStderr.join("")).toContain("check output");
-    expect(JSON.parse(jsonStdout.join(""))).toMatchObject({
-      type: "log",
-      record: { level: "info", message: "built 2", properties: { count: 2 } },
-    });
-    expect(JSON.parse(jsonStderr.join(""))).toMatchObject({
-      type: "log",
-      record: { level: "warning", properties: { target: "dist" } },
-    });
+    expect(jsonStdout.map((line) => JSON.parse(line))).toEqual([
+      { type: "output", kind: "text", text: "dist/app.js\n" },
+      { type: "output", kind: "json", data: { files: 1 } },
+    ]);
+    expect(jsonStderr.map((line) => JSON.parse(line))).toMatchObject([
+      { type: "log", record: { level: "info", message: "built 2", properties: { count: 2 } } },
+      { type: "log", record: { level: "warning", properties: { target: "dist" } } },
+    ]);
   });
 });
