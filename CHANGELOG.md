@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/kentrino/hacksh/compare/v0.18.0...v0.19.0) (2026-10-30)
+
+
+### Features
+
+* **prompts:** add typed wait callbacks with left-rail spinner ([#61](https://github.com/kentrino/hacksh/issues/61)) ([662f598](https://github.com/kentrino/hacksh/commit/662f5989a7ab4836f5a3c61970a9c73321bd7f09))
+
 ## [0.18.0](https://github.com/kentrino/hacksh/compare/v0.17.0...v0.18.0) (2026-10-29)
 
 
