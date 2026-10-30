@@ -425,6 +425,10 @@ describe("public logger API", () => {
         >().toEqualTypeOf<never>();
         expectTypeOf(prompt.confirm({ message: "Continue?" })).toEqualTypeOf<Promise<boolean>>();
         expectTypeOf(prompt.text({ message: "Name" })).toEqualTypeOf<Promise<string>>();
+        expectTypeOf(prompt.wait(async () => ({ count: 3 }))).toEqualTypeOf<
+          Promise<{ count: number }>
+        >();
+        expectTypeOf(prompt.wait(() => "ready" as const)).toEqualTypeOf<Promise<"ready">>();
       },
     });
 
@@ -452,6 +456,8 @@ describe("public logger API", () => {
         expectTypeOf(state.value).toEqualTypeOf<string | undefined>();
         expectTypeOf(state.query).toEqualTypeOf<string>();
         expectTypeOf(state.phase).toEqualTypeOf<"input" | "select">();
+      } else if (state.kind === "wait") {
+        expectTypeOf(state.frame).toEqualTypeOf<number | undefined>();
       } else expectTypeOf(state.value).toEqualTypeOf<string>();
     };
     expectTypeOf(inspectPrompt).toBeFunction();

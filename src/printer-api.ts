@@ -28,6 +28,7 @@ export type {
   TextPromptState,
   UsagePrintEvent,
   VersionPrintEvent,
+  WaitPromptState,
 } from "./printer.ts";
 export type { LogKind, LogLevel, LogProperties, LogRecord } from "./logger.ts";
 export type { HackshErrorKind, HackshErrorSummary, ValidationIssueSummary } from "./errors.ts";

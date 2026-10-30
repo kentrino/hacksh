@@ -32,6 +32,7 @@ export type {
   SelectOption,
   SelectOptions,
   TextOptions,
+  WaitOptions,
 } from "./prompts.ts";
 export { parseArgs } from "./parser.ts";
 export { runCommand, runMain } from "./run.ts";

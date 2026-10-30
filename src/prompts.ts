@@ -11,6 +11,7 @@ import type {
   SelectPromptState,
   TerminalInput,
   TextPromptState,
+  WaitPromptState,
 } from "./printer.ts";
 import { TerminalLock } from "./terminal.ts";
 
@@ -47,6 +48,10 @@ export interface TextOptions {
   validate?(value: string): string | undefined;
 }
 
+export interface WaitOptions {
+  message?: string;
+}
+
 export interface Prompter {
   select<const TItem extends SelectOption<string>>(
     options: SelectOptions<TItem>,
@@ -56,6 +61,7 @@ export interface Prompter {
   ): Promise<TItem["value"]>;
   confirm(options: ConfirmOptions): Promise<boolean>;
   text(options: TextOptions): Promise<string>;
+  wait<T>(work: () => T | Promise<T>, options?: WaitOptions): Promise<T>;
 }
 
 interface Key {
@@ -424,6 +430,92 @@ export class PromptController implements Prompter {
     } finally {
       this.#terminal.release();
     }
+  }
+
+  async wait<T>(work: () => T | Promise<T>, options?: WaitOptions): Promise<T> {
+    const message = options?.message === undefined ? "待機中" : options.message;
+    const prompt = details("wait", message);
+    validateMessage("wait", message);
+    if (typeof work !== "function") {
+      throw promptError("invalid-options", prompt, "Wait work must be a function");
+    }
+    if (this.#signal.aborted) {
+      throw promptError("aborted", prompt, "Prompt aborted", this.#signal.reason);
+    }
+    if (!this.#terminal.acquire("prompt")) {
+      throw promptError(
+        "overlapping",
+        prompt,
+        this.#terminal.owner === "exec"
+          ? "A command is using the terminal"
+          : "Another prompt is already active",
+      );
+    }
+
+    let frame = 0;
+    let stopped = false;
+    let timer: NodeJS.Timeout | undefined;
+    let rendering = Promise.resolve();
+    let closing: Promise<void> | undefined;
+    let failure: unknown;
+    const state = (status: PromptStatus): WaitPromptState => ({
+      kind: "wait",
+      message,
+      status,
+      ...(this.#interactive ? { frame } : {}),
+    });
+    const recordFailure = (error: unknown): void => {
+      failure ??= error;
+    };
+    const close = (): Promise<void> => {
+      stopped = true;
+      clearTimeout(timer);
+      timer = undefined;
+      closing ??= rendering.then(() => this.#print(state("closed"), prompt)).catch(recordFailure);
+      return closing;
+    };
+    const tick = (): void => {
+      timer = undefined;
+      frame += 1;
+      rendering = rendering
+        .then(() => this.#print(state("active"), prompt))
+        .then(
+          () => {
+            if (!stopped) timer = setTimeout(tick, 80);
+          },
+          (error: unknown) => {
+            recordFailure(error);
+            void close();
+          },
+        );
+    };
+    const onAbort = (): void => {
+      recordFailure(promptError("aborted", prompt, "Prompt aborted", this.#signal.reason));
+      void close();
+    };
+    let outcome: { ok: true; value: T } | { ok: false; error: unknown };
+    try {
+      rendering = rendering.then(() => this.#print(state("active"), prompt)).catch(recordFailure);
+      this.#signal.addEventListener("abort", onAbort, { once: true });
+      if (this.#signal.aborted) onAbort();
+      await rendering;
+      if (failure !== undefined) throw failure;
+      if (this.#interactive) timer = setTimeout(tick, 80);
+      outcome = { ok: true, value: await work() };
+    } catch (error) {
+      outcome = { ok: false, error };
+    } finally {
+      try {
+        await close();
+      } finally {
+        this.#signal.removeEventListener("abort", onAbort);
+        this.#terminal.release();
+      }
+    }
+    // The callback remains awaited even after abort or a failed redraw, and its error wins.
+    if (!outcome.ok) throw outcome.error;
+    if (failure !== undefined) throw failure;
+    return outcome.value;
   }
 
   async select<const TItem extends SelectOption<string>>(

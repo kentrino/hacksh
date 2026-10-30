@@ -606,7 +606,7 @@ produces `input-error` with the original error as `cause`.
 Explicit option types take the whole item type, for example
 `SelectOptions<{ value: "staging" | "production"; priority: number }>`.
 
-Prompts are allowed only when the resolved mode is interactive: pretty output outside CI with TTY
+Input prompts are allowed only when the resolved mode is interactive: pretty output outside CI with TTY
 stdin and stdout. JSON, CI, and non-TTY invocations throw `HackshPromptError` immediately even if a
 default is available. Its `reason` and `prompt` fields identify why input failed and the prompt's
 `kind`, `message`, and select/autocomplete `choices`. Reasons distinguish `non-interactive`, `cancelled`,
@@ -625,6 +625,37 @@ printer removes the prompt, renders the event, and then redraws the current prom
 Physical rows are calculated from explicit newlines, ANSI-free Unicode display width, and
 `stdout.columns`, including terminal wrapping. When a custom output writer does not expose a
 positive `columns` value, the renderer conservatively counts explicit lines only.
+
+### Waiting for work
+
+Use `prompt.wait` to display a spinner in the left rail while a callback runs:
+
+```ts
+const data = await prompt.wait(() => fetchData(), { message: "Fetching data" });
+```
+
+The message is optional and defaults to `待機中`. The callback may return a value or a
+promise; `wait` infers and returns its result, and propagates its thrown error unchanged.
+The spinner animates only in interactive pretty mode. Non-TTY and CI invocations still
+run the callback: pretty output prints a static message, while JSON emits `active` and
+`closed` prompt events with `kind: "wait"`, without animation frames.
+
+Logger and output events remain visible during the wait. On success or failure, the
+animated row is replaced by the plain rail; `wait` does not print a success message.
+With `unicode: false`, the spinner and rail use ASCII. Only one prompt or wait may be
+active per invocation. Nested waits, input prompts, and terminal-owning external
+commands are rejected with `overlapping`; captured `exec` calls remain available.
+
+Wait does not read stdin or enable raw mode. An invocation abort stops the animation
+and closes the display, but still awaits the callback and retains the terminal lock
+until it settles. Pass the command context's `signal` to cancellable work. If the
+callback rejects, its error takes precedence; otherwise an aborted wait rejects with
+`HackshPromptError` (`aborted`). Printer failures similarly close the display and
+reject with `printer-error` once the callback settles.
+
+Custom printers receive `WaitPromptState` through ordinary prompt events. `frame` is
+present for animated waits (including their closing event), and absent for static
+waits.
 
 ### Cancellation and exit status
 

@@ -1,3 +1,4 @@
+import xterm from "@xterm/headless";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   createJsonPrinter,
@@ -5,6 +6,7 @@ import {
   resolveOutputMode,
   type AutocompletePromptState,
   type PrintEvent,
+  type WaitPromptState,
 } from "./printer-api.ts";
 
 function memoryWriters() {
@@ -18,6 +20,27 @@ function memoryWriters() {
       stderr: { write: (value: string) => void stderr.push(value) },
     },
   };
+}
+
+async function terminalLines(chunks: readonly string[], columns = 80): Promise<string[]> {
+  const screen = new xterm.Terminal({
+    cols: columns,
+    rows: 30,
+    convertEol: true,
+    allowProposedApi: true,
+  });
+  try {
+    await new Promise<void>((resolve) => screen.write(chunks.join(""), resolve));
+    const buffer = screen.buffer.active;
+    const lines = Array.from(
+      { length: buffer.length },
+      (_, row) => buffer.getLine(row)?.translateToString(true) ?? "",
+    );
+    while (lines.at(-1) === "") lines.pop();
+    return lines;
+  } finally {
+    screen.dispose();
+  }
 }
 
 function effectiveTerminalLines(chunks: readonly string[]): string[] {
@@ -148,6 +171,157 @@ describe("output mode", () => {
 });
 
 describe("pretty printer", () => {
+  it.each([
+    [true, "│", "⠋", "⠙"],
+    [false, "|", "|", "/"],
+  ] as const)(
+    "animates wait at the rail and clears interrupt echo with unicode=%s",
+    async (unicode, rail, first, second) => {
+      const output = memoryWriters();
+      const printer = createPrettyPrinter({ color: false, unicode, ...output.writers });
+      const prompt: WaitPromptState = {
+        kind: "wait",
+        message: "待機中",
+        status: "active",
+        frame: 0,
+      };
+      void printer.print({ type: "prompt", prompt });
+      expect(await terminalLines(output.stdout)).toEqual([`${first}  待機中`]);
+      void printer.print({ type: "prompt", prompt: { ...prompt, frame: 1 } });
+      expect(await terminalLines(output.stdout)).toEqual([`${second}  待機中`]);
+      output.stdout.push("^C");
+      void printer.print({ type: "prompt", prompt: { ...prompt, status: "closed" } });
+      void printer.print({ type: "output", kind: "text", text: "after\n" });
+      expect(await terminalLines(output.stdout)).toEqual([rail, "after"]);
+    },
+  );
+
+  it("preserves logs and complete, partial, and JSON output between wait frames", () => {
+    const output = sharedTerminal();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    const prompt: WaitPromptState = {
+      kind: "wait",
+      message: "Loading",
+      status: "active",
+      frame: 0,
+    };
+    void printer.print({ type: "prompt", prompt });
+    void printer.print({
+      type: "log",
+      record: {
+        kind: "message",
+        level: "info",
+        category: [],
+        message: "background update",
+        rawMessage: "background update",
+        timestamp: 1,
+        properties: {},
+      },
+    });
+    expect(effectiveTerminalLines(output.chunks)).toEqual(["●  background update", "⠋  Loading"]);
+    void printer.print({ type: "output", kind: "text", text: "complete\n" });
+    void printer.print({ type: "output", kind: "text", text: "partial" });
+    void printer.print({ type: "prompt", prompt: { ...prompt, frame: 1 } });
+    void printer.print({ type: "output", kind: "json", data: { ready: true } });
+    void printer.print({ type: "prompt", prompt: { ...prompt, status: "closed" } });
+    expect(effectiveTerminalLines(output.chunks)).toEqual([
+      "●  background update",
+      "complete",
+      "partial",
+      "{",
+      '  "ready": true',
+      "}",
+      "│",
+    ]);
+  });
+
+  it.each([
+    ["wrapped", "abcdefghijklm", 8],
+    ["multiline wide", "abcdefghijklm\n界界界界界", 10],
+    ["combining", "a\u0301".repeat(10), 8],
+  ] as const)(
+    "clears every %s wait row before drawing a shorter frame",
+    async (_name, message, columns) => {
+      const output = memoryWriters();
+      const printer = createPrettyPrinter({
+        color: false,
+        unicode: true,
+        stdout: { ...output.writers.stdout, columns },
+        stderr: output.writers.stderr,
+      });
+      const prompt: WaitPromptState = {
+        kind: "wait",
+        message,
+        status: "active",
+        frame: 0,
+      };
+      void printer.print({ type: "prompt", prompt });
+      void printer.print({ type: "prompt", prompt: { ...prompt, message: "ok", frame: 1 } });
+      expect(await terminalLines(output.stdout, columns)).toEqual(["⠙  ok"]);
+      void printer.print({ type: "prompt", prompt: { ...prompt, status: "closed" } });
+      expect(await terminalLines(output.stdout, columns)).toEqual(["│"]);
+    },
+  );
+
+  it("restores the rail once when an error removes an animated wait", async () => {
+    const output = sharedTerminal();
+    const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
+    const prompt: WaitPromptState = {
+      kind: "wait",
+      message: "Loading",
+      status: "active",
+      frame: 0,
+    };
+    void printer.print({ type: "prompt", prompt });
+    void printer.print({
+      type: "error",
+      error: { kind: "error", name: "Error", message: "failed" },
+    });
+    expect(await terminalLines(output.chunks)).toEqual(["│", "■  failed"]);
+    void printer.print({ type: "prompt", prompt: { ...prompt, status: "closed" } });
+    void printer.print({ type: "output", kind: "text", text: "after\n" });
+    expect(await terminalLines(output.chunks)).toEqual(["│", "■  failed", "after"]);
+  });
+
+  it.each([
+    [true, "│", "●"],
+    [false, "|", "i"],
+  ] as const)(
+    "prints static waits without retaining a frame or emitting ANSI with unicode=%s",
+    (unicode, rail, mark) => {
+      const output = sharedTerminal();
+      const printer = createPrettyPrinter({ color: false, unicode, ...output.writers });
+      const prompt: WaitPromptState = {
+        kind: "wait",
+        message: "待機中\nReceiving data",
+        status: "active",
+      };
+      void printer.print({ type: "prompt", prompt });
+      void printer.print({
+        type: "log",
+        record: {
+          kind: "message",
+          level: "info",
+          category: [],
+          message: "working",
+          rawMessage: "working",
+          timestamp: 1,
+          properties: {},
+        },
+      });
+      void printer.print({ type: "output", kind: "text", text: "partial" });
+      void printer.print({ type: "prompt", prompt: { ...prompt, status: "closed" } });
+      void printer.print({ type: "output", kind: "text", text: " tail\n" });
+      expect(output.chunks).toEqual([
+        `${rail}  待機中\n${rail}  Receiving data\n`,
+        `${mark}  working\n`,
+        "partial",
+        " tail\n",
+      ]);
+      expect(output.chunks.join("")).not.toContain("\u001b");
+    },
+  );
+
   it("renders autocomplete phases and restores its query cursor after interleaved output", () => {
     const output = sharedTerminal();
     const printer = createPrettyPrinter({ color: false, unicode: true, ...output.writers });
