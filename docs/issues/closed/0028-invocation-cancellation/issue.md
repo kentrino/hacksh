@@ -26,7 +26,7 @@ context に共通の AbortSignal がなく、prompt のキャンセル、作者�
 # Decisions
 
 - context の `signal` は `runCommand` の `signal` オプションをそのまま使い、未指定なら中断されない signal を渡す。事前に中断済みなら `run` を呼ばずに `signal.reason` で reject する。
-- 終了コードは `HackshExitError(exitCode, message?)` を throw して伝える。`runCommand` は例外を reject として、通常の戻り値を解決値として呼び出し元へ渡す。`runMain` は `HackshError` の派生例外だけを通常の CLI エラーとして表示・終了処理し、他の例外は再 throw する。
+- 終了コードは run から 0〜255 の整数を返して伝える。`undefined` は 0、それ以外は `TypeError` とする。`runCommand` は `Promise<number>` として終了コードを返し、例外はそのまま reject する。`HackshExitError(exitCode, message?)` の throw も引き続き使える。`runMain` は `HackshError` の派生例外だけを通常の CLI エラーとして表示・終了処理し、他の例外は再 throw する。
 - `runMain` は SIGINT・SIGTERM を購読し、最初のシグナルで `AbortError` を reason に中断する。run が正常終了、`HackshError` の送出、またはその signal.reason と同じ値で reject した場合、出力を排出して 130・143 で終了する。別の例外や出力失敗は再 throw し、シグナル終了に置き換えない。終了猶予のタイマーは持たず、二度目のシグナルで即座に終了する。
 - 中断による prompt の失敗は `aborted` とし、Ctrl-C・Escape の `cancelled` と区別する。exec は既存の `aborted` を使う。
 

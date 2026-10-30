@@ -44,7 +44,7 @@ pretty では開始を `$`、省略を `#` で示す。unicode と ascii で印�
 
 ```ts
 const fetched = await exec("git", ["rev-parse", "HEAD"], { reject: false });
-if (fetched.status === "failed") return fetched;
+if (fetched.status === "failed") return 1;
 
 const pushed = await exec("git", ["push", "origin", branch], { dryRun });
 if (pushed.status === "skipped") return;

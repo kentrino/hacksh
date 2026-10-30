@@ -26,7 +26,7 @@ runCommand は run の戻り値を返すが、runMain はその値を出力し�
 # Decisions
 
 - run の context に `output` を置き、`print(text)`・`println(text?)`・`json(value)` を持たせる。`println` は `print` に改行を足したものとする。呼び出しごとに一つの `output` イベントを出す逐次レコード列とし、結果スキーマは持たない。
-- run は通常の値または void を同期・非同期で返し、`runCommand` はその戻り値を呼び出し元に返す。`runMain` は戻り値を表示せず、throw された `HackshError` だけを通常の CLI エラーとして処理する。それ以外の例外は再 throw する。戻り値を出力したい場合は、作者が `output` も呼ぶ。
+- run の戻り値は `number | void | Promise<number | void>` とし、0〜255 の整数を終了コード、`undefined` を 0 とする。それ以外は `TypeError` にする。`runCommand` は `Promise<number>` を返し、help・version・run がない場合も 0 に解決する。`runMain` は出力排出後、0 なら `process.exitCode = 0` を設定して自然終了に任せ、非 0 なら `process.exit` を呼ぶ。戻り値は表示せず、成果物は `output` に渡す。throw された `HackshError` だけを通常の CLI エラーとして処理し、それ以外の例外は再 throw する。
 - stdout は結果専用とし、`output`・help・version だけを書く。ログは全レベルを stderr に出す。
 - pretty では text をそのまま書き、json は 2 スペースで整形する。JSON では `{"type":"output","kind":"text","text":...}` と `{"type":"output","kind":"json","data":...}` の envelope を使う。text を連結すると、端末制御シーケンスを除いて pretty の stdout と一致する。
 - 色は stdout と stderr それぞれが TTY かどうかで判定する。

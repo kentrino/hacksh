@@ -21,15 +21,19 @@ async function nextTurn(): Promise<void> {
 
 describe("consumer-equivalent commands", () => {
   it("supports sanitize-branch default-on negatable flags", async () => {
+    const capture = vi.fn();
     const command = defineCommand({
       args: z.object({
         execute: z.boolean().default(false),
         removeEmpty: z.boolean().default(true),
         removeCoauthor: z.boolean().default(true),
       }),
-      run: ({ args }) => args,
+      run: ({ args }) => {
+        capture(args);
+      },
     });
-    await expect(runCommand(command, ["--execute", "--no-remove-empty"])).resolves.toEqual({
+    await runCommand(command, ["--execute", "--no-remove-empty"]);
+    expect(capture).toHaveBeenCalledWith({
       execute: true,
       removeEmpty: false,
       removeCoauthor: true,
@@ -37,14 +41,16 @@ describe("consumer-equivalent commands", () => {
   });
 
   it("supports cdx extras, passthrough, and a default-on focus flag", async () => {
+    const capture = vi.fn();
     const command = defineCommand({
       args: z.object({ path: z.string().optional(), focus: z.boolean().default(true) }),
       allowUnknownArgs: true,
-      run: ({ args, input }) => ({ args, input }),
+      run: ({ args, input }) => {
+        capture({ args, input });
+      },
     });
-    await expect(
-      runCommand(command, ["--path", ".", "--no-focus", "--model=o3", "--", "--sandbox"]),
-    ).resolves.toEqual({
+    await runCommand(command, ["--path", ".", "--no-focus", "--model=o3", "--", "--sandbox"]);
+    expect(capture).toHaveBeenCalledWith({
       args: { path: ".", focus: false },
       input: {
         argv: ["--path", ".", "--no-focus", "--model=o3", "--", "--sandbox"],
@@ -56,46 +62,56 @@ describe("consumer-equivalent commands", () => {
 
   it("supports git-worktree parent options before a subcommand", async () => {
     const parentRun = vi.fn(() => undefined);
+    const capture = vi.fn();
     const command = defineCommand({
       args: z.object({ repo: z.string() }),
       subCommands: {
         new: defineCommand({
           args: z.object({ name: z.string() }),
-          run: ({ args, input }) => ({ args, input }),
+          run: ({ args, input }) => {
+            capture({ args, input });
+          },
         }),
       },
       run: parentRun,
     });
-    await expect(runCommand(command, ["--repo", "x", "new", "--name", "feature"])).resolves.toEqual(
-      {
-        args: { name: "feature" },
-        input: { argv: ["--name", "feature"], unknown: [], passthrough: [] },
-      },
-    );
+    await runCommand(command, ["--repo", "x", "new", "--name", "feature"]);
+    expect(capture).toHaveBeenCalledWith({
+      args: { name: "feature" },
+      input: { argv: ["--name", "feature"], unknown: [], passthrough: [] },
+    });
     expect(parentRun).not.toHaveBeenCalled();
   });
 
   it("supports gh-pr-commits coercion, optional positional, and repo alias", async () => {
+    const capture = vi.fn();
     const command = defineCommand({
       args: z.object({
         positionals: z.tuple([z.coerce.number().int().optional()]),
         repo: z.string().optional().meta({ alias: "R" }),
       }),
-      run: ({ args }) => args,
+      run: ({ args }) => {
+        capture(args);
+      },
     });
-    await expect(runCommand(command, ["42", "-R", "owner/repo"])).resolves.toEqual({
+    await runCommand(command, ["42", "-R", "owner/repo"]);
+    expect(capture).toHaveBeenCalledWith({
       positionals: [42],
       repo: "owner/repo",
     });
   });
 
   it("supports multiple positional arguments and overflow", async () => {
+    const capture = vi.fn();
     const command = defineCommand({
       args: z.object({ positionals: z.tuple([z.string(), z.string().optional()]) }),
       allowUnknownArgs: true,
-      run: ({ args, input }) => ({ args, input }),
+      run: ({ args, input }) => {
+        capture({ args, input });
+      },
     });
-    await expect(runCommand(command, ["a", "b", "c"])).resolves.toEqual({
+    await runCommand(command, ["a", "b", "c"]);
+    expect(capture).toHaveBeenCalledWith({
       args: { positionals: ["a", "b"] },
       input: { argv: ["a", "b", "c"], unknown: ["c"], passthrough: [] },
     });
@@ -104,23 +120,27 @@ describe("consumer-equivalent commands", () => {
   it("accepts zod/mini object schemas at the public API", async () => {
     const command = defineCommand({
       args: mini.object({ value: mini._default(mini.string(), "mini") }),
-      run: ({ args }) => args.value,
+      run: ({ args }) => {
+        expect(args.value).toBe("mini");
+      },
     });
-    await expect(runCommand(command, [])).resolves.toEqual("mini");
+    await expect(runCommand(command, [])).resolves.toBe(0);
   });
 
   it.each([
     ["zod", z.object({ positionals: z.tuple([z.string()], z.string()) })],
     ["zod/mini", mini.object({ positionals: mini.tuple([mini.string()], mini.string()) })],
   ])("runs fixed and variadic arguments with %s", async (_name, args) => {
+    const capture = vi.fn();
     const command = defineCommand({
       args,
       allowUnknownArgs: true,
-      run: ({ args: parsed, input }) => ({ parsed, input }),
+      run: ({ args: parsed, input }) => {
+        capture({ parsed, input });
+      },
     });
-    await expect(
-      runCommand(command, ["fixed", "one", "two", "--extra", "--", "tail"]),
-    ).resolves.toEqual({
+    await runCommand(command, ["fixed", "one", "two", "--extra", "--", "tail"]);
+    expect(capture).toHaveBeenCalledWith({
       parsed: { positionals: ["fixed", "one", "two"] },
       input: {
         argv: ["fixed", "one", "two", "--extra", "--", "tail"],
@@ -158,8 +178,9 @@ describe("terminal output integration", () => {
           },
         }),
         prompt: defineCommand({
-          run: async ({ prompt }) =>
-            await prompt.confirm({ message: "Continue?", initialValue: true }),
+          run: async ({ prompt }) => {
+            await prompt.confirm({ message: "Continue?", initialValue: true });
+          },
         }),
         crash: defineCommand({
           run() {

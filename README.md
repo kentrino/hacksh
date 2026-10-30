@@ -128,9 +128,9 @@ const copy = defineCommand({
       z.string().meta({ title: "FILES", description: "Input files" }),
     ),
   }),
-  run({ args }) {
+  run({ args, output }) {
     const [destination, ...files] = args.positionals; // [string, ...string[]]
-    return { destination, files };
+    output.json({ destination, files });
   },
 });
 ```
@@ -486,8 +486,9 @@ holding the exact text, including the newline `println` adds, or
 pretty stdout, except that terminal control sequences are removed as in every JSON string. `json`
 values are normalized like log properties.
 
-hacksh never prints a `run` return value; it is returned to `runCommand` callers only.
-`runMain` reports thrown `HackshError` instances on stderr and rethrows other exceptions.
+`run` return values are exit codes, never command output. Use `output` for data, or keep reusable
+domain functions separate from the handler. `runMain` reports thrown `HackshError` instances on
+stderr and rethrows other exceptions.
 Output that was written before a failure stays written. Like logger calls,
 `output` calls do not need to be awaited and are drained before execution finishes. Writing to
 `process.stdout` or `console.log` directly bypasses the printer, the output mode, and any `stdout`
@@ -659,6 +660,30 @@ waits.
 
 ### Cancellation and exit status
 
+Handlers return `number | void | Promise<number | void>`. A returned integer from 0 through 255
+is the exit code; `undefined` (including a handler with no return) means 0. Other values, including
+fractions, `NaN`, infinities, out-of-range numbers, and non-numbers, cause a `TypeError`.
+`runCommand` always returns `Promise<number>`: it resolves to the selected handler's exit code,
+or 0 for help, version, or execution without a handler, and propagates thrown errors unchanged.
+It does not print return values or exit the process.
+
+```ts
+const health = defineCommand({
+  name: "health",
+  async run({ signal }) {
+    const response = await fetch("https://example.com/health", { signal });
+    return response.ok ? 0 : 2;
+  },
+});
+
+const exitCode = await runCommand(health, []); // number
+```
+
+`runMain` drains output before applying the returned exit code. For 0 it sets
+`process.exitCode = 0` and lets the process finish naturally; for a nonzero code it calls
+`process.exit(code)`. Returning a nonzero code does not report an error or call `onError`.
+Invalid returns reject with `TypeError`, without CLI error reporting or a forced exit.
+
 Every `run` context has a `signal`, an `AbortSignal` for that invocation. `exec` calls and prompts
 already follow it; pass it to `fetch` and other APIs that accept one. Cancellation is cooperative:
 hacksh does not stop code that ignores the signal.
@@ -689,9 +714,10 @@ output is drained and the process exits with 130 for `SIGINT` or 143 for `SIGTER
 exceptions and output failures still reject instead of being converted to a signal exit.
 A second signal while the invocation is pending exits immediately with that signal's status.
 
-Throw `HackshExitError(exitCode, message?)` to choose the exit status, an integer from 0 to 255.
+Alternatively, throw `HackshExitError(exitCode, message?)` to choose an exit status from 0 to 255.
 `runMain` prints a non-empty message as an ordinary CLI error and prints nothing when the message
-is omitted; `onError` still receives the error. `runCommand` rethrows it unchanged.
+is omitted; `onError` still receives the error. This error path calls `process.exit` even for 0.
+`runCommand` rejects with the error unchanged.
 Other `HackshError` instances exit with 1, or 130 for a cancelled prompt.
 
 ## Output formats
@@ -765,14 +791,15 @@ the semantic events that the command emits.
 
 ### Entry points
 
-`defineCommand` preserves the handler's exact return type. Handlers are ordinary functions that
-return values or `void`, synchronously or asynchronously. `runCommand(command, argv, options)`
-returns a promise of the awaited result, unioned with results from every possible routed
-descendant and `undefined` for help/version. Routing-only commands add no handler result.
+`defineCommand` accepts handlers returning `number | void | Promise<number | void>`; it does not
+infer arbitrary result types. `CommandDef<S, Children>` describes the argument schema and child
+commands, without a result type parameter. `runCommand(command, argv, options)` returns
+`Promise<number>`: an integer exit code from 0 through 255, with `undefined`, help, version, and
+execution without a handler normalized to 0. Invalid return values reject with `TypeError`.
 Thrown exceptions, argument errors, and output failures reject the promise. `runCommand` never
 exits or automatically prints a return value or error.
 
-`runMain(command)` reads `process.argv`, discards return values, and only handles thrown
+`runMain(command)` reads `process.argv`, applies the returned exit code, and only handles thrown
 `HackshError` instances as normal CLI failures. Other exceptions reject without automatic error
 display, `onError`, or process exit. Pending output is drained and signal listeners are removed
 on both success and rejection. Output failures also reject, including while reporting a CLI
@@ -836,12 +863,13 @@ function loadUser(id: string) {
 
 const schema = z.object({ id: z.string() });
 
-function run({ args }: CommandContext<typeof schema>) {
+function run({ args, output }: CommandContext<typeof schema>) {
   try {
-    return loadUser(args.id);
+    output.json(loadUser(args.id));
   } catch (error) {
     if (error instanceof NotFoundError) {
-      return { id: error.id, displayName: "Guest" };
+      output.json({ id: error.id, displayName: "Guest" });
+      return;
     }
     throw error;
   }

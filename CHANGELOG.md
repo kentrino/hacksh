@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- Restrict handlers to `number | void | Promise<number | void>` exit codes and make `runCommand` return `Promise<number>`, replacing arbitrary result inference. Integers from 0 through 255 are accepted; `undefined`, help, and version resolve to 0, and invalid returns reject with `TypeError`. After draining output, `runMain` applies returned codes, letting successful processes finish naturally.
+
 ## [0.19.0](https://github.com/kentrino/hacksh/compare/v0.18.0...v0.19.0) (2026-10-30)
 
 

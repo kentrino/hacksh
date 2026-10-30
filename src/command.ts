@@ -32,7 +32,6 @@ export interface CommandContext<S extends ArgsSchema> {
 
 export interface CommandDef<
   S extends ArgsSchema = EmptyArgs,
-  R = unknown,
   Children extends Record<string, AnyCommandDef> = Record<string, AnyCommandDef>,
 > {
   name?: string;
@@ -43,16 +42,15 @@ export interface CommandDef<
   allowUnknownArgs?: boolean;
   args?: S;
   subCommands?: Children;
-  run?(context: CommandContext<S>): R;
+  run?(context: CommandContext<S>): number | void | Promise<number | void>;
 }
 
 export type AnyCommandDef = CommandDef<ArgsSchema>;
 
 export function defineCommand<
   S extends ArgsSchema = EmptyArgs,
-  R = never,
   Children extends Record<string, AnyCommandDef> = {},
->(def: CommandDef<S, R, Children>): NoInfer<CommandDef<S, R, Children>> {
+>(def: CommandDef<S, Children>): NoInfer<CommandDef<S, Children>> {
   if (def.allowUnknownArgs !== undefined && typeof def.allowUnknownArgs !== "boolean") {
     throw new TypeError("allowUnknownArgs must be a boolean");
   }

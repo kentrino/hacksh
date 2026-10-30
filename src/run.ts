@@ -88,18 +88,18 @@ async function executeCommand<S extends ArgsSchema>(
   env: ExecContext["env"],
   signal: AbortSignal,
   fallbackVersion: () => Promise<string | undefined> = async () => undefined,
-): Promise<unknown> {
+): Promise<number> {
   const { printer } = output;
   const argEnv = env ?? process.env;
   const resolved = resolveCommand(root, argv);
   if (resolved.segments[0]?.tokenized.version) {
     const version = root.version ?? (await fallbackVersion()) ?? "";
     await printer.print({ type: "version", version });
-    return undefined;
+    return 0;
   }
   if (resolved.segments.some(({ tokenized }) => tokenized.help)) {
     await showUsage(resolved.command, { printer });
-    return undefined;
+    return 0;
   }
 
   for (const parent of resolved.parents) {
@@ -125,7 +125,7 @@ async function executeCommand<S extends ArgsSchema>(
   const category = resolved.segments.flatMap(({ command }) =>
     command.name === undefined ? [] : [command.name],
   );
-  return resolved.command.run({
+  const result = await resolved.command.run({
     command: resolved.command,
     args: parsed.args,
     input: {
@@ -151,6 +151,11 @@ async function executeCommand<S extends ArgsSchema>(
     }),
     signal,
   });
+  if (result === undefined) return 0;
+  if (typeof result !== "number" || !Number.isInteger(result) || result < 0 || result > 255) {
+    throw new TypeError("Exit code must be an integer from 0 to 255");
+  }
+  return result;
 }
 
 export interface RunCommandOptions extends OutputOptions {
@@ -186,32 +191,11 @@ function prepareOutput(
   };
 }
 
-type HandlerResult<C> = C extends { run?: infer Handler }
-  ? Handler extends (...args: never[]) => infer R
-    ? Awaited<R>
-    : never
-  : never;
-
-type CommandResult<C> =
-  | HandlerResult<C>
-  | (C extends { subCommands?: infer Children }
-      ? Children extends Record<string, AnyCommandDef>
-        ? string extends keyof Children
-          ? unknown
-          : CommandResult<Children[keyof Children]>
-        : never
-      : never);
-
-export function runCommand<C extends AnyCommandDef>(
-  root: C,
-  argv: string[],
-  options?: RunCommandOptions,
-): Promise<CommandResult<C> | undefined>;
 export async function runCommand(
   root: AnyCommandDef,
   argv: string[],
   options: RunCommandOptions = {},
-): Promise<unknown> {
+): Promise<number> {
   const output = prepareOutput(options, options.env ?? process.env);
   try {
     return await executeCommand(
@@ -277,7 +261,7 @@ export async function runMain<S extends ArgsSchema>(
   let exitCode: number | undefined;
   try {
     try {
-      await executeCommand(
+      const result = await executeCommand(
         command,
         options.argv ?? process.argv.slice(2),
         output,
@@ -285,6 +269,7 @@ export async function runMain<S extends ArgsSchema>(
         signals.signal,
         () => findPackageVersion(process.argv[1]),
       );
+      if (result !== 0) exitCode = result;
     } catch (error) {
       const signalExitCode = signals.exitCode();
       if (signalExitCode !== undefined && error === signals.signal.reason) {
@@ -305,4 +290,5 @@ export async function runMain<S extends ArgsSchema>(
   }
   const code = signals.exitCode() ?? exitCode;
   if (code !== undefined) process.exit(code);
+  else process.exitCode = 0;
 }

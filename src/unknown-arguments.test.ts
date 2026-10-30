@@ -41,13 +41,15 @@ describe("unknown argument policy", () => {
 
   it("keeps passthrough independent of the policy, including builtin spellings", async () => {
     for (const allowUnknownArgs of [undefined, false, true]) {
+      const capture = vi.fn();
       const command = defineCommand({
         allowUnknownArgs,
-        run: ({ input }) => input,
+        run: ({ input }) => {
+          capture(input);
+        },
       });
-      await expect(
-        runCommand(command, ["--", "--help", "--version", "a b", "--"], { printer }),
-      ).resolves.toEqual({
+      await runCommand(command, ["--", "--help", "--version", "a b", "--"], { printer });
+      expect(capture).toHaveBeenCalledWith({
         argv: ["--", "--help", "--version", "a b", "--"],
         unknown: [],
         passthrough: ["--help", "--version", "a b", "--"],
@@ -56,16 +58,18 @@ describe("unknown argument policy", () => {
   });
 
   it("allows unknown input in order without guessing which option takes a value", async () => {
+    const capture = vi.fn();
     const command = defineCommand({
       allowUnknownArgs: true,
       args: z.object({ positionals: z.tuple([z.string()]), known: z.boolean().default(false) }),
-      run: ({ args, input }) => ({ args, input }),
+      run: ({ args, input }) => {
+        capture({ args, input });
+      },
     });
-    await expect(
-      runCommand(command, ["--unknown", "first", "--known", "tail", "-x", "--", "last"], {
-        printer,
-      }),
-    ).resolves.toEqual({
+    await runCommand(command, ["--unknown", "first", "--known", "tail", "-x", "--", "last"], {
+      printer,
+    });
+    expect(capture).toHaveBeenCalledWith({
       args: { positionals: ["first"], known: true },
       input: {
         argv: ["--unknown", "first", "--known", "tail", "-x", "--", "last"],
@@ -77,16 +81,16 @@ describe("unknown argument policy", () => {
 
   it("inherits through several levels and allows children to override without mutation", async () => {
     const leaf = defineCommand({
-      run: ({ input }) => input.unknown,
+      run: ({ input }) => {
+        expect(input.unknown).toEqual(["--extra"]);
+      },
     });
     const strict = defineCommand({ allowUnknownArgs: false, subCommands: { leaf } });
     const root = defineCommand({
       allowUnknownArgs: true,
       subCommands: { middle: defineCommand({ subCommands: { leaf } }), strict },
     });
-    await expect(runCommand(root, ["middle", "leaf", "--extra"], { printer })).resolves.toEqual([
-      "--extra",
-    ]);
+    await expect(runCommand(root, ["middle", "leaf", "--extra"], { printer })).resolves.toBe(0);
     await expect(runCommand(root, ["strict", "leaf", "--extra"], { printer })).rejects.toThrow(
       HackshValidationError,
     );
@@ -95,7 +99,9 @@ describe("unknown argument policy", () => {
   });
 
   it("validates parents independently of a permissive child", async () => {
-    const run = vi.fn(({ input }) => input.unknown);
+    const run = vi.fn(({ input }) => {
+      expect(input.unknown).toEqual(["--typo"]);
+    });
     const root = defineCommand({
       subCommands: { child: defineCommand({ allowUnknownArgs: true, run }) },
     });
@@ -103,7 +109,8 @@ describe("unknown argument policy", () => {
       issues: [{ arg: "--typo", message: "unexpected argument" }],
     });
     expect(run).not.toHaveBeenCalled();
-    await expect(runCommand(root, ["child", "--typo"], { printer })).resolves.toEqual(["--typo"]);
+    await expect(runCommand(root, ["child", "--typo"], { printer })).resolves.toBe(0);
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("gives routed help and root version precedence over unknown argument validation", async () => {
@@ -117,7 +124,7 @@ describe("unknown argument policy", () => {
       ["--typo", "--help"],
       ["--typo", "child", "--other", "--help"],
     ]) {
-      await expect(runCommand(command, argv, { printer })).resolves.toBeUndefined();
+      await expect(runCommand(command, argv, { printer })).resolves.toBe(0);
     }
     expect(run).not.toHaveBeenCalled();
   });
