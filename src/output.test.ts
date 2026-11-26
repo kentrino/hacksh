@@ -303,6 +303,7 @@ describe("invocation output selection", () => {
     expect(reads).toEqual(
       new Map<PropertyKey, number>([
         ["HACKSH_OUTPUT", 1],
+        ["HACKSH_LOG_LEVEL", 1],
         ["CI", 1],
         ["NO_COLOR", 1],
       ]),

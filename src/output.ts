@@ -1,3 +1,4 @@
+import type { LogLevel } from "./logger.ts";
 import { createPrettyPrinter } from "./pretty.ts";
 import {
   createJsonPrinter,
@@ -13,6 +14,8 @@ export interface OutputOptions {
   output?: OutputPreference;
   /** Use Unicode presentation symbols in pretty output. Defaults to true. */
   unicode?: boolean;
+  /** Minimum log level emitted to the primary output printer. Defaults to "trace". */
+  logLevel?: LogLevel;
   env?: Readonly<Record<string, string | undefined>>;
   stdin?: TerminalInput;
   stdout?: TerminalOutput;

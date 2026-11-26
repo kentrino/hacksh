@@ -2,12 +2,19 @@ import { afterEach, describe, expect, expectTypeOf, it, vi } from "vite-plus/tes
 import { z } from "zod";
 import {
   defineCommand,
+  HackshError,
   parseArgs,
   runCommand,
+  runMain,
   HackshValidationError,
   type Logger,
 } from "./index.ts";
-import { createJsonPrinter, type LogRecord, type PrintEvent } from "./printer-api.ts";
+import {
+  createJsonPrinter,
+  filterLogPrinter,
+  type LogRecord,
+  type PrintEvent,
+} from "./printer-api.ts";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -304,5 +311,127 @@ describe("run logger", () => {
         },
       }),
     ).rejects.toBe(failure);
+  });
+
+  it("filters log records by logLevel while preserving non-log events", async () => {
+    const events: PrintEvent[] = [];
+    const command = defineCommand({
+      name: "app",
+      run({ logger, output }) {
+        output.println("result");
+        logger.trace("t");
+        logger.debug("d");
+        logger.info("i");
+        logger.warn("w");
+        logger.error("e");
+        logger.fatal("f");
+      },
+    });
+
+    await runCommand(command, [], {
+      env: {},
+      logLevel: "warning",
+      printer: { print: (event) => void events.push(event) },
+    });
+
+    expect(
+      events.filter((event) => event.type === "log").map((event) => event.record.level),
+    ).toEqual(["warning", "error", "fatal"]);
+    expect(events.some((event) => event.type === "output")).toBe(true);
+  });
+
+  it("lets HACKSH_LOG_LEVEL override logLevel and never suppresses thrown command errors", async () => {
+    const stderr: string[] = [];
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    const command = defineCommand({
+      run({ logger }) {
+        logger.error("suppressed");
+        throw new HackshError("command failed");
+      },
+    });
+
+    await expect(
+      runMain(command, {
+        argv: [],
+        output: "json",
+        logLevel: "debug",
+        env: { HACKSH_LOG_LEVEL: "fatal" },
+        stdout: { isTTY: false, write: () => undefined },
+        stderr: { isTTY: false, write: (chunk) => void stderr.push(chunk) },
+      }),
+    ).rejects.toThrow("exit:1");
+
+    expect(stderr).toHaveLength(1);
+    expect(JSON.parse(stderr[0]!)).toMatchObject({
+      type: "error",
+      error: { message: "command failed" },
+    });
+  });
+
+  it.each([
+    { label: "invalid logLevel option", options: { logLevel: "verbose" as never, env: {} } },
+    { label: "invalid HACKSH_LOG_LEVEL", options: { env: { HACKSH_LOG_LEVEL: "verbose" } } },
+    { label: "empty HACKSH_LOG_LEVEL", options: { env: { HACKSH_LOG_LEVEL: "" } } },
+  ])("rejects $label before execution", async ({ options }) => {
+    const run = vi.fn();
+    const onError = vi.fn();
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    await expect(
+      runMain(defineCommand({ run }), {
+        argv: [],
+        ...options,
+        onError,
+        printer: { print: () => undefined },
+      }),
+    ).rejects.toBeInstanceOf(TypeError);
+
+    expect(run).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("exposes filterLogPrinter from hacksh/printer", async () => {
+    const seen: string[] = [];
+    const printer = filterLogPrinter(
+      {
+        print(event) {
+          if (event.type === "log") seen.push(event.record.message);
+        },
+      },
+      "error",
+    );
+
+    await printer.print({
+      type: "log",
+      record: {
+        level: "info",
+        kind: "message",
+        category: [],
+        message: "hidden",
+        rawMessage: "hidden",
+        properties: {},
+        timestamp: 1,
+      },
+    });
+    await printer.print({
+      type: "log",
+      record: {
+        level: "error",
+        kind: "message",
+        category: [],
+        message: "visible",
+        rawMessage: "visible",
+        properties: {},
+        timestamp: 2,
+      },
+    });
+
+    expect(seen).toEqual(["visible"]);
   });
 });

@@ -24,7 +24,7 @@ export type {
   ExecSuccess,
 } from "./exec.ts";
 export type { Output } from "./command-output.ts";
-export type { Logger } from "./logger.ts";
+export type { Logger, LogLevel } from "./logger.ts";
 export type {
   AutocompleteOptions,
   ConfirmOptions,

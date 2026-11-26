@@ -499,8 +499,10 @@ writer given to `runMain` or `runCommand`.
 Every `run` context has a `logger`. Its `trace`, `debug`, `info`, `warn`, `error`, and `fatal`
 methods emit structured records through the invocation's printer. `step` and `success` are
 info-level records with a distinct semantic kind for presentation. Placeholders in braces use the
-record's properties. Every level is emitted and displayed by the default printer; there is no
-built-in severity threshold or verbose flag.
+record's properties. By default every level is emitted (`"trace"`); pass `logLevel` on `runMain`
+or `runCommand`, or set `HACKSH_LOG_LEVEL` (which takes precedence), to filter the primary output's
+minimum log level. Thrown command errors are not log records and are always reported regardless of
+`logLevel`.
 
 ```ts
 const deploy = defineCommand({

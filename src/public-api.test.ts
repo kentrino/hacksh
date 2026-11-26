@@ -24,6 +24,7 @@ import {
   type ExecSkipped,
   type ExecSuccess,
   type Logger,
+  type LogLevel as MainLogLevel,
   type Output,
   type RunCommandOptions,
   type RunMainOptions,
@@ -436,6 +437,9 @@ describe("public logger API", () => {
     expectTypeOf<LogLevel>().toEqualTypeOf<
       "trace" | "debug" | "info" | "warning" | "error" | "fatal"
     >();
+    expectTypeOf<MainLogLevel>().toEqualTypeOf<LogLevel>();
+    expectTypeOf<RunCommandOptions["logLevel"]>().toEqualTypeOf<LogLevel | undefined>();
+    expectTypeOf<RunMainOptions["logLevel"]>().toEqualTypeOf<LogLevel | undefined>();
     expectTypeOf<LogKind>().toEqualTypeOf<"message" | "step" | "success">();
     expectTypeOf<HackshErrorKind>().toEqualTypeOf<
       "error" | "prompt" | "usage" | "validation" | "thrown"
