@@ -1,7 +1,77 @@
 import type { Printer } from "./printer.ts";
 import { summarizeErrors } from "./errors.ts";
 
-export type LogLevel = "trace" | "debug" | "info" | "warning" | "error" | "fatal";
+export const LOG_LEVELS = ["trace", "debug", "info", "warning", "error", "fatal"] as const;
+
+export type LogLevel = (typeof LOG_LEVELS)[number];
+
+const LOG_LEVEL_RANK: Readonly<Record<LogLevel, number>> = {
+  trace: 0,
+  debug: 1,
+  info: 2,
+  warning: 3,
+  error: 4,
+  fatal: 5,
+};
+
+export function isLogLevel(value: unknown): value is LogLevel {
+  return typeof value === "string" && Object.hasOwn(LOG_LEVEL_RANK, value);
+}
+
+export function meetsLogLevel(level: LogLevel, threshold: LogLevel): boolean {
+  return LOG_LEVEL_RANK[level] >= LOG_LEVEL_RANK[threshold];
+}
+
+function formatInvalidValue(value: unknown): string {
+  try {
+    return String(value);
+  } catch {
+    return "[Unserializable]";
+  }
+}
+
+export function validateLogLevel(value: unknown, source: string): LogLevel | undefined {
+  if (value === undefined) return undefined;
+  if (isLogLevel(value)) return value;
+  throw new TypeError(
+    `Invalid ${source} value ${formatInvalidValue(value)}; expected ${LOG_LEVELS.join(", ")}`,
+  );
+}
+
+function readEnvironment(
+  env: Readonly<Record<string, string | undefined>>,
+  key: string,
+): string | undefined {
+  try {
+    return env[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/** Resolve the primary output log level threshold from options and HACKSH_LOG_LEVEL. */
+export function resolveLogLevel(
+  configured: LogLevel | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+): LogLevel {
+  const validatedConfigured = validateLogLevel(configured, "logLevel");
+  const validatedOverridden = validateLogLevel(
+    readEnvironment(env, "HACKSH_LOG_LEVEL"),
+    "HACKSH_LOG_LEVEL",
+  );
+  return validatedOverridden ?? validatedConfigured ?? "trace";
+}
+
+/** Wrap a printer so only log events at or above `minLevel` are forwarded; non-log events always pass through. */
+export function filterLogPrinter(printer: Printer, minLevel: LogLevel): Printer {
+  if (minLevel === "trace") return printer;
+  return {
+    print(event) {
+      if (event.type === "log" && !meetsLogLevel(event.record.level, minLevel)) return;
+      return printer.print(event);
+    },
+  };
+}
 
 export type LogKind = "message" | "step" | "success";
 

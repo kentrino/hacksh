@@ -10,7 +10,7 @@ import {
 } from "./errors.ts";
 import { createOutput } from "./command-output.ts";
 import { createExec, type ExecContext } from "./exec.ts";
-import { createLogger } from "./logger.ts";
+import { createLogger, filterLogPrinter, resolveLogLevel } from "./logger.ts";
 import { findPackageVersion } from "./package-version.ts";
 import {
   parseCommandArgs,
@@ -182,8 +182,10 @@ function prepareOutput(
     outputIsTTY: (options.stdout ?? process.stdout).isTTY,
     errorOutputIsTTY: (options.stderr ?? process.stderr).isTTY,
   });
+  const logLevel = resolveLogLevel(options.logLevel, env);
+  const printer = filterLogPrinter(selectOutputPrinter(options, options.printer, mode), logLevel);
   return {
-    ...createPrintQueue(selectOutputPrinter(options, options.printer, mode)),
+    ...createPrintQueue(printer),
     format: mode.format,
     interactive: mode.interactive,
     input,

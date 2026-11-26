@@ -1,5 +1,6 @@
 export { createJsonPrinter, resolveOutputMode } from "./printer.ts";
 export { createPrettyPrinter } from "./pretty.ts";
+export { filterLogPrinter } from "./logger.ts";
 export type { PrettyPrinterOptions } from "./pretty.ts";
 export type {
   AutocompletePromptState,
