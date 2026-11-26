@@ -304,6 +304,8 @@ describe("invocation output selection", () => {
       new Map<PropertyKey, number>([
         ["HACKSH_OUTPUT", 1],
         ["HACKSH_LOG_LEVEL", 1],
+        ["HACKSH_LOG_FILE", 1],
+        ["HACKSH_LOG_DIR", 1],
         ["CI", 1],
         ["NO_COLOR", 1],
       ]),

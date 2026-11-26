@@ -1,3 +1,4 @@
+import type { LogDestination } from "./log-file.ts";
 import type { LogLevel } from "./logger.ts";
 import { createPrettyPrinter } from "./pretty.ts";
 import {
@@ -16,6 +17,8 @@ export interface OutputOptions {
   unicode?: boolean;
   /** Minimum log level emitted to the primary output printer. Defaults to "trace". */
   logLevel?: LogLevel;
+  /** Additional file or per-run directory log destination(s). */
+  log?: LogDestination | readonly LogDestination[];
   env?: Readonly<Record<string, string | undefined>>;
   stdin?: TerminalInput;
   stdout?: TerminalOutput;

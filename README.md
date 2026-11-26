@@ -516,6 +516,26 @@ const deploy = defineCommand({
 });
 ```
 
+To also write logs to a file or to a per-invocation file inside a directory, pass `log` on
+`runMain` or `runCommand` (one destination or an array), or set `HACKSH_LOG_FILE` /
+`HACKSH_LOG_DIR`:
+
+```ts
+await runMain(deploy, {
+  logLevel: "info",
+  log: [
+    { dir: ".logs", level: "debug" },
+    { file: "latest.log", append: false, format: "text" },
+  ],
+});
+```
+
+Each destination specifies either `file` (single file, `append` defaults to `true`) or `dir` (one
+file per run, with collision-avoiding `<timestamp>-<category>-<pid>.<ext>` filenames by default or a
+custom `filename` string/builder). `format` defaults to `"jsonl"` (one normalized `LogRecord` JSON
+object per line) and also supports ANSI-free `"text"`. Each destination has its own `level`
+threshold (defaulting to `"trace"`) and creates its file lazily on the first matching log record.
+
 Properties passed to an individual call override properties bound by `with`. `getChild` appends a
 category segment; hacksh automatically starts the category with the named root and each resolved
 subcommand. Missing placeholders, and placeholders whose values cannot be converted to text,
