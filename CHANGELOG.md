@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/kentrino/hacksh/compare/v0.21.0...v0.22.0) (2026-11-26)
+
+
+### Features
+
+* **logger:** add file and per-run directory log destinations ([#68](https://github.com/kentrino/hacksh/issues/68)) ([004301d](https://github.com/kentrino/hacksh/commit/004301d343886881188007878f381371a1112797))
+
 ## [0.21.0](https://github.com/kentrino/hacksh/compare/v0.20.0...v0.21.0) (2026-11-26)
 
 
