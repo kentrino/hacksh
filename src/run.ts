@@ -10,6 +10,12 @@ import {
 } from "./errors.ts";
 import { createOutput } from "./command-output.ts";
 import { createExec, type ExecContext } from "./exec.ts";
+import {
+  combinePrinters,
+  createFileLogPrinter,
+  resolveLogDestinations,
+  type LogRunInfo,
+} from "./log-file.ts";
 import { createLogger, filterLogPrinter, resolveLogLevel } from "./logger.ts";
 import { findPackageVersion } from "./package-version.ts";
 import {
@@ -125,6 +131,7 @@ async function executeCommand<S extends ArgsSchema>(
   const category = resolved.segments.flatMap(({ command }) =>
     command.name === undefined ? [] : [command.name],
   );
+  output.setCategory(category);
   const result = await resolved.command.run({
     command: resolved.command,
     args: parsed.args,
@@ -168,6 +175,7 @@ interface PreparedOutput extends PrintQueue {
   interactive: boolean;
   input: TerminalInput;
   terminal: TerminalLock;
+  setCategory(category: readonly string[]): void;
 }
 
 function prepareOutput(
@@ -183,13 +191,51 @@ function prepareOutput(
     errorOutputIsTTY: (options.stderr ?? process.stderr).isTTY,
   });
   const logLevel = resolveLogLevel(options.logLevel, env);
-  const printer = filterLogPrinter(selectOutputPrinter(options, options.printer, mode), logLevel);
+  const logDestinations = resolveLogDestinations(options.log, env);
+  let runInfo: LogRunInfo = {
+    category: [],
+    startedAt: new Date(),
+    pid: process.pid,
+  };
+  const primary = filterLogPrinter(selectOutputPrinter(options, options.printer, mode), logLevel);
+  const filePrinters = logDestinations.map((destination) =>
+    createFileLogPrinter(destination, { runInfo: () => runInfo }),
+  );
+  const queue = createPrintQueue(combinePrinters([primary, ...filePrinters]));
   return {
-    ...createPrintQueue(printer),
+    printer: queue.printer,
+    printChecked: (event) => queue.printChecked(event),
+    async drain() {
+      let drainError: unknown;
+      let hasDrainError = false;
+      try {
+        await queue.drain();
+      } catch (error) {
+        drainError = error;
+        hasDrainError = true;
+      }
+      let closeError: unknown;
+      let hasCloseError = false;
+      for (const filePrinter of filePrinters) {
+        try {
+          await filePrinter.close();
+        } catch (error) {
+          if (!hasCloseError) {
+            closeError = error;
+            hasCloseError = true;
+          }
+        }
+      }
+      if (hasDrainError) throw drainError;
+      if (hasCloseError) throw closeError;
+    },
     format: mode.format,
     interactive: mode.interactive,
     input,
     terminal: new TerminalLock(),
+    setCategory(category) {
+      runInfo = { ...runInfo, category };
+    },
   };
 }
 

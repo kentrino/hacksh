@@ -1,6 +1,22 @@
 export { createJsonPrinter, resolveOutputMode } from "./printer.ts";
 export { createPrettyPrinter } from "./pretty.ts";
 export { filterLogPrinter } from "./logger.ts";
+export {
+  combinePrinters,
+  createFileLogPrinter,
+  formatLogRecordJsonl,
+  formatLogRecordText,
+} from "./log-file.ts";
+export type {
+  FileLogPrinter,
+  FileLogPrinterOptions,
+  LogDestination,
+  LogDestinationBase,
+  LogDirDestination,
+  LogFileDestination,
+  LogFileFormat,
+  LogRunInfo,
+} from "./log-file.ts";
 export type { PrettyPrinterOptions } from "./pretty.ts";
 export type {
   AutocompletePromptState,
