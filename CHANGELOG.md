@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/kentrino/hacksh/compare/v0.20.0...v0.21.0) (2026-11-26)
+
+
+### Features
+
+* **logger:** add logLevel option and HACKSH_LOG_LEVEL ([#65](https://github.com/kentrino/hacksh/issues/65)) ([6849b58](https://github.com/kentrino/hacksh/commit/6849b587b4cfcf72b7810bb35adb686175d3e82c))
+
 ## [0.20.0](https://github.com/kentrino/hacksh/compare/v0.19.0...v0.20.0) (2026-10-30)
 
 
