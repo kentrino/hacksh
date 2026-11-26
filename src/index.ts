@@ -24,6 +24,14 @@ export type {
   ExecSuccess,
 } from "./exec.ts";
 export type { Output } from "./command-output.ts";
+export type {
+  LogDestination,
+  LogDestinationBase,
+  LogDirDestination,
+  LogFileDestination,
+  LogFileFormat,
+  LogRunInfo,
+} from "./log-file.ts";
 export type { Logger, LogLevel } from "./logger.ts";
 export type {
   AutocompleteOptions,

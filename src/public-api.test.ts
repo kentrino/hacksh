@@ -24,7 +24,12 @@ import {
   type ExecSkipped,
   type ExecSuccess,
   type Logger,
+  type LogDestination,
+  type LogDirDestination,
+  type LogFileDestination,
+  type LogFileFormat,
   type LogLevel as MainLogLevel,
+  type LogRunInfo,
   type Output,
   type RunCommandOptions,
   type RunMainOptions,
@@ -438,8 +443,34 @@ describe("public logger API", () => {
       "trace" | "debug" | "info" | "warning" | "error" | "fatal"
     >();
     expectTypeOf<MainLogLevel>().toEqualTypeOf<LogLevel>();
+    expectTypeOf<LogFileFormat>().toEqualTypeOf<"jsonl" | "text">();
     expectTypeOf<RunCommandOptions["logLevel"]>().toEqualTypeOf<LogLevel | undefined>();
     expectTypeOf<RunMainOptions["logLevel"]>().toEqualTypeOf<LogLevel | undefined>();
+    expectTypeOf<RunCommandOptions["log"]>().toEqualTypeOf<
+      LogDestination | readonly LogDestination[] | undefined
+    >();
+    expectTypeOf<RunMainOptions["log"]>().toEqualTypeOf<
+      LogDestination | readonly LogDestination[] | undefined
+    >();
+    const fileDest: LogDestination = {
+      file: "app.log",
+      append: false,
+      format: "text",
+      level: "info",
+    };
+    const dirDest: LogDestination = {
+      dir: ".logs",
+      filename: (info: LogRunInfo) => `${info.category.join("-")}-${info.pid}.jsonl`,
+      format: "jsonl",
+      level: "debug",
+    };
+    expectTypeOf(fileDest).toMatchTypeOf<LogDestination>();
+    expectTypeOf(dirDest).toMatchTypeOf<LogDestination>();
+    expectTypeOf<LogFileDestination>().toMatchTypeOf<LogDestination>();
+    expectTypeOf<LogDirDestination>().toMatchTypeOf<LogDestination>();
+    // @ts-expect-error file and dir cannot be combined in one destination
+    const bothDest: LogDestination = { file: "app.log", dir: ".logs" };
+    void bothDest;
     expectTypeOf<LogKind>().toEqualTypeOf<"message" | "step" | "success">();
     expectTypeOf<HackshErrorKind>().toEqualTypeOf<
       "error" | "prompt" | "usage" | "validation" | "thrown"
