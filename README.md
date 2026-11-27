@@ -531,7 +531,7 @@ await runMain(deploy, {
 ```
 
 Each destination specifies either `file` (single file, `append` defaults to `true`) or `dir` (one
-file per run, with collision-avoiding `<timestamp>-<category>-<pid>.<ext>` filenames by default or a
+file per run, with collision-avoiding `<date>-<seconds>-<category>-<pid>.<ext>` filenames by default or a
 custom `filename` string/builder). `format` defaults to `"jsonl"` (one normalized `LogRecord` JSON
 object per line) and also supports ANSI-free `"text"`. Each destination has its own `level`
 threshold (defaulting to `"trace"`) and creates its file lazily on the first matching log record.
