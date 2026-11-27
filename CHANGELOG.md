@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/kentrino/hacksh/compare/v0.22.0...v0.23.0) (2026-11-27)
+
+
+### Features
+
+* **logger:** shorten default per-run log filenames ([#70](https://github.com/kentrino/hacksh/issues/70)) ([24f9a40](https://github.com/kentrino/hacksh/commit/24f9a403125cc51ab031b59cf6d04c2cebba5159))
+
 ## [0.22.0](https://github.com/kentrino/hacksh/compare/v0.21.0...v0.22.0) (2026-11-26)
 
 
