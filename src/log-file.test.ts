@@ -188,8 +188,8 @@ describe("file and directory log destinations", () => {
 
     const files = (await readdir(logDir)).sort();
     expect(files).toEqual([
-      `2026-11-27T01-56-00-123Z-mycli-deploy-${process.pid}-1.jsonl`,
-      `2026-11-27T01-56-00-123Z-mycli-deploy-${process.pid}.jsonl`,
+      `2026-11-27-06960-mycli-deploy-${process.pid}-1.jsonl`,
+      `2026-11-27-06960-mycli-deploy-${process.pid}.jsonl`,
     ]);
     for (const file of files) {
       const parsed = JSON.parse((await readFile(join(logDir, file), "utf8")).trim()) as LogRecord;
@@ -223,7 +223,7 @@ describe("file and directory log destinations", () => {
       ],
     });
 
-    expect(await readdir(textDir)).toEqual([`2026-11-27T01-56-00-000Z-build-${process.pid}.log`]);
+    expect(await readdir(textDir)).toEqual([`2026-11-27-06960-build-${process.pid}.log`]);
     expect(await readdir(customDir)).toEqual([`build-${process.pid}.custom.jsonl`]);
   });
 

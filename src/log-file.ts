@@ -35,7 +35,7 @@ export interface LogFileDestination extends LogDestinationBase {
 export interface LogDirDestination extends LogDestinationBase {
   /** Write logs to a per-invocation file inside this directory. */
   dir: string;
-  /** Custom filename (or builder) inside `dir`. Defaults to `<timestamp>-<category>-<pid>.<ext>`. */
+  /** Custom filename (or builder) inside `dir`. Defaults to `<date>-<seconds>-<category>-<pid>.<ext>`. */
   filename?: string | ((info: LogRunInfo) => string);
   file?: never;
   append?: never;
@@ -190,14 +190,16 @@ function defaultRunFilenameParts(
   info: LogRunInfo,
   format: LogFileFormat,
 ): { stem: string; ext: string } {
-  const timestamp = info.startedAt.toISOString().replace(/[:.]/g, "-");
+  const date = info.startedAt.toISOString().slice(0, 10);
+  const unixSeconds = Math.floor(info.startedAt.getTime() / 1000);
+  const secondsOfDay = String(((unixSeconds % 86400) + 86400) % 86400).padStart(5, "0");
   const category = info.category
     .map(sanitizeSegment)
     .filter((segment) => segment.length > 0)
     .join("-");
   const label = category || "run";
   const ext = format === "text" ? "log" : "jsonl";
-  return { stem: `${timestamp}-${label}-${info.pid}`, ext };
+  return { stem: `${date}-${secondsOfDay}-${label}-${info.pid}`, ext };
 }
 
 function safelyInspect(value: unknown): string {
